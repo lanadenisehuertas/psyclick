@@ -6,6 +6,9 @@ def extract_features(raw_data_list):
     Safely calculates Flight Time metrics.
     Returns: Dict with metrics OR None if insufficient data.
     """
+
+    if isinstance(raw_data_list, dict):
+        raw_data_list = raw_data_list.get('keys', [])
     # 1. Safety Check: Need at least 2 events to calculate intervals
     if not raw_data_list or len(raw_data_list) < 2:
         return None
@@ -42,3 +45,33 @@ def extract_features(raw_data_list):
         metrics['std_flight'] = 0.0
 
     return metrics
+
+def extract_mouse_features(mouse_data):
+    if len(mouse_data) < 5: return None
+    
+    df = pd.DataFrame(mouse_data)
+    dt = df['time'].diff().fillna(0)
+    dx = df['x'].diff().fillna(0)
+    dy = df['y'].diff().fillna(0)
+
+    # 1. Velocities (px/s)
+    hv = (dx / dt).replace([np.inf, -np.inf], 0).fillna(0)
+    vv = (dy / dt).replace([np.inf, -np.inf], 0).fillna(0)
+    tv = np.sqrt(hv**2 + vv**2)
+
+    # 2. Acceleration & Jerk (Derivatives of TV)
+    ta = (tv.diff() / dt).fillna(0)
+    jerk = (ta.diff() / dt).fillna(0)
+
+    # 3. Curvature
+    # C = |x'y'' - y'x''| / (x'^2 + y'^2)^(3/2)
+    ddx = (hv.diff() / dt).fillna(0)
+    ddy = (vv.diff() / dt).fillna(0)
+    numerator = np.abs(hv * ddy - vv * ddx)
+    denominator = np.power(tv, 3)
+    curvature = (numerator / denominator).replace([np.inf, -np.inf], 0).fillna(0)
+
+    return {
+        'hv': hv.mean(), 'vv': vv.mean(), 'tv': tv.mean(),
+        'ta': ta.mean(), 'jerk': jerk.mean(), 'curvature': curvature.mean()
+    }

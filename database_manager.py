@@ -1,68 +1,80 @@
 import sqlite3
-import os
 
 DB_NAME = "psyclick_data.db"
 
 def init_db():
-    """Initializes the SQLite database with the required tables."""
-    # Connect and ensure tables exist
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # 1. Users Table (Stores the Personal Baseline)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            student_id TEXT PRIMARY KEY,
-            baseline_mean_flight REAL,
-            baseline_std_flight REAL,
-            last_calibrated TEXT
-        )
-    ''')
-
-    # 2. Sessions Table (Stores Z-Scores & Flags)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS sessions (
+        CREATE TABLE IF NOT EXISTS intake_sessions (
             session_id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id TEXT,
-            mean_flight REAL,
-            z_score REAL,
-            is_anomaly BOOLEAN,
-            timestamp TEXT,
-            FOREIGN KEY(student_id) REFERENCES users(student_id)
+            timestamp TEXT DEFAULT (datetime('now')),
+            
+            -- 1. Keyboard Baseline (Motor Speed)
+            kbase_mean REAL, kbase_std REAL,
+            
+            -- 2. Mouse Baseline (Kinematics)
+            mbase_hv REAL, mbase_vv REAL, mbase_tv REAL, 
+            mbase_ta REAL, mbase_jerk REAL, mbase_curve REAL,
+            
+            -- 3. PHQ-9 Data
+            phq_score INTEGER,
+            phq_hv REAL, phq_vv REAL, phq_tv REAL, 
+            phq_ta REAL, phq_jerk REAL, phq_curve REAL,
+            
+            -- 4. GAD-7 Data
+            gad_score INTEGER,
+            gad_hv REAL, gad_vv REAL, gad_tv REAL, 
+            gad_ta REAL, gad_jerk REAL, gad_curve REAL,
+            
+            -- 5. Emotional Task Data
+            task_k_mean REAL, task_k_std REAL,
+            
+            -- 6. Final Analysis (Z-Scores)
+            k_z_score REAL,    -- Typing Speed Z-Score
+            m_z_score REAL     -- Mouse Agitation (Jerk) Z-Score
         )
     ''')
     
     conn.commit()
     conn.close()
-    print(f"Database {DB_NAME} ready.")
+    print(f"Database {DB_NAME} ready with Kinematic columns.")
 
-def save_user_baseline(student_id, mean, std):
-    """Saves or updates a user's baseline stats."""
+def save_full_intake(data):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
     cursor.execute('''
-        INSERT OR REPLACE INTO users (student_id, baseline_mean_flight, baseline_std_flight, last_calibrated)
-        VALUES (?, ?, ?, datetime('now'))
-    ''', (student_id, mean, std))
+        INSERT INTO intake_sessions (
+            student_id, 
+            kbase_mean, kbase_std,
+            mbase_hv, mbase_vv, mbase_tv, mbase_ta, mbase_jerk, mbase_curve,
+            phq_score, phq_hv, phq_vv, phq_tv, phq_ta, phq_jerk, phq_curve,
+            gad_score, gad_hv, gad_vv, gad_tv, gad_ta, gad_jerk, gad_curve,
+            task_k_mean, task_k_std,
+            k_z_score, m_z_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        data['student_id'],
+        data['kbase']['mean_flight'], data['kbase']['std_flight'],
+        
+        data['mbase']['hv'], data['mbase']['vv'], data['mbase']['tv'], 
+        data['mbase']['ta'], data['mbase']['jerk'], data['mbase']['curvature'],
+        
+        data['phq']['score'], 
+        data['phq']['mouse']['hv'], data['phq']['mouse']['vv'], data['phq']['mouse']['tv'], 
+        data['phq']['mouse']['ta'], data['phq']['mouse']['jerk'], data['phq']['mouse']['curvature'],
+        
+        data['gad']['score'], 
+        data['gad']['mouse']['hv'], data['gad']['mouse']['vv'], data['gad']['mouse']['tv'], 
+        data['gad']['mouse']['ta'], data['gad']['mouse']['jerk'], data['gad']['mouse']['curvature'],
+        
+        data['task']['mean_flight'], data['task']['std_flight'],
+        data['k_z_score'], data['m_z_score']
+    ))
+    
     conn.commit()
     conn.close()
-
-def get_user_baseline(student_id):
-    """Retrieves (mean, std) for a student. Returns None if not found."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT baseline_mean_flight, baseline_std_flight FROM users WHERE student_id=?", (student_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-def save_session(student_id, mean_flight, z_score, is_anomaly):
-    """Logs the session result."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO sessions (student_id, mean_flight, z_score, is_anomaly, timestamp)
-        VALUES (?, ?, ?, ?, datetime('now'))
-    ''', (student_id, mean_flight, z_score, is_anomaly))
-    conn.commit()
-    conn.close()
+    print(">> Intake Session (with Kinematics) Saved.")

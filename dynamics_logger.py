@@ -1,4 +1,4 @@
-from pynput import keyboard
+from pynput import keyboard, mouse
 import time
 
 class KeyLogger:
@@ -7,15 +7,11 @@ class KeyLogger:
         self.listener = None
 
     def on_press(self, key):
-        """Callback when a key is pressed."""
         try:
-            # Try getting the character (letters/numbers)
             k_char = key.char
         except AttributeError:
-            # Handle special keys (Space, Enter, Shift)
             k_char = str(key).replace("Key.", "")
         
-        # Log: [Key, Event, Timestamp]
         self.raw_data.append({
             'key': k_char, 
             'event': 'DOWN', 
@@ -23,17 +19,49 @@ class KeyLogger:
         })
 
     def start_logging(self):
-        """Starts the background listener."""
         self.raw_data = []
-        # Suppress errors implies non-blocking
         self.listener = keyboard.Listener(on_press=self.on_press)
         self.listener.start()
-        print(">> Logger Started (Background)...")
+        print(">> KeyLogger Started...")
 
     def stop_logging(self):
-        """Stops the listener and returns the data."""
         if self.listener:
             self.listener.stop()
             self.listener = None
-        print(f">> Logger Stopped. Captured {len(self.raw_data)} events.")
+        return self.raw_data
+
+class MouseLogger:
+    def __init__(self):
+        self.raw_data = []
+        self.listener = None
+
+    def on_move(self, x, y):
+        # Capture continuous movement for Velocity/Curvature calculations
+        self.raw_data.append({
+            'x': x,
+            'y': y,
+            'event': 'MOVE',
+            'time': time.perf_counter()
+        })
+
+    def on_click(self, x, y, button, pressed):
+        if pressed:
+            self.raw_data.append({
+                'x': x,
+                'y': y,
+                'event': 'CLICK',
+                'time': time.perf_counter()
+            })
+
+    def start_logging(self):
+        self.raw_data = []
+        # Listen to both Move and Click events
+        self.listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click)
+        self.listener.start()
+        print(">> MouseLogger Started (Tracking Path)...")
+
+    def stop_logging(self):
+        if self.listener:
+            self.listener.stop()
+            self.listener = None
         return self.raw_data
