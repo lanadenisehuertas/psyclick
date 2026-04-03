@@ -1,55 +1,48 @@
 """
-database_manager.py  —  PsyClick
-Stores one row per session.  EWMA state is NOT stored — it is in-memory only
-and discarded after the report is generated (single-session design).
-
-New columns added for the updated pipeline:
-    t2_score, t2_threshold, psi, pai, fuzzy_label, fuzzy_confidence,
-    flag, rationale
-Z-score columns are retained for backward compatibility with the Patients
-history view.
+database_manager.py — PsyClick v3
+Extended schema: per-question snapshots stored in question_snapshots table.
+Main sessions table retains all original columns for backward compatibility.
 """
-
-import sqlite3
-import math
+import sqlite3, math, json
 
 DB_NAME = "psyclick_data.db"
 
 
 def init_db():
-    conn   = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
+    conn = sqlite3.connect(DB_NAME)
+    c    = conn.cursor()
+
+    # ── Migration: add new columns to existing DB if they don't exist ─────────
+    def _add_col(table, col, coltype, default="NULL"):
+        try:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype} DEFAULT {default}")
+        except Exception:
+            pass  # Column already exists
+
+    # Ensure table exists first (will be created below if not)
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    if "intake_sessions" in tables:
+        _add_col("intake_sessions", "domain_t2_json",           "TEXT")
+        _add_col("intake_sessions", "question_snapshots_json",  "TEXT")
+        conn.commit()
+
+    # ── Main sessions table  ─────────────────────────
+    c.execute("""
         CREATE TABLE IF NOT EXISTS intake_sessions (
-            session_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id   TEXT,
-            timestamp    TEXT DEFAULT (datetime('now')),
-
-            -- Keyboard baseline (retained for reference)
+            session_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id       TEXT,
+            timestamp        TEXT DEFAULT (datetime('now')),
             kbase_mean REAL, kbase_std REAL,
-
-            -- Mouse baseline (retained for reference)
             mbase_hv REAL, mbase_vv REAL, mbase_tv REAL,
             mbase_ta REAL, mbase_jerk REAL, mbase_curve REAL,
-
-            -- PHQ-9
             phq_score INTEGER,
             phq_hv REAL, phq_vv REAL, phq_tv REAL,
             phq_ta REAL, phq_jerk REAL, phq_curve REAL,
-
-            -- GAD-7
             gad_score INTEGER,
             gad_hv REAL, gad_vv REAL, gad_tv REAL,
             gad_ta REAL, gad_jerk REAL, gad_curve REAL,
-
-            -- Emotional task raw
             task_k_mean REAL, task_k_std REAL,
-
-            -- Legacy Z-scores (kept for Patients history page)
-            k_z_score REAL,
-            m_z_score REAL,
-
-            -- NEW: Pipeline outputs
+            k_z_score REAL, m_z_score REAL,
             t2_score        REAL,
             t2_threshold    REAL,
             psi             REAL,
@@ -57,59 +50,84 @@ def init_db():
             fuzzy_label     TEXT,
             fuzzy_confidence REAL,
             flag            TEXT,
-            rationale       TEXT
+            rationale       TEXT,
+            domain_t2_json  TEXT,
+            question_snapshots_json TEXT
         )
     """)
+
+    # ── Per-question snapshots (one row per question per session) ─────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS question_snapshots (
+            snap_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id   INTEGER,
+            item_id      TEXT,
+            group_id     INTEGER,
+            level        TEXT,
+            domain_label TEXT,
+            t2_score     REAL,
+            psi          REAL,
+            pai          REAL,
+            flag         TEXT,
+            flight_time  REAL,
+            pause_freq   REAL,
+            response_len INTEGER,
+            hover_words_json TEXT,
+            FOREIGN KEY (session_id) REFERENCES intake_sessions(session_id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
 
 def _clean(val):
-    """Converts Nones and ALL types of NaNs (including Numpy) to 0.0"""
     if val is None:
         return 0.0
-    
     try:
-        # Forcing to float catches both standard Python NaNs and numpy.float64 NaNs
         if math.isnan(float(val)):
             return 0.0
     except (ValueError, TypeError):
-        # If the value is a string (like the patient ID or labels), leave it alone
         pass
-        
     return val
 
 
 def save_full_intake(data):
-    conn   = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+    conn = sqlite3.connect(DB_NAME)
+    c    = conn.cursor()
 
     ae = data.get("analysis", {}) or {}
 
-    # Pack all values into a list first
-    raw_values = [
+    raw = [
         data["student_id"],
-        data["kbase"]["mean_flight"], data["kbase"]["std_flight"],
-        data["mbase"]["hv"], data["mbase"]["vv"], data["mbase"]["tv"],
-        data["mbase"]["ta"], data["mbase"]["jerk"], data["mbase"]["curvature"],
-        data["phq"]["score"],
-        data["phq"]["mouse"]["hv"], data["phq"]["mouse"]["vv"],
-        data["phq"]["mouse"]["tv"], data["phq"]["mouse"]["ta"],
-        data["phq"]["mouse"]["jerk"], data["phq"]["mouse"]["curvature"],
-        data["gad"]["score"],
-        data["gad"]["mouse"]["hv"], data["gad"]["mouse"]["vv"],
-        data["gad"]["mouse"]["tv"], data["gad"]["mouse"]["ta"],
-        data["gad"]["mouse"]["jerk"], data["gad"]["mouse"]["curvature"],
-        data["task"]["mean_flight"], data["task"]["std_flight"],
+        data["kbase"].get("mean_flight", 0), data["kbase"].get("std_flight", 0),
+        data["mbase"].get("hv", 0), data["mbase"].get("vv", 0), data["mbase"].get("tv", 0),
+        data["mbase"].get("ta", 0), data["mbase"].get("jerk", 0), data["mbase"].get("curvature", 0),
+        data["phq"].get("score", 0),
+        data["phq"]["mouse"].get("hv", 0), data["phq"]["mouse"].get("vv", 0),
+        data["phq"]["mouse"].get("tv", 0), data["phq"]["mouse"].get("ta", 0),
+        data["phq"]["mouse"].get("jerk", 0), data["phq"]["mouse"].get("curvature", 0),
+        data["gad"].get("score", 0),
+        data["gad"]["mouse"].get("hv", 0), data["gad"]["mouse"].get("vv", 0),
+        data["gad"]["mouse"].get("tv", 0), data["gad"]["mouse"].get("ta", 0),
+        data["gad"]["mouse"].get("jerk", 0), data["gad"]["mouse"].get("curvature", 0),
+        data["task"].get("mean_flight", data["task"].get("flight_time", 0)),
+        data["task"].get("std_flight", 0),
         data.get("k_z_score", 0), data.get("m_z_score", 0),
-        ae.get("t2_score"), ae.get("t2_threshold"), ae.get("psi"), ae.get("pai"),
-        ae.get("label"), ae.get("confidence"), ae.get("flag"), ae.get("rationale")
+        ae.get("t2_score"), ae.get("t2_threshold"),
+        ae.get("psi"), ae.get("pai"),
+        ae.get("label"), ae.get("confidence"),
+        ae.get("flag"), ae.get("rationale"),
+        json.dumps(data.get("visuals", {}).get("domain_t2", {})),
+        json.dumps([
+            {k: v for k, v in s.items() if k not in ("raw_flights", "pause_coords")}
+            for s in data.get("visuals", {}).get("question_snapshots", [])
+        ]),
     ]
 
-    # Clean the list and convert to a tuple for SQLite
-    safe_values = tuple(_clean(v) for v in raw_values)
+    safe = tuple(_clean(v) for v in raw)
 
-    cursor.execute("""
+    c.execute("""
         INSERT INTO intake_sessions (
             student_id,
             kbase_mean, kbase_std,
@@ -119,11 +137,37 @@ def save_full_intake(data):
             task_k_mean, task_k_std,
             k_z_score, m_z_score,
             t2_score, t2_threshold, psi, pai,
-            fuzzy_label, fuzzy_confidence, flag, rationale
-        ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        )
-    """, safe_values)
-    
+            fuzzy_label, fuzzy_confidence, flag, rationale,
+            domain_t2_json, question_snapshots_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, safe)
+
+    session_id = c.lastrowid
+
+    # Insert per-question snapshots
+    for snap in data.get("visuals", {}).get("question_snapshots", []):
+        c.execute("""
+            INSERT INTO question_snapshots
+              (session_id, item_id, group_id, level, domain_label,
+               t2_score, psi, pai, flag, flight_time, pause_freq,
+               response_len, hover_words_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            session_id,
+            snap.get("item_id", "?"),
+            snap.get("group_id", 0),
+            snap.get("level", "A"),
+            snap.get("domain_label", ""),
+            _clean(snap.get("t2_score", 0)),
+            _clean(snap.get("psi", 0)),
+            _clean(snap.get("pai", 0)),
+            snap.get("flag", "GREEN"),
+            _clean(snap.get("flight_time", 0)),
+            _clean(snap.get("pause_freq", 0)),
+            snap.get("response_len", 0),
+            json.dumps(snap.get("hover_words", [])),
+        ))
+
     conn.commit()
     conn.close()
+    return session_id
