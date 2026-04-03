@@ -3,7 +3,7 @@ dynamics_logger.py  —  PsyClick
 Stage 0 (HAL) lives here: every raw timestamp is corrected before
 it leaves this module.  Nothing downstream sees un-normalised times.
 
-HAL sub-algorithms (Cervin et al., 2004 / Killourhy & Maxion, 2009):
+HAL sub-algorithms :
   1. Jitter Compensation   : t_norm = t_raw - (t_raw mod P_target) + delta_latency
   2. Polling-Rate Normalise: auto-detect via platform; align to 1 ms grid
   3. Device Classification : mechanical vs membrane debounce correction
