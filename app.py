@@ -691,7 +691,7 @@ class DashboardPage(ctk.CTkFrame):
                               fg_color=tc, text_color="white",
                               corner_radius=10, width=140, height=22
                               ).pack(side="left", padx=4)
-                ctk.CTkLabel(row, text=summary[:40], font=("Inter",11),
+                ctk.CTkLabel(row, text=summary, font=("Inter",11),
                               text_color=scol, width=240, anchor="w"
                               ).pack(side="left", padx=4)
                 ctk.CTkButton(row, text="View →", width=80, height=26,
@@ -1974,37 +1974,128 @@ class PatientsPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG)
         self.controller = controller
+        self._all_rows  = []
         make_sidebar(self, controller, "Patient History")
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(side="right", fill="both", expand=True, padx=40, pady=30)
-        ctk.CTkLabel(main, text="Patient Sessions", font=("Poppins",26,"bold"),
-                      text_color=TMAIN).pack(anchor="w", pady=(0,16))
+      
+         # ── Header row ────────────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(main, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0,14))
+        ctk.CTkLabel(hdr, text="Patient Sessions", font=("Poppins",26,"bold"),
+                      text_color=TMAIN).pack(side="left")
+
+        sort_row = ctk.CTkFrame(hdr, fg_color="transparent")
+        sort_row.pack(side="right")
+        ctk.CTkLabel(sort_row, text="Sort by:", font=("Inter",13),
+                      text_color=TSUB).pack(side="left", padx=(0,6))
+        self._sort_var = tk.StringVar(value="Date (Newest)")
+        ctk.CTkOptionMenu(
+            sort_row,
+            values=["Date (Newest)", "Date (Oldest)",
+                    "Flag (Risk First)"],
+            variable=self._sort_var,
+            width=178, height=34,
+            fg_color=CARD, button_color=ACCENT, button_hover_color=ADARK,
+            text_color=TMAIN, dropdown_fg_color=CARD, dropdown_text_color=TMAIN,
+            font=("Inter",13),
+            command=lambda _: self._apply_filter()
+        ).pack(side="left")
+
+        # ── Search bar ────────────────────────────────────────────────────────
+        sb = ctk.CTkFrame(main, fg_color=CARD, corner_radius=10,
+                           border_width=1, border_color=BORDER)
+        sb.pack(fill="x", pady=(0,14))
+        ctk.CTkLabel(sb, text="🔍", font=("Inter",14),
+                      text_color=TSUB).pack(side="left", padx=(12,4), pady=8)
+        self._search_var = tk.StringVar()
+        self._search_var.trace_add("write", lambda *_: self._apply_filter())
+        self._search_entry = ctk.CTkEntry(
+            sb, textvariable=self._search_var,
+            placeholder_text="Search by patient ID, date, or flag…",
+            border_width=0, fg_color="transparent",
+            text_color=TMAIN, placeholder_text_color=TSUB,
+            font=("Inter",13)
+        )
+        self._search_entry.pack(side="left", fill="x", expand=True, pady=6)
+        ctk.CTkButton(
+            sb, text="✕", width=28, height=28,
+            fg_color="transparent", hover_color=BORDER,
+            text_color=TSUB, font=("Inter",12,"bold"), corner_radius=14,
+            command=self._clear_search
+        ).pack(side="right", padx=6)
+
+        # ── Patient list ──────────────────────────────────────────────────────
+
         self.sf = ctk.CTkScrollableFrame(main, fg_color="transparent")
         self.sf.pack(fill="both", expand=True)
 
-    def refresh_list(self):
+    def _clear_search(self):
+        self._search_var.set("")
+        self._search_entry.focus()
+
+    def _apply_filter(self):
+        query = self._search_var.get().strip().lower()
+        sort  = self._sort_var.get()
+        rows  = self._all_rows
+
+        if query:
+            rows = [r for r in rows
+                    if query in str(r[1]).lower()        # patient ID
+                    or query in str(r[2]).lower()        # timestamp
+                    or query in str(r[3] or "").lower()] # flag
+
+        FLAG_ORDER = {"RED": 0, "AMBER": 1, "GREEN": 2}
+        if sort == "Date (Newest)":
+            rows = sorted(rows, key=lambda r: r[2] or "", reverse=True)
+        elif sort == "Date (Oldest)":
+            rows = sorted(rows, key=lambda r: r[2] or "")
+        elif sort == "Flag (Risk First)":
+            rows = sorted(rows, key=lambda r: FLAG_ORDER.get(r[3], 9))
+        
+
+        self._render_rows(rows)
+
+    def _render_rows(self, rows):
         for w in self.sf.winfo_children(): w.destroy()
+        if not rows:
+            msg = ("No patients match your search." if self._search_var.get()
+                   else "No patient sessions recorded yet.")
+            ctk.CTkLabel(self.sf, text=msg, font=("Inter",14),
+                          text_color=TSUB).pack(pady=60)
+            return
+        for sid, pid, ts, flag, phq, gad in rows:
+            self._card(sid, pid, ts, flag, phq or 0, gad or 0)
+
+    def refresh_list(self):
         try:
-            conn=sqlite3.connect("psyclick_data.db"); c=conn.cursor()
-            c.execute("SELECT session_id,student_id,timestamp,flag,phq_score,gad_score FROM intake_sessions ORDER BY timestamp DESC")
-            rows=c.fetchall(); conn.close()
-            for sid,pid,ts,flag,phq,gad in rows: self._card(sid,pid,ts,flag,phq or 0,gad or 0)
-        except Exception: pass
+            conn = sqlite3.connect("psyclick_data.db"); c = conn.cursor()
+            c.execute("""SELECT session_id,student_id,timestamp,flag,phq_score,gad_score
+                         FROM intake_sessions ORDER BY timestamp DESC""")
+            self._all_rows = c.fetchall(); conn.close()
+        except Exception:
+            self._all_rows = []
+        self._apply_filter()
 
     def _card(self, sid, pid, ts, flag, phq, gad):
-        _,_,tc,bc,_=flag_ui(flag or "GREEN")
-        card=ctk.CTkFrame(self.sf,fg_color=CARD,corner_radius=13,border_width=1,border_color=BORDER)
-        card.pack(fill="x",pady=5)
-        ctk.CTkLabel(card,text=f"Patient: {pid}",font=("Inter",14,"bold"),
-                      text_color=TMAIN).pack(side="left",padx=18,pady=16)
-        ctk.CTkLabel(card,text=str(ts)[:16],font=("Inter",12),text_color=TSUB).pack(side="left",padx=10)
-        ctk.CTkLabel(card,text=f"PHQ-9: {phq}  GAD-7: {gad}",font=("Inter",12),
-                      text_color=TSUB).pack(side="left",padx=10)
-        ctk.CTkLabel(card,text=flag or "—",font=("Inter",12,"bold"),fg_color=tc,text_color="white",
-                      corner_radius=12,width=72,height=26).pack(side="left",padx=10)
-        ctk.CTkButton(card,text="View Report →",width=130,height=36,corner_radius=18,
-                       fg_color="#F8FAFC",text_color=BLUE_C,border_color=BORDER,border_width=1,
-                       command=lambda s=sid:self.controller.open_patient_detail(s)).pack(side="right",padx=18)
+        _, _, tc, bc, _ = flag_ui(flag or "GREEN")
+        card = ctk.CTkFrame(self.sf, fg_color=CARD, corner_radius=13,
+                             border_width=1, border_color=BORDER)
+        card.pack(fill="x", pady=5)
+        ctk.CTkLabel(card, text=f"Patient: {pid}", font=("Inter",14,"bold"),
+                      text_color=TMAIN).pack(side="left", padx=18, pady=16)
+        ctk.CTkLabel(card, text=str(ts)[:16], font=("Inter",12),
+                      text_color=TSUB).pack(side="left", padx=10)
+        ctk.CTkLabel(card, text=f"PHQ-9: {phq}  GAD-7: {gad}", font=("Inter",12),
+                      text_color=TSUB).pack(side="left", padx=10)
+        ctk.CTkLabel(card, text=flag or "—", font=("Inter",12,"bold"),
+                      fg_color=tc, text_color="white",
+                      corner_radius=12, width=72, height=26).pack(side="left", padx=10)
+        ctk.CTkButton(card, text="View Report →", width=130, height=36, corner_radius=18,
+                       fg_color="#F8FAFC", text_color=BLUE_C,
+                       border_color=BORDER, border_width=1,
+                       command=lambda s=sid: self.controller.open_patient_detail(s)
+                       ).pack(side="right", padx=18)
 
 
 class PatientDetailPage(ReportPage):
