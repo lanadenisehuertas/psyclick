@@ -1328,9 +1328,27 @@ class ReportPage(ctk.CTkFrame):
                       font=("Poppins",14,"bold"), text_color=TMAIN).pack(anchor="w", padx=18, pady=(14,0))
         ctk.CTkLabel(hm, text="Each node = one question. Size = pre-typing reading latency (how long before first keypress). Label = top hover word.",
                       font=("Inter",12), text_color=TSUB).pack(anchor="w", padx=18)
-        self.hm_cv = tk.Canvas(hm, height=220, bg="#FFFFFF",
+        self.hm_cv = tk.Canvas(hm, height=380, bg="#FFFFFF",
                                 highlightthickness=1, highlightbackground=BORDER)
         self.hm_cv.pack(fill="both", padx=18, pady=10)
+
+        # Heatmap state
+        self._hm_zoom     = 1.0
+        self._hm_pan_ms   = 0.0
+        self._hm_nodes    = []
+        self._hm_tip_ids  = []
+        self._hm_last     = None
+        self._hm_x_max_ms = 3000.0
+        # Heatmap bindings
+        self.hm_cv.bind("<Configure>",     self._hm_on_resize)
+        self.hm_cv.bind("<MouseWheel>",    self._hm_on_scroll)
+        self.hm_cv.bind("<Button-4>",      self._hm_on_scroll)
+        self.hm_cv.bind("<Button-5>",      self._hm_on_scroll)
+        self.hm_cv.bind("<ButtonPress-1>", self._hm_on_drag_start)
+        self.hm_cv.bind("<B1-Motion>",     self._hm_on_drag)
+        self.hm_cv.bind("<Motion>",        self._hm_on_motion)
+
+
         self.hm_lbl = ctk.CTkLabel(hm, text="Pending…", font=("Inter",12),
                                     corner_radius=8, height=34, wraplength=380)
         self.hm_lbl.pack(fill="x", padx=18, pady=(0,14))
@@ -1341,8 +1359,17 @@ class ReportPage(ctk.CTkFrame):
                       font=("Poppins",14,"bold"), text_color=TMAIN).pack(anchor="w", padx=18, pady=(14,0))
         ctk.CTkLabel(sp, text="Each bar = one keystroke interval (ms). Consistent = smooth. Erratic = agitation.",
                       font=("Inter",12), text_color=TSUB).pack(anchor="w", padx=18)
-        self.sp_cv = tk.Canvas(sp, height=220, bg="#FFFFFF", highlightthickness=0)
+        self.sp_cv = tk.Canvas(sp, height=300, bg="#FFFFFF", highlightthickness=0)
         self.sp_cv.pack(fill="both", padx=18, pady=10)
+
+        # Spectrogram state
+        self._sp_bars    = []
+        self._sp_tip_ids = []
+        self._sp_last    = None
+        # Spectrogram bindings
+        self.sp_cv.bind("<Configure>", self._sp_on_resize)
+        self.sp_cv.bind("<Motion>",    self._sp_on_motion)
+
         self.sp_lbl = ctk.CTkLabel(sp, text="Pending…", font=("Inter",12),
                                     corner_radius=8, height=34, wraplength=380)
         self.sp_lbl.pack(fill="x", padx=18, pady=(0,14))
@@ -1362,6 +1389,7 @@ class ReportPage(ctk.CTkFrame):
                           width=w, anchor="w").pack(side="left", padx=3, pady=6)
         self.q_table = ctk.CTkScrollableFrame(qc, fg_color="transparent", height=180)
         self.q_table.pack(fill="x", padx=18, pady=(0,12))
+        self.q_table.after(100, lambda: self._isolate_scroll(self.q_table))
 
         # Row 5: Domain chart
         dm = ctk.CTkFrame(scroll, fg_color=CARD, corner_radius=14, border_width=1, border_color=BORDER)
@@ -1476,64 +1504,387 @@ class ReportPage(ctk.CTkFrame):
         c.create_text(75,90,text="Confidence",font=("Arial",10),fill=TSUB)
 
     def _heatmap(self, snapshots, pause_coords, flag):
-        c=self.hm_cv; c.delete("all"); W,H=450,220
-        for i in range(12): c.create_line(i*40,0,i*40,H,fill="#F1F5F9")
-        for i in range(6):  c.create_line(0,i*40,W,i*40,fill="#F1F5F9")
-        if snapshots:
-            for i,snap in enumerate(snapshots[:12]):
-                gid=snap.get("group_id",1); pf=min(snap.get("pre_typing_pause_ms",0)/3000.0, 1.0)
-                iid=snap.get("item_id","?"); col=GROUP_COLORS.get(gid,"#888")
-                hover=snap.get("hover_words",[])
-                x=38+i*34; y=44+(gid-1)*40; r=max(9,min(22,int(pf*18)+9))
-                c.create_oval(x-r-3,y-r-3,x+r+3,y+r+3,fill=_blend(col,0.12),outline="")
-                c.create_oval(x-r,y-r,x+r,y+r,fill=_blend(col,0.55),outline=col,width=1.5)
-                c.create_text(x,y,text=iid,font=("Arial",8,"bold"),fill=col)
-                if hover and i < 7:
-                    w=hover[0].get("word",""); dw=hover[0].get("dwell_ms",0)
-                    if w and len(w)>2:
-                        bx1,by1=x-32,y-r-28; bx2,by2=x+32,y-r-8
-                        c.create_rectangle(bx1,by1,bx2,by2,fill="white",outline=col,width=1)
-                        c.create_text((bx1+bx2)//2,(by1+by2)//2,text=f'"{w}"',
-                                      font=("Arial",8,"bold"),fill=col)
-                        c.create_text(x,y+r+12,text=f"{dw:.0f}ms",font=("Arial",7),fill=col)
-            self.hm_lbl.configure(
-                text="Analysis: Node size = reading latency before typing (larger = longer cognitive approach time). "
-                     "Labeled words are direct therapeutic interview entry points.",
-                fg_color="#FEE2E2" if flag!="GREEN" else "#D1FAE5",
-                text_color=RED_C if flag!="GREEN" else "#065F46")
-        else:
-            c.create_text(W//2,H//2,text="(No significant pause events detected.)",
-                          fill=TSUB,font=("Arial",11,"italic"))
+        c = self.hm_cv
+        c.delete("all")
+        self._hm_last  = (snapshots, pause_coords, flag)
+        self._hm_nodes = []
+
+        W = max(c.winfo_width(), 600)
+        H = max(c.winfo_height(), 380)
+        ML, MR, MT, MB = 80, 24, 30, 52
+        plot_w = W - ML - MR
+        plot_h = H - MT - MB
+
+        if not snapshots:
+            c.create_text(W // 2, H // 2, text="(No significant pause events detected.)",
+                          fill=TSUB, font=("Arial", 11, "italic"))
+
+
             self.hm_lbl.configure(text="Smooth cursor trajectories consistent with baseline.",
-                                   fg_color="#D1FAE5",text_color="#065F46")
+                                    fg_color="#D1FAE5", text_color="#065F46")
+            return
+
+        # ── X axis range ─────────────────────────────────────────────────────
+        all_pauses = [s.get("pre_typing_pause_ms", 0) for s in snapshots]
+        x_max_ms   = max(max(all_pauses) * 1.15, 1500.0)
+        self._hm_x_max_ms = x_max_ms
+
+        zoom      = self._hm_zoom
+        pan_ms    = max(0.0, min(self._hm_pan_ms, x_max_ms - x_max_ms / zoom))
+        self._hm_pan_ms  = pan_ms
+        visible_ms = x_max_ms / zoom
+
+        def ms_to_px(ms):
+            return ML + (ms - pan_ms) / visible_ms * plot_w
+
+        # ── Y axis: 4 domain bands ────────────────────────────────────────────
+        band_h = plot_h / 4
+        domain_names = {1: "Time/Workload", 2: "Interpersonal",
+                        3: "Academic",      4: "Self-Eval"}
+        for gid in range(1, 5):
+            cy  = MT + (gid - 0.5) * band_h
+            col = GROUP_COLORS.get(gid, "#888")
+            bg  = GROUP_BG.get(gid, "#F8FAFC")
+            c.create_rectangle(ML, MT + (gid - 1) * band_h,
+                                W - MR, MT + gid * band_h,
+                                fill=bg, outline="")
+            # Faint band separator
+            c.create_line(ML, MT + gid * band_h, W - MR, MT + gid * band_h,
+                          fill=BORDER, width=1, dash=(4, 4))
+            # Y label
+            c.create_text(ML - 6, cy, text=domain_names[gid],
+                          font=("Arial", 9, "bold"), fill=col, anchor="e")
+
+        # Y axis spine
+        c.create_line(ML, MT, ML, H - MB, fill=BORDER, width=1)
+
+        # ── X axis ticks & grid ───────────────────────────────────────────────
+        if   visible_ms > 8000: tick_ms = 2000
+        elif visible_ms > 4000: tick_ms = 1000
+        elif visible_ms > 2000: tick_ms =  500
+        elif visible_ms > 1000: tick_ms =  250
+        else:                   tick_ms =  100
+
+        c.create_line(ML, H - MB, W - MR, H - MB, fill=BORDER, width=1)
+        c.create_text(ML + plot_w // 2, H - 12,
+                      text="Pre-typing pause — time from Question Shown → first keypress",
+                      font=("Arial", 8), fill=TSUB)
+
+        t = int(pan_ms / tick_ms) * tick_ms
+        while t <= pan_ms + visible_ms:
+            px = ms_to_px(t)
+            if ML <= px <= W - MR:
+                c.create_line(px, MT, px, H - MB, fill="#F1F5F9", width=1)
+                c.create_line(px, H - MB, px, H - MB + 5, fill=BORDER, width=1)
+                lbl = f"{t / 1000:.1f}s" if t >= 1000 else f"{int(t)}ms"
+                c.create_text(px, H - MB + 16, text=lbl, font=("Arial", 8), fill=TSUB)
+            t += tick_ms
+
+        # ── Draw nodes ────────────────────────────────────────────────────────
+        for snap in snapshots[:12]:
+            gid      = snap.get("group_id", 1)
+            pause_ms = snap.get("pre_typing_pause_ms", 0)
+            iid      = snap.get("item_id", "?")
+            col      = GROUP_COLORS.get(gid, "#888")
+            hover    = snap.get("hover_words", [])
+
+            cx = ms_to_px(pause_ms)
+            cy = MT + (gid - 0.5) * band_h
+
+            pf = min(pause_ms / x_max_ms, 1.0)
+            r  = max(14, min(32, int(pf * 22) + 14))
+
+            # Clip nodes fully outside plot area (allow partial for edge nodes)
+            if cx < ML - r - 2 or cx > W - MR + r + 2:
+                continue
+
+            # Glow + main node
+            c.create_oval(cx - r - 4, cy - r - 4, cx + r + 4, cy + r + 4,
+                          fill=_blend(col, 0.10), outline="")
+            c.create_oval(cx - r, cy - r, cx + r, cy + r,
+                          fill=_blend(col, 0.55), outline=col, width=2)
+            c.create_text(cx, cy, text=iid, font=("Arial", 9, "bold"), fill=col)
+
+            # Store for hit-testing in tooltip handler
+            self._hm_nodes.append((cx, cy, r, snap))
+
+            # Top-3 hover word chips stacked above node
+            top3     = [h for h in hover[:3] if len(h.get("word", "")) > 2]
+            chip_h   = 18
+            chip_gap = 3
+            total_ch = len(top3) * (chip_h + chip_gap)
+            chip_y0  = cy - r - 8 - total_ch
+
+            for j, hw in enumerate(top3):
+                word    = hw.get("word", "")
+                chip_y  = chip_y0 + j * (chip_h + chip_gap)
+                chip_w  = max(44, len(word) * 6 + 18)
+                chip_x1 = cx - chip_w // 2
+                chip_x2 = cx + chip_w // 2
+                if chip_y > MT:
+                    outline_c = col if j == 0 else _blend(col, 0.55)
+                    weight    = "bold" if j == 0 else "normal"
+                    c.create_rectangle(chip_x1, chip_y, chip_x2, chip_y + chip_h,
+                                       fill="white", outline=outline_c, width=1)
+                    c.create_text((chip_x1 + chip_x2) // 2, chip_y + chip_h // 2,
+                                  text=f'"{word}"',
+                                  font=("Arial", 7, weight), fill=outline_c)
+
+            # Dwell time of top word below node
+            if top3:
+                dwell = top3[0].get("dwell_ms", 0)
+                c.create_text(cx, cy + r + 14, text=f"{dwell:.0f}ms",
+                              font=("Arial", 8), fill=TSUB)
+
+        self.hm_lbl.configure(
+            text="Node size = reading latency (larger = longer). "
+                 "Chips = top 3 hover words by dwell time. "
+                 "Scroll to zoom · Drag to pan.",
+            fg_color="#FEE2E2" if flag != "GREEN" else "#D1FAE5",
+            text_color=RED_C if flag != "GREEN" else "#065F46")
+
+      # ── Heatmap event handlers ────────────────────────────────────────────────
+
+    def _hm_on_resize(self, event=None):
+        if hasattr(self, "_hm_resize_job"):
+            self.hm_cv.after_cancel(self._hm_resize_job)
+        self._hm_resize_job = self.hm_cv.after(60, self._hm_redraw)
+
+    def _hm_redraw(self):
+        if self._hm_last:
+            self._heatmap(*self._hm_last)
+
+    def _hm_on_scroll(self, event):
+        if not self._hm_last:
+            return "break" # "break" prevents the event reaching the outer CTkScrollableFrame's bind_all handler
+        if hasattr(event, "delta") and event.delta != 0:
+            direction = 1 if event.delta > 0 else -1
+        elif event.num == 4:
+            direction = 1
+        else:
+            direction = -1
+
+        old_zoom   = self._hm_zoom
+        new_zoom   = max(0.5, min(8.0, old_zoom * (1.15 if direction > 0 else 1 / 1.15)))
+        x_max_ms   = self._hm_x_max_ms
+        pan_ms     = self._hm_pan_ms
+        W          = max(self.hm_cv.winfo_width(), 600)
+        ML, MR     = 80, 24
+        plot_w     = W - ML - MR
+        old_vis    = x_max_ms / old_zoom
+        new_vis    = x_max_ms / new_zoom
+        frac       = max(0.0, min(1.0, (event.x - ML) / plot_w))
+        new_pan    = pan_ms + frac * (old_vis - new_vis)
+        self._hm_zoom   = new_zoom
+        self._hm_pan_ms = max(0.0, min(new_pan, x_max_ms - new_vis))
+        self._heatmap(*self._hm_last)
+        return "break"
+
+    def _hm_on_drag_start(self, event):
+        self._hm_drag_x = event.x
+
+    def _hm_on_drag(self, event):
+        if not self._hm_last or not hasattr(self, "_hm_drag_x"):
+            return
+        dx_px      = event.x - self._hm_drag_x
+        self._hm_drag_x = event.x
+        W          = max(self.hm_cv.winfo_width(), 600)
+        ML, MR     = 80, 24
+        plot_w     = W - ML - MR
+        visible_ms = self._hm_x_max_ms / self._hm_zoom
+        delta_ms   = -dx_px / plot_w * visible_ms
+        old_pan    = self._hm_pan_ms
+        self._hm_pan_ms = max(0.0, min(old_pan + delta_ms,
+                                        self._hm_x_max_ms - visible_ms))
+        self._heatmap(*self._hm_last)
+
+    def _hm_on_motion(self, event):
+        # Clear any existing tooltip
+        for tid in self._hm_tip_ids:
+            self.hm_cv.delete(tid)
+        self._hm_tip_ids = []
+        # Hit-test nodes
+        for (cx, cy, r, snap) in self._hm_nodes:
+            if ((event.x - cx) ** 2 + (event.y - cy) ** 2) ** 0.5 <= r + 6:
+                self._hm_show_tooltip(event.x, event.y, snap)
+                return
+
+    def _hm_show_tooltip(self, mx, my, snap):
+        c     = self.hm_cv
+        hover = snap.get("hover_words", [])
+        top   = hover[0] if hover else None
+        total_dwell  = sum(h.get("dwell_ms", 0) for h in hover)
+        hover_count  = top.get("hover_count", 0) if top else 0
+        top_word     = top.get("word", "—") if top else "—"
+        lines = [
+            f"Word:        {top_word}",
+            f"Dwell:       {total_dwell:.0f} ms",
+            f"Hover count: {hover_count}",
+        ]
+        pad    = 10
+        line_h = 17
+        tip_w  = 170
+        tip_h  = pad * 2 + line_h * len(lines)
+        W      = max(c.winfo_width(), 600)
+        H      = max(c.winfo_height(), 380)
+        tx = mx + 16
+        ty = my - tip_h // 2
+        if tx + tip_w > W - 8:  tx = mx - tip_w - 10
+        if ty < 4:               ty = 4
+        if ty + tip_h > H - 4:  ty = H - tip_h - 4
+        ids = []
+        ids.append(c.create_rectangle(tx, ty, tx + tip_w, ty + tip_h,
+                                       fill="white", outline=BORDER, width=1))
+        for k, line in enumerate(lines):
+            ids.append(c.create_text(tx + pad, ty + pad + k * line_h,
+                                      text=line, anchor="nw",
+                                      font=("Arial", 9), fill=TMAIN))
+        self._hm_tip_ids = ids
+
+
+
+
 
     def _spectrogram(self, ft, flag, pai):
-        c=self.sp_cv; c.delete("all"); W,H=450,220
-        c.create_line(38,18,38,H-18,fill=BORDER,width=1)
-        c.create_line(38,H-18,W-18,H-18,fill=BORDER,width=1)
-        c.create_text(22,H//2,text="ms",fill=TSUB,font=("Arial",9))
-        bw,gap,x=18,8,54; color="#F97316" if flag in("AMBER","RED") else GREEN
+        c = self.sp_cv
+        c.delete("all")
+        self._sp_last = (ft, flag, pai)
+        self._sp_bars = []
+
+        W = max(c.winfo_width(), 600)
+        H = max(c.winfo_height(), 300)
+        ML, MR, MT, MB = 52, 20, 18, 42
+        plot_w = W - ML - MR
+        plot_h = H - MT - MB
+
+        # Axes
+        c.create_line(ML, MT, ML, H - MB, fill=BORDER, width=1)
+        c.create_line(ML, H - MB, W - MR, H - MB, fill=BORDER, width=1)
+        c.create_text(ML + plot_w // 2, H - 12,
+                      text="Keystroke interval sequence", font=("Arial", 8), fill=TSUB)
+
+        color = "#F97316" if flag in ("AMBER", "RED") else GREEN
         if ft:
-            times=[t*1000 for t in ft[-14:]]; mx=max(times) if times else 1
-            for i,t in enumerate(times):
-                h=max(8,int((t/mx)*(H-44)))
-                c.create_rectangle(x,H-18-h,x+bw,H-18,fill=color,outline="")
-                c.create_text(x+bw//2,H-10,text=str(i+1),fill=TSUB,font=("Arial",7))
-                x+=bw+gap
+            times=[t*1000 for t in ft[-14:]];
         else:
-            for i in range(12):
-                h=(random.randint(40,160) if flag=="RED" else random.randint(70,130) if flag=="AMBER" else random.randint(88,112))
-                c.create_rectangle(x,H-18-h,x+bw,H-18,fill=color,outline="")
-                c.create_text(x+bw//2,H-10,text=str(i+1),fill=TSUB,font=("Arial",7))
-                x+=bw+gap
-        if flag in("AMBER","RED"):
+            if flag == "RED":
+                times = [random.randint(40, 160) for _ in range(12)]
+            elif flag == "AMBER":
+                times = [random.randint(70, 130) for _ in range(12)]
+            else:
+                times = [random.randint(88, 112) for _ in range(12)]
+
+        if not times:
+            return
+
+        n  = len(times)
+        mx = max(times)
+
+        # Dynamic bar width fills available horizontal space
+        gap = max(4, plot_w // max(n * 6, 1))
+        bw  = max(14, (plot_w - gap * (n - 1)) // n)
+        total_needed = bw * n + gap * (n - 1)
+        start_x = ML + (plot_w - total_needed) // 2
+
+        # Y axis ticks at 25 / 50 / 75 / 100% of max
+        for frac in (0.25, 0.5, 0.75, 1.0):
+            val = mx * frac
+            ty  = H - MB - int(frac * plot_h)
+            c.create_line(ML - 4, ty, ML, ty, fill=BORDER, width=1)
+            c.create_line(ML, ty, W - MR, ty, fill="#F8FAFC", width=1)
+            c.create_text(ML - 6, ty, text=f"{val:.0f}",
+                          font=("Arial", 7), fill=TSUB, anchor="e")
+
+        # Y axis label
+        c.create_text(12, MT + plot_h // 2, text="ms",
+                      font=("Arial", 9), fill=TSUB, angle=90)
+
+        for i, t in enumerate(times):
+            bh = max(4, int(t / mx * plot_h))
+            x1 = start_x + i * (bw + gap)
+            y1 = H - MB - bh
+            x2 = x1 + bw
+            y2 = H - MB
+            c.create_rectangle(x1, y1, x2, y2, fill=color, outline="")
+            c.create_text(x1 + bw // 2, H - MB + 14,
+                          text=str(i + 1), fill=TSUB, font=("Arial", 7))
+            self._sp_bars.append((x1, y1, x2, y2, t))
+
+        if flag in ("AMBER", "RED"):
             self.sp_lbl.configure(
                 text=f"Erratic intervals detected. Deviation: +{int(pai*45)}% above baseline. "
                      "Pattern consistent with anxiety-driven keystroke irregularity.",
                 fg_color="#FEF3C7",text_color=AMBER)
         else:
-            self.sp_lbl.configure(text="Consistent keystroke rhythm within normal baseline boundaries.",
-                                   fg_color="#D1FAE5",text_color="#065F46")
+                       self.sp_lbl.configure(
+                text="Consistent keystroke rhythm within normal baseline boundaries.",
+                fg_color="#D1FAE5", text_color="#065F46")
+
+
+    # ── Scroll isolation ──────────────────────────────────────────────────────
+
+    def _isolate_scroll(self, frame):
+        """
+        Bind widget-level scroll handlers on a CTkScrollableFrame's internal
+        canvas so that scrolling inside it never propagates to the outer page
+        scroll frame (whose bind_all handler runs at a lower priority level).
+        """
+        def _find_canvas(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, tk.Canvas):
+                    return child
+                result = _find_canvas(child)
+                if result:
+                    return result
+            return None
+
+        cv = _find_canvas(frame)
+        if cv is None:
+            return
+
+        def _scroll(delta):
+            cv.yview_scroll(delta, "units")
+            return "break"
+
+        # Widget-level bindings take priority over bind_all; "break" stops the
+        # outer CTkScrollableFrame's bind_all handler from also running.
+        cv.bind("<MouseWheel>", lambda e: _scroll(int(-1 * (e.delta / 120))))
+        cv.bind("<Button-4>",   lambda e: _scroll(-1))
+        cv.bind("<Button-5>",   lambda e: _scroll(1))
+    # ── Spectrogram event handlers ────────────────────────────────────────────
+
+    def _sp_on_resize(self, event=None):
+        if hasattr(self, "_sp_resize_job"):
+            self.sp_cv.after_cancel(self._sp_resize_job)
+        self._sp_resize_job = self.sp_cv.after(60, self._sp_redraw)
+
+    def _sp_redraw(self):
+        if self._sp_last:
+            self._spectrogram(*self._sp_last)
+
+    def _sp_on_motion(self, event):
+        for tid in self._sp_tip_ids:
+            self.sp_cv.delete(tid)
+        self._sp_tip_ids = []
+        for (x1, y1, x2, y2, val_ms) in self._sp_bars:
+            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                c  = self.sp_cv
+                W  = max(c.winfo_width(), 600)
+                tx = event.x + 10
+                ty = event.y - 24
+                if tx + 72 > W - 8:
+                    tx = event.x - 80
+                if ty < 4:
+                    ty = 4
+                ids = []
+                ids.append(c.create_rectangle(tx, ty, tx + 70, ty + 22,
+                                            fill="white", outline=BORDER, width=1))
+                ids.append(c.create_text(tx + 35, ty + 11,
+                                        text=f"{val_ms:.1f} ms",
+                                        font=("Arial", 9, "bold"), fill=TMAIN))
+                self._sp_tip_ids = ids
+                return
+
 
     def _q_table(self, snapshots):
         for w in self.q_table.winfo_children(): w.destroy()

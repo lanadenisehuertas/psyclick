@@ -63,23 +63,31 @@ def init_db():
     # ── Per-question snapshots (one row per question per session) ─────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS question_snapshots (
-            snap_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id   INTEGER,
-            item_id      TEXT,
-            group_id     INTEGER,
-            level        TEXT,
-            domain_label TEXT,
-            t2_score     REAL,
-            psi          REAL,
-            pai          REAL,
-            flag         TEXT,
-            flight_time  REAL,
-            pause_freq   REAL,
-            response_len INTEGER,
-            hover_words_json TEXT,
+            snap_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id        INTEGER,
+            item_id           TEXT,
+            group_id          INTEGER,
+            level             TEXT,
+            domain_label      TEXT,
+            t2_score          REAL,
+            psi               REAL,
+            pai               REAL,
+            flag              TEXT,
+            flight_time       REAL,
+            pause_freq        REAL,
+            response_len      INTEGER,
+            hover_words_json  TEXT,
+            question_shown_at REAL,
             FOREIGN KEY (session_id) REFERENCES intake_sessions(session_id)
         )
     """)
+
+    # Migration guard for existing databases missing question_shown_at
+    try:
+        c.execute("ALTER TABLE question_snapshots ADD COLUMN question_shown_at REAL")
+        conn.commit()
+    except Exception:
+        pass  # column already exists
     c.execute("""
     CREATE TABLE IF NOT EXISTS audit_log (
         log_id    INTEGER PRIMARY KEY AUTOINCREMENT,

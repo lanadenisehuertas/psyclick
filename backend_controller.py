@@ -134,7 +134,7 @@ class PsyClickController:
             return []
 
         dt     = df["time"].diff()
-        pauses = df[dt > 0.3].copy()   # cursor stationary > 300ms
+        pauses = df[dt > 0.15].copy()   # cursor stationary > 150ms
 
         hover = {}
         for idx, row in pauses.iterrows():
@@ -144,10 +144,11 @@ class PsyClickController:
                     w        = box["word"]
                     dwell_ms = float(dt.loc[idx]) * 1000
                     if w not in hover:
-                        hover[w] = {"word": w, "dwell_ms": 0,
+                        hover[w] = {"word": w, "dwell_ms": 0, "hover_count": 0,
                                     "x": (box["x1"]+box["x2"])//2,
                                     "y": (box["y1"]+box["y2"])//2}
-                    hover[w]["dwell_ms"] += dwell_ms
+                    hover[w]["dwell_ms"]    += dwell_ms
+                    hover[w]["hover_count"] += 1
                     break
 
         return sorted(hover.values(), key=lambda d: d["dwell_ms"], reverse=True)
@@ -258,6 +259,7 @@ class PsyClickController:
         # ── Mouse: hover words (pre-typing window only) ───────────────────────
         hover_words       = self._map_hover_words(mouse_raw, key_raw)
         pre_typing_pause  = self._pre_typing_pause_ms(mouse_raw, key_raw)
+        question_shown_at = min(e["time"] for e in mouse_raw) if mouse_raw else 0.0
 
         # ── T² feature vector: keyboard-only for the task phase ───────────────
         # We do NOT include cursor_velocity/jerk/path_entropy from the typing
@@ -305,9 +307,10 @@ class PsyClickController:
             "raw_flights":       key_feats.get("raw_flight_times", []),
 
             # Mouse: only pre-typing signals (logically valid)
-            "pre_typing_pause_ms": pre_typing_pause,  # reading latency
-            "hover_words":         hover_words,        # which word triggered hesitation
-
+            "pre_typing_pause_ms": pre_typing_pause,   # reading latency
+            "question_shown_at":   question_shown_at,  # epoch s when question appeared
+            "hover_words":         hover_words,         # which words triggered hesitation
+            
             # Mouse: NOT from the typing window (stored as 0 to be honest)
             "pause_freq":        0.0,   # not meaningful during typing
             "cursor_velocity":   0.0,   # not meaningful during typing
