@@ -9,7 +9,7 @@ from datetime import datetime
 from tkinter import messagebox, filedialog
 from backend_controller import PsyClickController
 from database_manager import log_audit, get_audit_logs
-from report_exporter import export_report
+from report_exporter import export_report, export_summary
 import time
 
 backend = PsyClickController()
@@ -715,20 +715,12 @@ class DashboardPage(ctk.CTkFrame):
             log_audit("clinician", "Exported Generated Reports")
             if not rows:
                 messagebox.showinfo("Export", "No sessions to export."); return
-            lines = ["PsyClick — Session Summary Export\n",
-                     f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n",
-                     "="*60 + "\n"]
-            for pid, ts, flag, phq, gad, psi, pai, label in rows:
-                lines.append(f"Patient: {pid} | Date: {ts} | Flag: {flag}")
-                lines.append(f"  PHQ-9: {phq or 0} ({phq_label(phq or 0)})  GAD-7: {gad or 0} ({gad_label(gad or 0)})")
-                lines.append(f"  Biometric: {label or 'Normal'}  PSI: {psi or 0:.3f}  PAI: {pai or 0:.3f}")
-                lines.append("")
-            import tempfile, webbrowser
-            fp = fp = __import__('os').path.join(
-                __import__('os').path.expanduser("~"), "Desktop",
-                f"PsyClick_Summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
-            with open(fp, "w") as f: f.write("\n".join(lines))
-            messagebox.showinfo("Export Complete", f"Summary saved to:\n{fp}")
+            fp = export_summary(rows)
+            messagebox.showinfo("Export Complete",
+                                f"Summary report opened in browser:\n{fp}\n\n"
+                                "To save as PDF: press Ctrl+P → Save as PDF.")
+
+            
         except Exception as e:
             messagebox.showerror("Export Failed", str(e))
 # ═══════════════════════════════════════════════════════════════════════════════

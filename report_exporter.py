@@ -75,6 +75,7 @@ def generate_html_report(data):
 
     fc = _flag_color(flag)
     fb = _flag_bg(flag)
+    thr_str = f"{thr:.2f}" if thr != float("inf") else "N/A"
 
     # Build per-question table rows
     snap_rows = ""
@@ -233,7 +234,7 @@ def generate_html_report(data):
     <div class="card">
       <h3>T² Score (Hotelling's T²)</h3>
       <div class="metric-val" style="color:#EF4444">{t2:.3f}</div>
-      <div class="metric-sub">F-threshold (UCL): {thr:.2f if thr != float('inf') else 'N/A'}</div>
+      <div class="metric-sub">F-threshold (UCL): {thr_str}</div>
       <div class="interp">
         <strong>What this means:</strong> {_t2_interp(t2, thr)}<br><br>
         <strong>Clinical note:</strong> T² measures how far the patient's combined behavioral fingerprint
@@ -395,20 +396,174 @@ def _build_recs_for_html(ae, phq, gad, domain_t2, level_t2):
 
 
 def export_report(data, filepath=None):
-    """
-    Generate the HTML report and save to filepath (or temp file).
-    Opens in default browser. Returns the file path.
-    """
+    """Save individual HTML report and open in browser. Returns filepath."""
     html = generate_html_report(data)
     if not filepath:
         ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
         pid  = data.get("student_id", "unknown")
         name = f"PsyClick_Report_{pid}_{ts}.html"
         filepath = os.path.join(os.path.expanduser("~"), "Desktop", name)
-        # Fallback if Desktop doesn't exist
+        
         if not os.path.isdir(os.path.dirname(filepath)):
             filepath = os.path.join(tempfile.gettempdir(), name)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(html)
+    webbrowser.open(f"file:///{filepath.replace(os.sep, '/')}")
+    return filepath
 
+  
+# ─── PHQ / GAD label helpers (mirrors app.py, kept local so exporter is standalone) ───
+def _phq_label(s):
+    if s <= 4:  return "Minimal"
+    if s <= 9:  return "Mild"
+    if s <= 14: return "Moderate"
+    if s <= 19: return "Mod-Severe"
+    return "Severe"
+
+def _gad_label(s):
+    if s <= 4:  return "Minimal"
+    if s <= 9:  return "Mild"
+    if s <= 14: return "Moderate"
+    return "Severe"
+
+
+def generate_summary_html(rows):
+    """
+    Build a professional HTML summary report for all sessions.
+    rows: list of (student_id, timestamp, flag, phq, gad, psi, pai, label)
+    """
+    now = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    total = len(rows)
+    red   = sum(1 for r in rows if r[2] == "RED")
+    amber = sum(1 for r in rows if r[2] == "AMBER")
+    green = sum(1 for r in rows if r[2] == "GREEN")
+
+    # Build table rows
+    tbody = ""
+    for pid, ts, flag, phq, gad, psi, pai, label in rows:
+        fc  = _flag_color(flag or "GREEN")
+        fb  = _flag_bg(flag or "GREEN")
+        phq = phq or 0
+        gad = gad or 0
+        psi = psi or 0.0
+        pai = pai or 0.0
+        tbody += f"""
+        <tr>
+          <td><strong style="color:#1E293B">{pid}</strong></td>
+          <td style="color:#64748B;font-size:11px">{ts}</td>
+          <td><span style="background:{fb};color:{fc};padding:3px 10px;border-radius:10px;
+                           font-size:11px;font-weight:700">{flag or 'GREEN'}</span></td>
+          <td>{phq} <span style="color:#94A3B8;font-size:10px">({_phq_label(phq)})</span></td>
+          <td>{gad} <span style="color:#94A3B8;font-size:10px">({_gad_label(gad)})</span></td>
+          <td style="color:#3B82F6;font-weight:600">{psi:.3f}</td>
+          <td style="color:#8B5CF6;font-weight:600">{pai:.3f}</td>
+          <td style="font-size:12px;color:#475569">{label or 'Normal'}</td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PsyClick — Session Summary Report</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #EEF2FF; color: #1E293B; }}
+  .page {{ max-width: 1000px; margin: 0 auto; padding: 40px 32px; }}
+  .header {{ display:flex; justify-content:space-between; align-items:center;
+             border-bottom: 3px solid #8B5CF6; padding-bottom: 20px; margin-bottom: 28px; }}
+  .logo {{ font-size: 26px; font-weight: 800; color: #8B5CF6; }}
+  .logo span {{ font-size:12px; color:#64748B; display:block; font-weight:400; margin-top:2px; }}
+  .meta {{ text-align:right; font-size:12px; color:#64748B; }}
+  .stats {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }}
+  .stat {{ background:white; border:1px solid #E2E8F0; border-radius:12px;
+           padding:18px 20px; text-align:center; }}
+  .stat-val {{ font-size:32px; font-weight:800; }}
+  .stat-lbl {{ font-size:12px; color:#64748B; margin-top:4px; }}
+  .section {{ background:white; border:1px solid #E2E8F0; border-radius:12px;
+              padding:20px 22px; margin-bottom:20px; }}
+  .section h2 {{ font-size:15px; font-weight:700; color:#1E293B; margin-bottom:14px; }}
+  table {{ width:100%; border-collapse:collapse; font-size:12px; }}
+  th {{ background:#F8FAFC; text-align:left; padding:9px 12px; color:#64748B;
+        font-weight:600; border-bottom:2px solid #E2E8F0; font-size:11px;
+        text-transform:uppercase; letter-spacing:.4px; }}
+  td {{ padding:10px 12px; border-bottom:1px solid #F1F5F9; vertical-align:middle; }}
+  tr:last-child td {{ border-bottom:none; }}
+  tr:hover td {{ background:#F8FAFC; }}
+  .footer {{ margin-top:32px; padding-top:16px; border-top:1px solid #E2E8F0;
+             font-size:11px; color:#94A3B8; text-align:center; }}
+  @media print {{
+    body {{ background: white; }}
+    .page {{ padding: 20px; }}
+  }}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="logo">Ψ PsyClick<span>Session Summary Report</span></div>
+    </div>
+    <div class="meta">
+      <strong>Generated:</strong> {now}<br>
+      <strong>Total Sessions:</strong> {total}<br>
+      <span style="background:#EDE9FE;color:#6D28D9;padding:2px 8px;border-radius:8px;
+                   font-size:11px">CONFIDENTIAL — FOR CLINICIAN USE ONLY</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-val" style="color:#1E293B">{total}</div>
+      <div class="stat-lbl">Total Sessions</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" style="color:#EF4444">{red}</div>
+      <div class="stat-lbl">RED — High Risk</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" style="color:#F59E0B">{amber}</div>
+      <div class="stat-lbl">AMBER — Monitor</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" style="color:#10B981">{green}</div>
+      <div class="stat-lbl">GREEN — Normal</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>All Sessions</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Patient ID</th><th>Date &amp; Time</th><th>Status</th>
+          <th>PHQ-9</th><th>GAD-7</th><th>PSI</th><th>PAI</th><th>Classification</th>
+        </tr>
+      </thead>
+      <tbody>{tbody if tbody else
+        '<tr><td colspan="8" style="text-align:center;color:#94A3B8;padding:20px">No sessions recorded</td></tr>'
+      }</tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    PsyClick Clinical Decision Support System &nbsp;|&nbsp; Generated {now}<br>
+    This report is a decision support tool. All clinical conclusions require professional interpretation.
+  </div>
+</div>
+</body>
+</html>"""
+    return html
+
+
+def export_summary(rows, filepath=None):
+    """Save summary HTML report and open in browser. Returns filepath."""
+    html = generate_summary_html(rows)
+    if not filepath:
+        ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"PsyClick_Summary_{ts}.html"
+        filepath = os.path.join(os.path.expanduser("~"), "Desktop", name)
+        if not os.path.isdir(os.path.dirname(filepath)):
+            filepath = os.path.join(tempfile.gettempdir(), name)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(html)
 
