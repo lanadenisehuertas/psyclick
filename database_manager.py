@@ -21,6 +21,10 @@ def init_db():
 
     # Ensure table exists first (will be created below if not)
     tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    
+    if "audit_log" not in tables:
+        pass  # will be created below by CREATE TABLE IF NOT EXISTS
+    
     if "intake_sessions" in tables:
         _add_col("intake_sessions", "domain_t2_json",           "TEXT")
         _add_col("intake_sessions", "question_snapshots_json",  "TEXT")
@@ -75,6 +79,15 @@ def init_db():
             hover_words_json TEXT,
             FOREIGN KEY (session_id) REFERENCES intake_sessions(session_id)
         )
+    """)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS audit_log (
+        log_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor     TEXT,
+        action    TEXT,
+        detail    TEXT,
+        timestamp TEXT DEFAULT (datetime('now','localtime'))
+    )
     """)
 
     conn.commit()
@@ -171,3 +184,32 @@ def save_full_intake(data):
     conn.commit()
     conn.close()
     return session_id
+
+def log_audit(actor, action, detail=None):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        conn.execute(
+            "INSERT INTO audit_log (actor, action, detail) VALUES (?,?,?)",
+            (actor, action, detail)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # never crash the UI over a log failure
+
+def get_audit_logs(actor=None):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        if actor:
+            rows = conn.execute(
+                "SELECT timestamp, action, detail FROM audit_log WHERE actor=? ORDER BY log_id DESC",
+                (actor,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT timestamp, actor, action, detail FROM audit_log ORDER BY log_id DESC"
+            ).fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []

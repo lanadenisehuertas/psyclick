@@ -8,7 +8,9 @@ import random, json, sqlite3
 from datetime import datetime
 from tkinter import messagebox, filedialog
 from backend_controller import PsyClickController
+from database_manager import log_audit, get_audit_logs
 from report_exporter import export_report
+import time
 
 backend = PsyClickController()
 
@@ -299,7 +301,8 @@ class PsyClickApp(ctk.CTk):
         for P in [LoginPage, DashboardPage, IntakePage,
                   KCalibrationPage, MCalibrationPage,
                   PHQ9Page, GAD7Page, EmotionalTaskPage,
-                  ReportPage, PatientsPage, PatientDetailPage]:
+                  ReportPage, PatientsPage, PatientDetailPage,
+                  AuditPage]:
             f = P(parent=c, controller=self)
             self.frames[P.__name__] = f
             f.grid(row=0, column=0, sticky="nsew")
@@ -313,10 +316,19 @@ class PsyClickApp(ctk.CTk):
     def open_patients(self):
         self.frames["PatientsPage"].refresh_list()
         self.show_frame("PatientsPage")
+        log_audit("clinician", "Opened Patient Database")
 
     def open_patient_detail(self, sid):
         self.frames["PatientDetailPage"].load_session(sid)
         self.show_frame("PatientDetailPage")
+        try:
+            import sqlite3 as _sq
+            conn = _sq.connect("psyclick_data.db")
+            pid = conn.execute("SELECT student_id FROM intake_sessions WHERE session_id=?", (sid,)).fetchone()
+            conn.close()
+            log_audit("clinician", "Viewed Patient Report", pid[0] if pid else str(sid))
+        except Exception:
+            log_audit("clinician", "Viewed Patient Report", str(sid))
 
     def do_export(self, data=None):
         if data is None:
@@ -348,14 +360,25 @@ def make_sidebar(parent, controller, active="Dashboard"):
                   text_color=ACCENT).pack(pady=(0, 24))
     for label, dest in [("Dashboard", "DashboardPage"),
                          ("Patient History", "patients"),
+                         ("Audit", "AuditPage"),
                          ("Logout", "LoginPage")]:
         is_active = label == active
         is_logout = label == "Logout"
         fg_ = "#EDE9FE" if is_active else "transparent"
         tc_ = "#6D28D9" if is_active else (RED_C if is_logout else TSUB)
         hv_ = "#FEE2E2" if is_logout else "#F1F5F9"
-        cmd = (lambda: controller.open_patients()) if dest == "patients" \
-              else (lambda d=dest: controller.show_frame(d))
+
+        if dest == "patients":
+            cmd = lambda: controller.open_patients()
+        elif dest == "LoginPage":
+            def _logout():
+                log_audit("clinician", "Logged out")
+                controller.show_frame("LoginPage")
+            cmd = _logout
+        else:
+            cmd = lambda d=dest: controller.show_frame(d)
+
+
         ctk.CTkButton(sb, text=f"  {label}", fg_color=fg_, text_color=tc_,
                        hover_color=hv_, font=("Inter", 14), corner_radius=10,
                        height=42, anchor="w", command=cmd
@@ -423,11 +446,26 @@ class LoginPage(ctk.CTkFrame):
 
     def _login(self):
         u, p = self.uid.get().strip(), self.pwd.get().strip()
+        if not u and not p:
+            self.err.configure(text="Please enter your Clinician ID and Password")
+            return
+        if not u:
+            self.err.configure(text="Please enter your Clinician ID")
+            return
+        if not p:
+            self.err.configure(text="Please enter your Password")
+            return
+        if not u.isdigit() or len(u) != 9:
+            self.err.configure(text="Clinician ID must be a 9-digit number")
+            return
         if u in self.CREDS and p == "12345":
             self.err.configure(text="")
             self.controller.frames["DashboardPage"].set_user(self.CREDS[u])
             self.uid.delete(0, "end"); self.pwd.delete(0, "end")
             self.controller.show_frame("DashboardPage")
+            
+            # Audit
+            log_audit("clinician", "Logged in", self.CREDS[u])
         else:
             self.err.configure(text="Invalid Clinician ID or Password")
 
@@ -448,10 +486,17 @@ class DashboardPage(ctk.CTkFrame):
         self.welcome = ctk.CTkLabel(hdr, text="Clinician Dashboard",
                                      font=("Poppins", 30, "bold"), text_color=TMAIN)
         self.welcome.pack(side="left", anchor="w")
-        ctk.CTkButton(hdr, text="+ New Patient Intake", height=40, corner_radius=20,
-                       font=("Inter", 13, "bold"), fg_color=ACCENT, hover_color=ADARK,
-                       command=lambda: controller.show_frame("IntakePage")
-                       ).pack(side="right")
+
+        ctk.CTkButton(hdr, text="+ New Patient Intake", 
+                    height=40,
+                    corner_radius=20,
+                    font=("Inter", 13, "bold"),
+                    fg_color=ACCENT,
+                    hover_color=ADARK,
+                       
+                    command=lambda: (log_audit("clinician", "Opened New Patient Intake"),controller.show_frame("IntakePage"))
+                    ).pack(side="right")
+
         ctk.CTkLabel(main, text="Manage patient assessments and monitor baseline metrics",
                       font=("Inter", 14), text_color=TSUB
                       ).pack(anchor="w", pady=(2, 24))
@@ -594,6 +639,7 @@ class DashboardPage(ctk.CTkFrame):
                                 psi, pai, fuzzy_label
                          FROM intake_sessions ORDER BY timestamp DESC""")
             rows = c.fetchall(); conn.close()
+            log_audit("clinician", "Exported Generated Reports")
             if not rows:
                 messagebox.showinfo("Export", "No sessions to export."); return
             lines = ["PsyClick — Session Summary Export\n",
@@ -669,7 +715,7 @@ class IntakePage(ctk.CTkFrame):
         pid = self.e_id.get().strip() or self.e_name.get().strip() or "PT-UNKNOWN"
         backend.set_student_id(pid)
         self.controller.show_frame("KCalibrationPage")
-
+        log_audit("patient", "Start Session", pid)   
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # KEYBOARD CALIBRATION
@@ -721,6 +767,8 @@ class KCalibrationPage(ctk.CTkFrame):
         self.txt.delete("1.0","end")
         self.char_lbl.configure(text=f"Characters: 0 / {len(self.TARGET)}")
         backend.start_key_capture(calibration_mode=True)
+        log_audit("patient", "Entered Keyboard Calibration", backend.session_data["student_id"]
+)
 
     def _next(self):
         backend.save_kbase()
@@ -773,6 +821,8 @@ class MCalibrationPage(ctk.CTkFrame):
         self.done_card.pack_forget()
         for w in self.area.winfo_children(): w.destroy()
         backend.start_mouse_capture()
+        log_audit("patient", "Entered Mouse Calibration", backend.session_data["student_id"]
+)
         self.area.update()
         w = self.area.winfo_width() or 700; h = self.area.winfo_height() or 320
         for i in range(self.N):
@@ -839,9 +889,13 @@ class PHQ9Page(ctk.CTkFrame):
         self.cur = 0; self.score = 0
         self.q_lbl.configure(text=PHQ9[0]); self.ctr.configure(text="Question 1 of 9")
         backend.start_mouse_capture()
+        log_audit("patient", "Entered PHQ-9", backend.session_data["student_id"]
+)
 
     def _ans(self, v):
-        self.score += v; self.cur += 1
+        _LIKERT_LABELS = {0: "Not at all", 1: "Several days", 2: "More than half the days", 3: "Nearly every day"}
+        log_audit("patient", f"Made choice: {_LIKERT_LABELS.get(v, str(v))}", f"PHQ-9, Q{self.cur} of {len(PHQ9)}")
+        self.score += v; self.cur += 1 
         if self.cur < len(PHQ9):
             self.q_lbl.configure(text=PHQ9[self.cur])
             self.ctr.configure(text=f"Question {self.cur+1} of {len(PHQ9)}")
@@ -880,8 +934,12 @@ class GAD7Page(ctk.CTkFrame):
         self.cur = 0; self.score = 0
         self.q_lbl.configure(text=GAD7[0]); self.ctr.configure(text="Question 1 of 7")
         backend.start_mouse_capture()
+        log_audit("patient", "Entered GAD-7", backend.session_data["student_id"]
+)
 
     def _ans(self, v):
+        _LIKERT_LABELS = {0: "Not at all", 1: "Several days", 2: "More than half the days", 3: "Nearly every day"}
+        log_audit("patient", f"Made choice: {_LIKERT_LABELS.get(v, str(v))}", f"GAD-7, Q{self.cur} of {len(GAD7)}")
         self.score += v; self.cur += 1
         if self.cur < len(GAD7):
             self.q_lbl.configure(text=GAD7[self.cur])
@@ -895,6 +953,8 @@ class EmotionalTaskPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG)
         self.controller = controller; self.qi = 0; self._pb = None
+        self._idle_timer = None
+        self._last_activity = 0.0
         self._build()
 
     def _build(self):
@@ -939,9 +999,14 @@ class EmotionalTaskPage(ctk.CTkFrame):
         rc.pack(fill="x", pady=(0,10))
         ctk.CTkLabel(rc, text="Your Response:", font=("Inter",13,"bold"), text_color=TSUB
                       ).pack(anchor="w", padx=18, pady=(14,4))
+
+
         self.txt = ctk.CTkTextbox(rc, height=150, corner_radius=10, fg_color="#F8FAFC",
                                    border_color="#CBD5E1", border_width=1, font=("Inter",14))
         self.txt.pack(fill="x", padx=18, pady=(0,6))
+        self.txt.bind("<KeyRelease>", self._on_activity)
+        self.txt.bind("<Motion>", self._on_activity)
+
         cr = ctk.CTkFrame(rc, fg_color="transparent"); cr.pack(fill="x", padx=18, pady=(0,14))
         self.char_lbl = ctk.CTkLabel(cr, text="0 characters", font=("Inter",12), text_color=TSUB)
         self.char_lbl.pack(side="left")
@@ -974,10 +1039,33 @@ class EmotionalTaskPage(ctk.CTkFrame):
             ctk.CTkLabel(f, text=s, font=("Inter",11), text_color=TSUB,
                           wraplength=180, justify="left").pack(anchor="w", padx=12, pady=(0,10))
 
+    def _on_activity(self, event=None):
+        self._last_activity = time.time()
+
+    def _start_idle_watch(self):
+        self._last_activity = time.time()
+        if self._idle_timer:
+            self.after_cancel(self._idle_timer)
+        self._idle_timer = self.after(10000, self._check_idle)
+
+    def _check_idle(self):
+        if time.time() - self._last_activity >= 10:
+            log_audit("patient", "Idle (10+ seconds)", f"Q{self.qi+1} of {len(QUESTIONS)}")
+        self._idle_timer = self.after(10000, self._check_idle)
+
+    def _stop_idle_watch(self):
+        if self._idle_timer:
+            self.after_cancel(self._idle_timer)
+            self._idle_timer = None
+
+
     def on_show(self):
+        log_audit("patient", "Entered Clinical Assessment", backend.session_data["student_id"]
+)
         self.qi = 0
         backend.start_mouse_capture(); backend.start_key_capture()
         self._load()
+        
 
     def _register_word_boxes(self):
         self.update_idletasks()
@@ -1012,16 +1100,21 @@ class EmotionalTaskPage(ctk.CTkFrame):
             text="Submit Assessment & View Results →" if is_last else "Submit & Next Question →",
             state="normal", fg_color=ACCENT)
         backend.set_current_question(q)
+        log_audit("patient", f"Entered {q['group_name']}", q['level_name'])
         self.after(300, self._register_word_boxes)
+        self._start_idle_watch()
 
     def _next(self):
+        self._stop_idle_watch()
         q = QUESTIONS[self.qi]
+        log_audit("patient", "Clicked Next", f"Q{self.qi+1} of {len(QUESTIONS)}")
         backend.save_question_snapshot(q, self.txt.get("1.0","end-1c").strip())
         self.qi += 1
         if self.qi < len(QUESTIONS): self._load()
         else: self._finish()
 
     def _finish(self):
+        self._stop_idle_watch()
         self.btn_next.configure(state="disabled", text="Processing…", fg_color="#94A3B8")
         try:
             result = backend.process_final_task()
@@ -1029,6 +1122,8 @@ class EmotionalTaskPage(ctk.CTkFrame):
                 self.controller._last_report_data = result
                 self.controller.frames["ReportPage"].display_report(result)
                 self.controller.show_frame("ReportPage")
+                log_audit("patient", "Finished Session", backend.session_data["student_id"]
+)
             else:
                 self.btn_next.configure(state="normal", text="Retry — no data captured", fg_color=AMBER)
         except Exception as e:
@@ -1233,6 +1328,7 @@ class ReportPage(ctk.CTkFrame):
 
     def _export(self):
         self.controller.do_export(self._report_data)
+        log_audit("clinician", "Exported Patient Report", str(self._report_data.get("student_id","?")))
 
     def display_report(self, data):
         self._report_data = data
@@ -1494,6 +1590,73 @@ class PatientDetailPage(ReportPage):
             self.display_report(data)
         except Exception as e: print(f"PatientDetailPage: {e}")
 
+class AuditPage(ctk.CTkFrame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, fg_color=BG)
+        self.controller = controller
+        self._active_tab = "clinician"
+        make_sidebar(self, controller, "Audit")
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(side="right", fill="both", expand=True, padx=40, pady=30)
+        # Header
+        hdr = ctk.CTkFrame(main, fg_color="transparent"); hdr.pack(fill="x")
+        ctk.CTkLabel(hdr, text="Audit Log", font=("Poppins",28,"bold"),
+                     text_color=TMAIN).pack(side="left")
+        ctk.CTkButton(hdr, text="↻ Refresh", width=100, height=36,
+                      corner_radius=18, fg_color=ACCENT, hover_color=ADARK,
+                      font=("Inter",13,"bold"),
+                      command=self._refresh).pack(side="right")
+        # Tab toggles
+        # Tab toggles
+        tabs = ctk.CTkFrame(main, fg_color="transparent")
+        tabs.pack(fill="x", pady=(16,0))
+
+        self.btn_clin = ctk.CTkButton(
+            tabs, text="Clinician Audit",
+            command=lambda: self._switch("clinician"),
+            width=160, height=36, corner_radius=18
+        )
+        self.btn_clin.pack(side="left", padx=(0,10))
+
+        self.btn_pat = ctk.CTkButton(
+            tabs, text="Patient Audit",
+            command=lambda: self._switch("patient"),
+            width=160, height=36, corner_radius=18
+        )
+        self.btn_pat.pack(side="left")
+
+        # Log area
+        self.log_frame = ctk.CTkScrollableFrame(main, fg_color=CARD)
+        self.log_frame.pack(fill="both", expand=True, pady=(12,0))
+
+    def on_show(self): 
+        self._refresh()
+
+    def _switch(self, tab):
+        self._active_tab = tab
+        # update button styles
+        self._refresh()
+
+    def _refresh(self):
+        for w in self.log_frame.winfo_children(): w.destroy()
+        rows = get_audit_logs(actor=self._active_tab)
+        if not rows:
+            ctk.CTkLabel(self.log_frame, text="No activity logged yet.",
+                         font=("Inter",13), text_color=TSUB).pack(pady=30)
+            return
+        for ts, action, detail in rows:
+            row = ctk.CTkFrame(self.log_frame, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            # timestamp chip
+            ctk.CTkLabel(row, text=ts, font=("Inter",11), text_color=TSUB,
+                         width=160, anchor="w").pack(side="left", padx=(0,10))
+            # action
+            ctk.CTkLabel(row, text=action, font=("Inter",13,"bold"),
+                         text_color=TMAIN, anchor="w").pack(side="left")
+            # detail (optional)
+            if detail:
+                ctk.CTkLabel(row, text=f"— {detail}", font=("Inter",12),
+                             text_color=TSUB, anchor="w").pack(side="left", padx=(8,0))
 
 if __name__=="__main__":
     app=PsyClickApp(); app.mainloop()
