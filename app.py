@@ -346,7 +346,7 @@ class PsyClickApp(ctk.CTk):
 
 
 # ── Shared UI helpers ─────────────────────────────────────────────────────────
-def make_sidebar(parent, controller, active="Dashboard"):
+def make_sidebar(parent, controller, active="Dashboard", intake_protected=False):
     sb = ctk.CTkFrame(parent, width=220, corner_radius=0,
                        fg_color=CARD, border_width=1, border_color=BORDER)
     sb.pack(side="left", fill="y")
@@ -369,15 +369,19 @@ def make_sidebar(parent, controller, active="Dashboard"):
         hv_ = "#FEE2E2" if is_logout else "#F1F5F9"
 
         if dest == "patients":
-            cmd = lambda: controller.open_patients()
+            raw_cmd = lambda: controller.open_patients()
         elif dest == "LoginPage":
             def _logout():
                 log_audit("clinician", "Logged out")
                 controller.show_frame("LoginPage")
-            cmd = _logout
+            raw_cmd = _logout
         else:
-            cmd = lambda d=dest: controller.show_frame(d)
+            raw_cmd = lambda d=dest: controller.show_frame(d)
 
+        if intake_protected:
+            cmd = lambda fn=raw_cmd: fn() if clinician_password_dialog(parent) else None
+        else:
+            cmd = raw_cmd
 
         ctk.CTkButton(sb, text=f"  {label}", fg_color=fg_, text_color=tc_,
                        hover_color=hv_, font=("Inter", 14), corner_radius=10,
@@ -399,6 +403,75 @@ def make_stage_bar(parent, active_idx):
     pb.pack(fill="x", pady=(6, 0))
     pb.set(active_idx / 3.0)
     return pb
+
+def clinician_password_dialog(parent):
+    
+    result = [False]
+    dlg = ctk.CTkToplevel(parent)
+    dlg.title("Clinician Verification")
+    dlg.resizable(False, False)
+    dlg.grab_set()
+    dlg.focus_set()
+
+    c = ctk.CTkFrame(dlg, fg_color=BG)
+    c.pack(fill="both", expand=True)
+    inner = ctk.CTkFrame(c, fg_color=CARD, corner_radius=20,
+                          border_width=1, border_color=BORDER)
+    inner.pack(expand=True, padx=32, pady=32)
+
+    lock_f = ctk.CTkFrame(inner, width=56, height=56, corner_radius=14, fg_color=ACCENT)
+    lock_f.pack(pady=(28, 8))
+    lock_f.pack_propagate(False)
+    ctk.CTkLabel(lock_f, text="🔒", font=("Inter", 24)).pack(expand=True)
+
+    ctk.CTkLabel(inner, text="Clinician Verification Required",
+                  font=("Poppins", 16, "bold"), text_color=TMAIN).pack(padx=32, pady=(0, 4))
+    ctk.CTkLabel(inner, text="Enter your clinician password to continue",
+                  font=("Inter", 12), text_color=TSUB).pack(padx=32, pady=(0, 16))
+
+    pwd_entry = ctk.CTkEntry(inner, placeholder_text="Clinician Password", show="*",
+                              width=300, height=44, corner_radius=10,
+                              fg_color="#F8FAFC", border_color="#CBD5E1")
+    pwd_entry.pack(padx=32, pady=(0, 6))
+
+    err_lbl = ctk.CTkLabel(inner, text="", text_color=RED_C, font=("Inter", 11))
+    err_lbl.pack(pady=(0, 8))
+
+    btn_row = ctk.CTkFrame(inner, fg_color="transparent")
+    btn_row.pack(padx=32, pady=(0, 28), fill="x")
+
+    def _confirm():
+        if pwd_entry.get().strip() == "12345":
+            result[0] = True
+            dlg.destroy()
+        else:
+            err_lbl.configure(text="Incorrect password. Please try again.")
+            pwd_entry.delete(0, "end")
+            pwd_entry.focus()
+
+    def _cancel():
+        dlg.destroy()
+
+    ctk.CTkButton(btn_row, text="Cancel", height=48, corner_radius=21,
+               fg_color="#F1F5F9", text_color=TSUB, hover_color=BORDER,
+               command=_cancel).pack(side="left", fill="x", expand=True, padx=(0, 6))
+    ctk.CTkButton(btn_row, text="Confirm", height=48, corner_radius=21,
+               fg_color=ACCENT, hover_color=ADARK, text_color="white",
+               font=("Inter", 13, "bold"), command=_confirm).pack(side="right", fill="x", expand=True, padx=(6, 0))
+
+
+    pwd_entry.bind("<Return>", lambda e: _confirm())
+
+    w, h = 420, 360
+    dlg.update_idletasks()
+    px = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+    py = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+    dlg.geometry(f"{w}x{h}+{px}+{py}")
+    pwd_entry.focus()
+
+    parent.wait_window(dlg)
+    return result[0]
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOGIN
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -665,12 +738,12 @@ class IntakePage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG)
         self.controller = controller
-        make_sidebar(self, controller)
+        make_sidebar(self, controller, intake_protected=True)
         main = ctk.CTkScrollableFrame(self, fg_color="transparent")
         main.pack(side="right", fill="both", expand=True, padx=40, pady=30)
         ctk.CTkButton(main, text="← Back", fg_color="transparent", text_color=TSUB,
                        hover_color=BORDER, width=70,
-                       command=lambda: controller.show_frame("DashboardPage")).pack(anchor="w")
+                        command=self._go_back).pack(anchor="w")
         ctk.CTkLabel(main, text="New Patient Intake", font=("Poppins",28,"bold"),
                       text_color=TMAIN).pack(anchor="w", pady=(8,4))
         ctk.CTkLabel(main, text="Complete patient information and establish baseline biometric patterns",
@@ -708,6 +781,10 @@ class IntakePage(ctk.CTkFrame):
                                    command=self._submit)
         self.btn.pack(pady=16)
 
+    def _go_back(self):
+        if clinician_password_dialog(self):
+            self.controller.show_frame("DashboardPage")
+
     def _toggle(self):
         self.btn.configure(state="normal" if self.cv.get() else "disabled")
 
@@ -728,7 +805,7 @@ class KCalibrationPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG)
         self.controller = controller
-        make_sidebar(self, controller)
+        make_sidebar(self, controller, intake_protected=True)
         main = ctk.CTkScrollableFrame(self, fg_color="transparent")
         main.pack(side="right", fill="both", expand=True, padx=40, pady=30)
         ctk.CTkLabel(main, text="Baseline Task — Typing", font=("Poppins",22,"bold"),
@@ -783,7 +860,7 @@ class MCalibrationPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG)
         self.controller = controller; self.done = 0; self.btns = []
-        make_sidebar(self, controller)
+        make_sidebar(self, controller, intake_protected=True)
         main = ctk.CTkFrame(self, fg_color="transparent")
         main.pack(side="right", fill="both", expand=True, padx=20, pady=20)
         hdr = ctk.CTkFrame(main, fg_color="transparent"); hdr.pack(fill="x", padx=20, pady=(10,0))
@@ -1110,8 +1187,14 @@ class EmotionalTaskPage(ctk.CTkFrame):
         log_audit("patient", "Clicked Next", f"Q{self.qi+1} of {len(QUESTIONS)}")
         backend.save_question_snapshot(q, self.txt.get("1.0","end-1c").strip())
         self.qi += 1
-        if self.qi < len(QUESTIONS): self._load()
-        else: self._finish()
+        if self.qi < len(QUESTIONS):
+            self._load()
+        else:
+            if clinician_password_dialog(self):
+                self._finish()
+            else:
+                self.qi -= 1
+                self._start_idle_watch()
 
     def _finish(self):
         self._stop_idle_watch()
