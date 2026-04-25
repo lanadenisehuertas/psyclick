@@ -1373,15 +1373,9 @@ class ReportPage(ctk.CTkFrame):
                       font=("Poppins",14,"bold"), text_color=TMAIN).pack(anchor="w", padx=18, pady=(14,4))
         ctk.CTkLabel(qc, text="Each row = one item. Pre-Key ms = reading latency before first keypress. AMBER/RED = significant psychomotor shift.",
                       font=("Inter",12), text_color=TSUB).pack(anchor="w", padx=18, pady=(0,8))
-        th = ctk.CTkFrame(qc, fg_color="#F8FAFC", corner_radius=6)
-        th.pack(fill="x", padx=18, pady=(0,4))
-        for col, w in [("Item",48),("Group",160),("Lvl",36),("T²",64),("PSI",64),
-                        ("PAI",64),("Flight ms",78),("Pre-Key ms",78),("Velocity",72),("Flag",60)]:
-            ctk.CTkLabel(th, text=col, font=("Inter",11,"bold"), text_color=TSUB,
-                          width=w, anchor="w").pack(side="left", padx=3, pady=6)
-        self.q_table = ctk.CTkScrollableFrame(qc, fg_color="transparent", height=180)
-        self.q_table.pack(fill="x", padx=18, pady=(0,12))
-        self.q_table.after(100, lambda: self._isolate_scroll(self.q_table))
+        
+        self.q_cv = tk.Canvas(qc, height=200, bg=CARD, highlightthickness=0)
+        self.q_cv.pack(fill="x", padx=18, pady=(0,12))
 
         # Row 5: Domain chart
         dm = ctk.CTkFrame(scroll, fg_color=CARD, corner_radius=14, border_width=1, border_color=BORDER)
@@ -1400,7 +1394,7 @@ class ReportPage(ctk.CTkFrame):
         ctk.CTkLabel(hdr_rec, text="⚠  Urgent Clinical Recommendations",
                       font=("Poppins",14,"bold"), text_color=RED_C).pack(side="left")
         ctk.CTkLabel(hdr_rec,
-                      text="For clinician use only. Augments — does not replace — clinical judgment.",
+                      text="For clinician use only. Augments does not replace clinical judgment.",
                       font=("Inter",11), text_color=TSUB).pack(side="right")
         self.rec_frame = ctk.CTkFrame(rc, fg_color="transparent")
         self.rec_frame.pack(fill="x", padx=18, pady=(0,16))
@@ -1531,7 +1525,7 @@ class ReportPage(ctk.CTkFrame):
 
         # ── Y axis: 4 domain bands ────────────────────────────────────────────
         band_h = plot_h / 4
-        domain_names = {1: "Time/Workload", 2: "Interpersonal",
+        domain_names = {1: "Time/Work", 2: "Interpersonal",
                         3: "Academic",      4: "Self-Eval"}
         for gid in range(1, 5):
             cy  = MT + (gid - 0.5) * band_h
@@ -1545,7 +1539,7 @@ class ReportPage(ctk.CTkFrame):
                           fill=BORDER, width=1, dash=(4, 4))
             # Y label
             c.create_text(ML - 6, cy, text=domain_names[gid],
-                          font=("Arial", 9, "bold"), fill=col, anchor="e")
+                          font=("Arial", 7, "bold"), fill=col, anchor="e")
 
         # Y axis spine
         c.create_line(ML, MT, ML, H - MB, fill=BORDER, width=1)
@@ -1669,7 +1663,9 @@ class ReportPage(ctk.CTkFrame):
         new_pan    = pan_ms + frac * (old_vis - new_vis)
         self._hm_zoom   = new_zoom
         self._hm_pan_ms = max(0.0, min(new_pan, x_max_ms - new_vis))
-        self._heatmap(*self._hm_last)
+        if hasattr(self, "_hm_scroll_job"):
+            self.hm_cv.after_cancel(self._hm_scroll_job)
+        self._hm_scroll_job = self.hm_cv.after(16, self._hm_redraw)
         return "break"
 
     def _hm_on_drag_start(self, event):
@@ -1688,17 +1684,27 @@ class ReportPage(ctk.CTkFrame):
         old_pan    = self._hm_pan_ms
         self._hm_pan_ms = max(0.0, min(old_pan + delta_ms,
                                         self._hm_x_max_ms - visible_ms))
-        self._heatmap(*self._hm_last)
+        if hasattr(self, "_hm_drag_job"):
+            self.hm_cv.after_cancel(self._hm_drag_job)
+        self._hm_drag_job = self.hm_cv.after(16, self._hm_redraw)
 
     def _hm_on_motion(self, event):
-        # Clear any existing tooltip
+        self._hm_motion_pos = (event.x, event.y)
+        if hasattr(self, "_hm_motion_job"):
+            self.hm_cv.after_cancel(self._hm_motion_job)
+        self._hm_motion_job = self.hm_cv.after(16, self._hm_process_motion)
+
+    def _hm_process_motion(self):
+        if not hasattr(self, "_hm_motion_pos"):
+            return
+        mx, my = self._hm_motion_pos
         for tid in self._hm_tip_ids:
             self.hm_cv.delete(tid)
         self._hm_tip_ids = []
-        # Hit-test nodes
+        
         for (cx, cy, r, snap) in self._hm_nodes:
-            if ((event.x - cx) ** 2 + (event.y - cy) ** 2) ** 0.5 <= r + 6:
-                self._hm_show_tooltip(event.x, event.y, snap)
+            if ((mx - cx) ** 2 + (my - cy) ** 2) ** 0.5 <= r + 6:
+                self._hm_show_tooltip(mx, my, snap)
                 return
 
     def _hm_show_tooltip(self, mx, my, snap):
@@ -1813,36 +1819,7 @@ class ReportPage(ctk.CTkFrame):
                 fg_color="#D1FAE5", text_color="#065F46")
 
 
-    # ── Scroll isolation ──────────────────────────────────────────────────────
-
-    def _isolate_scroll(self, frame):
-        """
-        Bind widget-level scroll handlers on a CTkScrollableFrame's internal
-        canvas so that scrolling inside it never propagates to the outer page
-        scroll frame (whose bind_all handler runs at a lower priority level).
-        """
-        def _find_canvas(widget):
-            for child in widget.winfo_children():
-                if isinstance(child, tk.Canvas):
-                    return child
-                result = _find_canvas(child)
-                if result:
-                    return result
-            return None
-
-        cv = _find_canvas(frame)
-        if cv is None:
-            return
-
-        def _scroll(delta):
-            cv.yview_scroll(delta, "units")
-            return "break"
-
-        # Widget-level bindings take priority over bind_all; "break" stops the
-        # outer CTkScrollableFrame's bind_all handler from also running.
-        cv.bind("<MouseWheel>", lambda e: _scroll(int(-1 * (e.delta / 120))))
-        cv.bind("<Button-4>",   lambda e: _scroll(-1))
-        cv.bind("<Button-5>",   lambda e: _scroll(1))
+   
     # ── Spectrogram event handlers ────────────────────────────────────────────
 
     def _sp_on_resize(self, event=None):
@@ -1855,17 +1832,28 @@ class ReportPage(ctk.CTkFrame):
             self._spectrogram(*self._sp_last)
 
     def _sp_on_motion(self, event):
+
+        self._sp_motion_pos = (event.x, event.y)
+        if hasattr(self, "_sp_motion_job"):
+            self.sp_cv.after_cancel(self._sp_motion_job)
+        self._sp_motion_job = self.sp_cv.after(16, self._sp_process_motion)
+
+    def _sp_process_motion(self):
+        if not hasattr(self, "_sp_motion_pos"):
+            return
+        mx, my = self._sp_motion_pos
+
         for tid in self._sp_tip_ids:
             self.sp_cv.delete(tid)
         self._sp_tip_ids = []
         for (x1, y1, x2, y2, val_ms) in self._sp_bars:
-            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+             if x1 <= mx <= x2 and y1 <= my <= y2:
                 c  = self.sp_cv
                 W  = max(c.winfo_width(), 600)
-                tx = event.x + 10
-                ty = event.y - 24
+                tx = mx + 10
+                ty = my - 24
                 if tx + 72 > W - 8:
-                    tx = event.x - 80
+                    tx = mx - 80
                 if ty < 4:
                     ty = 4
                 ids = []
@@ -1879,23 +1867,53 @@ class ReportPage(ctk.CTkFrame):
 
 
     def _q_table(self, snapshots):
-        for w in self.q_table.winfo_children(): w.destroy()
-        fc={"GREEN":GREEN,"AMBER":AMBER,"RED":RED_C}
-        for snap in snapshots:
-            row=ctk.CTkFrame(self.q_table,fg_color="transparent"); row.pack(fill="x",pady=2)
-            gid=snap.get("group_id",1); col=GROUP_COLORS.get(gid,TSUB); flag=snap.get("flag","GREEN")
-            for txt,w in [(snap.get("item_id","?"),48),(snap.get("group_name","")[:22],160),
-                          (snap.get("level","A"),36),(f"{snap.get('t2_score',0):.2f}",64),
-                          (f"{snap.get('psi',0):.2f}",64),(f"{snap.get('pai',0):.2f}",64),
-                          (f"{snap.get('flight_time',0)*1000:.0f}",78),
-                          (f"{snap.get('pre_typing_pause_ms',0):.0f}",78),
-                          (f"{snap.get('cursor_velocity',0):.0f}",72)]:
-                ctk.CTkLabel(row,text=str(txt),font=("Inter",11),
-                              text_color=col if txt==snap.get("item_id") else TMAIN,
-                              width=w,anchor="w").pack(side="left",padx=3)
-            ctk.CTkLabel(row,text=flag,font=("Inter",11,"bold"),
-                          fg_color=fc.get(flag,TSUB),text_color="white",
-                          corner_radius=8,width=52,height=20).pack(side="left",padx=3)
+        
+        c = self.q_cv
+        c.delete("all")
+        COLS = [("Item",46),("Group",260),("Lvl",34),("T²",60),("PSI",60),
+                ("PAI",60),("Flight ms",74),("Pre-Key ms",74),("Velocity",68),("Flag",58)]
+        RH = 23
+        FLAG_C = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED_C}
+
+        # Header
+        total_w = sum(w for _, w in COLS)
+        c.create_rectangle(0, 0, total_w, RH, fill="#F8FAFC", outline="")
+        x = 4
+        for name, w in COLS:
+            c.create_text(x, RH // 2, text=name, anchor="w",
+                          font=("Arial", 9, "bold"), fill=TSUB)
+            x += w
+
+        # Data rows
+        for i, snap in enumerate(snapshots):
+            y   = RH + i * RH
+            bg  = "#F8FAFC" if i % 2 else CARD
+            gid = snap.get("group_id", 1)
+            flag = snap.get("flag", "GREEN")
+            fc   = FLAG_C.get(flag, TSUB)
+            gc   = GROUP_COLORS.get(gid, TSUB)
+            c.create_rectangle(0, y, total_w, y + RH, fill=bg, outline="")
+            vals = [snap.get("item_id","?"), snap.get("group_name",""),
+                    snap.get("level","A"), f"{snap.get('t2_score',0):.2f}",
+                    f"{snap.get('psi',0):.2f}", f"{snap.get('pai',0):.2f}",
+                    f"{snap.get('flight_time',0)*1000:.0f}",
+                    f"{snap.get('pre_typing_pause_ms',0):.0f}",
+                    f"{snap.get('cursor_velocity',0):.0f}", flag]
+            x = 4
+            for j, ((_, w), val) in enumerate(zip(COLS, vals)):
+                if j == 9:  # flag badge
+                    bx = x - 2
+                    c.create_rectangle(bx, y+4, bx+50, y+RH-4, fill=fc, outline="")
+                    c.create_text(bx+25, y+RH//2, text=val, anchor="center",
+                                  font=("Arial", 8, "bold"), fill="white")
+                else:
+                    col = gc if j == 0 else TMAIN
+                    c.create_text(x, y+RH//2, text=str(val), anchor="w",
+                                  font=("Arial", 10), fill=col)
+                x += w
+
+        total_h = RH * (1 + len(snapshots))
+        c.configure(height=max(total_h, RH * 2))
 
     def _domain_chart(self, domain_t2, level_t2):
         c=self.dm_cv; c.delete("all"); W,H=450,170
