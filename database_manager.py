@@ -220,4 +220,57 @@ def get_audit_logs(actor=None):
         conn.close()
         return rows
     except Exception:
+         return []
+
+
+def get_student_session_count(student_id):
+    """Return number of existing sessions for a student_id."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM intake_sessions WHERE student_id=?", (student_id,)
+        ).fetchone()[0]
+        conn.close()
+        return count
+    except Exception:
+        return 0
+
+
+def get_sessions_by_student(student_id):
+    """Return all sessions for a student ordered newest first.
+    Each row: (session_id, timestamp, phq_score, gad_score, flag)
+    """
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        rows = conn.execute(
+            """SELECT session_id, timestamp, phq_score, gad_score, flag
+               FROM intake_sessions WHERE student_id=?
+               ORDER BY timestamp DESC""",
+            (student_id,)
+        ).fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+def get_latest_sessions():
+    """Return one row per student_id, using the most recent session's data.
+    Row: (session_id, student_id, timestamp, flag, phq_score, gad_score)
+    """
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        rows = conn.execute("""
+            SELECT s.session_id, s.student_id, s.timestamp, s.flag, s.phq_score, s.gad_score
+            FROM intake_sessions s
+            INNER JOIN (
+                SELECT student_id, MAX(timestamp) AS max_ts
+                FROM intake_sessions
+                GROUP BY student_id
+            ) latest ON s.student_id = latest.student_id AND s.timestamp = latest.max_ts
+            ORDER BY s.timestamp DESC
+        """).fetchall()
+        conn.close()
+        return rows
+    except Exception:
         return []

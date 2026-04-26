@@ -8,7 +8,9 @@ import random, json, sqlite3
 from datetime import datetime
 from tkinter import messagebox, filedialog
 from backend_controller import PsyClickController
-from database_manager import log_audit, get_audit_logs
+from database_manager import (log_audit, get_audit_logs,
+                              get_student_session_count, get_sessions_by_student,
+                              get_latest_sessions)
 from report_exporter import export_report, export_summary
 import time
 
@@ -782,6 +784,16 @@ class IntakePage(ctk.CTkFrame):
 
     def _submit(self):
         pid = self.e_id.get().strip() or self.e_name.get().strip() or "PT-UNKNOWN"
+        existing = get_student_session_count(pid)
+        if existing > 0:
+            confirmed = messagebox.askyesno(
+                "Returning Patient",
+                f"Patient '{pid}' already has {existing} session(s) on record.\n\n"
+                "Do you want to start a new session for this patient?\n"
+                "(Their existing data will be preserved.)"
+            )
+            if not confirmed:
+                return
         backend.set_student_id(pid)
         self.controller.show_frame("KCalibrationPage")
         log_audit("patient", "Start Session", pid)   
@@ -1223,6 +1235,7 @@ class ReportPage(ctk.CTkFrame):
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=28, pady=18)
+        self._scroll = scroll
 
         # Nav
         top = ctk.CTkFrame(scroll, fg_color="transparent"); top.pack(fill="x", pady=(0,14))
@@ -1235,7 +1248,11 @@ class ReportPage(ctk.CTkFrame):
 
         self.patient_lbl = ctk.CTkLabel(scroll, text="Patient ID: —  |  Session: —",
                                          font=("Inter",12), text_color=TSUB)
-        self.patient_lbl.pack(anchor="w", pady=(0,10))
+        self.patient_lbl.pack(anchor="w", pady=(0,4))
+
+        # Placeholder for session selector (populated by PatientDetailPage)
+        self._session_sel_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        self._session_sel_frame.pack(fill="x", pady=(0,6))
 
         # HAL bar
         hal = ctk.CTkFrame(scroll, fg_color=CARD, corner_radius=10, border_width=1, border_color=BORDER)
@@ -2068,13 +2085,7 @@ class PatientsPage(ctk.CTkFrame):
             self._card(sid, pid, ts, flag, phq or 0, gad or 0)
 
     def refresh_list(self):
-        try:
-            conn = sqlite3.connect("psyclick_data.db"); c = conn.cursor()
-            c.execute("""SELECT session_id,student_id,timestamp,flag,phq_score,gad_score
-                         FROM intake_sessions ORDER BY timestamp DESC""")
-            self._all_rows = c.fetchall(); conn.close()
-        except Exception:
-            self._all_rows = []
+        self._all_rows = get_latest_sessions()
         self._apply_filter()
 
     def _card(self, sid, pid, ts, flag, phq, gad):
@@ -2101,6 +2112,53 @@ class PatientsPage(ctk.CTkFrame):
 class PatientDetailPage(ReportPage):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
+        self._student_sessions = []  # list of (session_id, timestamp, phq, gad, flag)
+        self._session_var = tk.StringVar(value="")
+
+    def _refresh_selector(self, student_id, current_session_id):
+        """Rebuild the session dropdown inside _session_sel_frame."""
+        for w in self._session_sel_frame.winfo_children():
+            w.destroy()
+
+        self._student_sessions = get_sessions_by_student(student_id)
+        if len(self._student_sessions) <= 1:
+            return  # no dropdown needed for single session
+
+        labels = []
+        for sid, ts, phq, gad, flag in self._student_sessions:
+            phq_str = str(phq) if phq is not None else "—"
+            gad_str = str(gad) if gad is not None else "—"
+            flag_str = flag or "—"
+            labels.append(f"{str(ts)[:16]}  |  PHQ-9: {phq_str}  GAD-7: {gad_str}  [{flag_str}]")
+
+        # Map label → session_id
+        self._label_to_sid = {lbl: sid for (sid, ts, phq, gad, flag), lbl
+                               in zip(self._student_sessions, labels)}
+
+        # Find label for current session
+        current_label = labels[0]
+        for (sid, ts, phq, gad, flag), lbl in zip(self._student_sessions, labels):
+            if sid == current_session_id:
+                current_label = lbl
+                break
+
+        self._session_var.set(current_label)
+
+        ctk.CTkLabel(self._session_sel_frame, text="Session:",
+                     font=("Inter", 12, "bold"), text_color=TSUB).pack(side="left", padx=(0, 8))
+        ctk.CTkOptionMenu(
+            self._session_sel_frame,
+            variable=self._session_var,
+            values=labels,
+            width=520,
+            font=("Inter", 12),
+            command=self._on_session_change,
+        ).pack(side="left")
+
+    def _on_session_change(self, label):
+        sid = self._label_to_sid.get(label)
+        if sid is not None:
+            self.load_session(sid)
 
     def load_session(self, session_id):
         try:
@@ -2109,19 +2167,23 @@ class PatientDetailPage(ReportPage):
                                 t2_score,t2_threshold,psi,pai,
                                 fuzzy_label,fuzzy_confidence,flag,rationale,
                                 domain_t2_json,question_snapshots_json
-                         FROM intake_sessions WHERE session_id=?""",(session_id,))
-            row=c.fetchone(); conn.close()
-            if not row: return
-            (sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_json,snap_json)=row
-            dom={int(k):v for k,v in json.loads(dom_json or "{}").items()}
-            snaps=json.loads(snap_json or "[]")
-            data={"student_id":sid,"timestamp":ts,
-                  "phq":{"score":phq or 0},"gad":{"score":gad or 0},
-                  "analysis":{"flag":flag,"t2_score":t2,"t2_threshold":thr,
-                               "psi":psi,"pai":pai,"label":label,
-                               "confidence":conf,"rationale":rat},
-                  "visuals":{"question_snapshots":snaps,"domain_t2":dom,
-                              "level_t2":{},"flight_times":[],"pause_coords":[]}}
+                         FROM intake_sessions WHERE session_id=?""", (session_id,))
+            row = c.fetchone(); conn.close()
+            if not row:
+                return
+            (sid, ts, phq, gad, t2, thr, psi, pai, label, conf, flag, rat,
+             dom_json, snap_json) = row
+            dom = {int(k): v for k, v in json.loads(dom_json or "{}").items()}
+            snaps = json.loads(snap_json or "[]")
+            data = {"student_id": sid, "timestamp": ts,
+                    "phq": {"score": phq or 0}, "gad": {"score": gad or 0},
+                    "analysis": {"flag": flag, "t2_score": t2, "t2_threshold": thr,
+                                 "psi": psi, "pai": pai, "label": label,
+                                 "confidence": conf, "rationale": rat},
+                    "visuals": {"question_snapshots": snaps, "domain_t2": dom,
+                                "level_t2": {}, "flight_times": [], "pause_coords": []}}
+            self._refresh_selector(sid, session_id)
+                         
             self.display_report(data)
         except Exception as e: print(f"PatientDetailPage: {e}")
 
