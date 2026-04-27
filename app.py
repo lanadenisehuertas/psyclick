@@ -775,6 +775,12 @@ class IntakePage(ctk.CTkFrame):
                                    command=self._submit)
         self.btn.pack(pady=16)
 
+    def on_show(self):
+        self.e_name.delete(0, "end")
+        self.e_id.delete(0, "end")
+        self.cv.set(False)
+        self.btn.configure(state="disabled")
+
     def _go_back(self):
         if clinician_password_dialog(self):
             self.controller.show_frame("DashboardPage")
@@ -900,6 +906,7 @@ class MCalibrationPage(ctk.CTkFrame):
         self.prog.set(0); self.pct_lbl.configure(text="0%")
         self.circ_lbl.configure(text=f"Circles clicked: 0 / {self.N}")
         self.done_card.pack_forget()
+        self.area.pack(fill="both", expand=True, padx=20, pady=(0,8))
         for w in self.area.winfo_children(): w.destroy()
         backend.start_mouse_capture()
         log_audit("patient", "Entered Mouse Calibration", backend.session_data["student_id"]
