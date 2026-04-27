@@ -1895,7 +1895,7 @@ class ReportPage(ctk.CTkFrame):
         c = self.q_cv
         c.delete("all")
         COLS = [("Item",46),("Group",260),("Lvl",34),("T²",60),("PSI",60),
-                ("PAI",60),("Flight ms",74),("Pre-Key ms",74),("Velocity",68),("Flag",58)]
+                ("PAI",60),("Flight ms",74),("Pre-Key ms",74),("Key Velocity",68),("Flag",58)]
         RH = 23
         FLAG_C = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED_C}
 
@@ -1922,7 +1922,7 @@ class ReportPage(ctk.CTkFrame):
                     f"{snap.get('psi',0):.2f}", f"{snap.get('pai',0):.2f}",
                     f"{snap.get('flight_time',0)*1000:.0f}",
                     f"{snap.get('pre_typing_pause_ms',0):.0f}",
-                    f"{snap.get('cursor_velocity',0):.0f}", flag]
+                    f"{snap.get('typing_velocity',0):.1f}", flag]
             x = 4
             for j, ((_, w), val) in enumerate(zip(COLS, vals)):
                 if j == 9:  # flag badge

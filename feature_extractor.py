@@ -90,11 +90,17 @@ def extract_features(raw_data_list):
     total_keys  = len(df[df["event"] == "DOWN"])
     error_rate  = backspaces / total_keys if total_keys > 0 else 0.0
 
+    # ── Pause Frequency (keystroke gaps > 1000 ms per second of typing) ──────
+    pauses_ks      = int((clean["flight_time"] > 1.0).sum())
+    pause_frequency = float(pauses_ks / total_time) if total_time > 0 else 0.0
+
+
     return {
         "flight_time":     mean_flight,
         "dwell_time":      mean_dwell,
         "typing_velocity": typing_velocity,
         "error_rate":      error_rate,
+        "pause_frequency": pause_frequency,
         "key_count":       len(clean),
         # Legacy aliases so existing backend_controller code still compiles
         "mean_flight":     mean_flight,

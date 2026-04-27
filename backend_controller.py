@@ -277,8 +277,9 @@ class PsyClickController:
 
         combined = {**key_feats, **avg_mouse}
 
-        if combined:
-            self.engine.update_baseline(combined)
+        # Assessment phase: analyse only — do NOT update baseline.
+        # Calibration (kbase, mbase, PHQ, GAD) built the baseline; updating
+        # here would pull μ toward the assessment data, collapsing diff → 0
 
         analysis = self.engine.analyse(combined) if combined else {}
 
@@ -353,9 +354,11 @@ class PsyClickController:
                 "path_entropy":    (phq_m.get("path_entropy",0)    + gad_m.get("path_entropy",0))    / 2,
                 "cursor_velocity": (phq_m.get("cursor_velocity",0) + gad_m.get("cursor_velocity",0)) / 2,
                 "jerk":            (phq_m.get("jerk",0)            + gad_m.get("jerk",0))            / 2,
-                # pause_frequency from keystrokes (valid)
-                "pause_frequency": sum(s.get("flight_time", 0) > 1.0
-                                       for s in self._question_snapshots) / max(n, 1),
+                # pause_frequency: individual keystroke gaps > 1s per second of typing.
+                # all_flights holds every raw inter-key interval across all questions,
+                # so we replicate the exact definition used in extract_features.
+                "pause_frequency": (sum(1 for ft in all_flights if ft > 1.0) / sum(all_flights)
+                                    if all_flights else 0.0),
             }
         else:
             kb  = self.session_data["kbase"]
@@ -368,7 +371,7 @@ class PsyClickController:
                 "pause_frequency":0.0,
             }
 
-        self.engine.update_baseline(agg)
+        # Assessment phase — analyse against frozen calibration baseline only.
         analysis = self.engine.analyse(agg) or {}
 
         # Domain-segmented T²

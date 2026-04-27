@@ -26,7 +26,7 @@ Public API
 """
 
 import numpy as np
-from scipy.stats import f as f_dist
+from scipy.stats import f as f_dist, chi2 as chi2_dist
 
 # ── FEATURE ORDER (must match feature_extractor output) ───────────────────────
 FEATURE_NAMES = [
@@ -64,15 +64,22 @@ class EWMABaseline:
         self.S    = None        # covariance matrix (p, p)
         self.n    = 0           # number of windows seen
 
-    def update(self, x):
-        """Feed one feature vector (length 8) from the calibration phase."""
+    def update(self, x, mask=None):
+        """
+        Feed one feature vector (length 8) from the calibration phase.
+
+        mask : boolean array of length p, or None (= all True).
+               Unmasked dimensions are held at the current mean so they
+               contribute diff=0 — preventing spurious cross-covariances
+               between keyboard-only and mouse-only calibration windows.
+        """
         x = np.asarray(x, dtype=float)
         if self.mu is None:
             self.mu = x.copy()
-            self.S  = np.eye(N_FEATURES) * 1e-4   # tiny seed — avoids singular start
-        else:
-            diff    = x - self.mu
-            self.mu = _LAMBDA * x + (1.0 - _LAMBDA) * self.mu
+            self.S  = np.eye(N_FEATURES) * 1e-4
+            x_eff = np.where(mask, x, self.mu) if mask is not None else x
+            diff    = x_eff - self.mu
+            self.mu = _LAMBDA * x_eff + (1.0 - _LAMBDA) * self.mu
             self.S  = _LAMBDA * np.outer(diff, diff) + (1.0 - _LAMBDA) * self.S
         self.n += 1
 
@@ -82,6 +89,31 @@ class EWMABaseline:
         # EWMA adapts as more windows arrive — we never block analysis
         # just because the user only completed one calibration pass.
         return self.n >= 1
+
+def _obs_mask(feature_dict):
+    """
+    Returns a boolean array (length p) indicating which features are genuinely
+    observed in this calibration window.  Unobserved slots are held at the
+    current EWMA mean during the update so they contribute diff=0 and do not
+    introduce spurious cross-modal covariances.
+
+    keyboard dict  (extract_features)       → has "flight_time"
+    mouse dict     (extract_mouse_features) → has "path_entropy"
+    combined dict  (assessment window)      → has both → all True
+    """
+    has_kbd   = "flight_time"   in feature_dict
+    has_mouse = "path_entropy"  in feature_dict
+    return np.array([
+        has_kbd,    # 0  flight_time
+        has_kbd,    # 1  dwell_time
+        has_kbd,    # 2  typing_velocity
+        has_kbd,    # 3  error_rate
+        has_mouse,  # 4  path_entropy
+        has_mouse,  # 5  cursor_velocity
+        has_mouse,  # 6  jerk
+        has_kbd or has_mouse,  # 7  pause_frequency (computed by both modalities)
+    ])
+
 
 
 # ── STAGE 4: HOTELLING'S T² ───────────────────────────────────────────────────
@@ -93,12 +125,17 @@ def _covariance_inverse(S, n):
     """
     p = S.shape[0]
     
-    if n < 20:
-        # Deterministic Shrinkage (Ledoit-Wolf approximation)
-        # Shrinks the empirical covariance matrix towards a scaled identity matrix
-        shrinkage = 0.15  # 15% shrinkage intensity for small n
-        mu_trace = np.trace(S) / p
-        S_shrunk = (1.0 - shrinkage) * S + (shrinkage * mu_trace * np.eye(p))
+    if n < 5 * p:   # spec: transition at n > 5p (= 40 for p=8)
+        # Ledoit-Wolf shrinkage toward the diagonal of S (not scaled identity).
+        # Scaled-identity shrinkage uses trace(S)/p as the target, which is
+        # dominated by large-scale mouse features (cursor_velocity ~300 px/s,
+        # jerk ~10000 px/s³) and inflates keyboard feature variances by 4–6
+        # orders of magnitude, making them invisible to T². Diagonal shrinkage
+        # preserves each feature's own scale while reducing spurious cross-
+        # modal off-diagonal correlations.
+        shrinkage = 0.15
+        S_target  = np.diag(np.maximum(np.diag(S), 1e-8))   # floor avoids zero diagonal
+        S_shrunk  = (1.0 - shrinkage) * S + shrinkage * S_target
         return np.linalg.inv(S_shrunk)
     else:
         try:
@@ -112,9 +149,14 @@ def _t2_threshold(n, p=N_FEATURES, alpha=0.05):
     """
     F-distribution threshold for Hotelling's T² (Tracy et al., 1992):
         T²_threshold = [p(n-1) / (n-p)] * F(alpha; p, n-p)
+
+    When n ≤ p the F-distribution is undefined (df2 = n-p ≤ 0).
+    In that regime we use the chi-squared critical value χ²(1-α; p), which is
+    the large-sample limiting distribution of T² under multivariate normality
+    and remains valid when Ledoit-Wolf shrinkage guarantees S invertibility.
     """
     if n <= p:
-        return float("inf")           # not enough calibration data
+        return float(chi2_dist.ppf(1.0 - alpha, p))   # ≈ 15.51 for p=8, α=0.05
     f_crit = f_dist.ppf(1.0 - alpha, p, n - p)
     return (p * (n - 1) / (n - p)) * f_crit
 
@@ -138,17 +180,21 @@ def compute_contributions(x, mu, S_inv):
     weighted = S_inv @ diff
     C   = diff * weighted  # Magnitude of contribution
     
-    # Optional: Only count towards PSI if the user actually slowed down (diff > 0)
-    # Only count towards PAI if the user became more erratic
+    # PSI: sum contributions from slowing features (diff > 0 = slower than baseline).
+    # Use max(0, C[idx]) because cross-covariance in S⁻¹ can make C[idx] negative
+    # even when diff[idx] > 0 — without the clamp, genuine slowing is silently zeroed.
+
     psi = 0.0
     for idx in _PSI_IDX:
-        # e.g., If flight time (diff) is positive, they are slower. 
-        if diff[idx] > 0: psi += C[idx]
+        if diff[idx] > 0:
+            psi += max(0.0, C[idx])
             
+    
+    # PAI: sum all agitation contributions (directional logic not needed —
+    # higher path_entropy, jerk, error_rate all indicate agitation regardless).
     pai = 0.0
     for idx in _PAI_IDX:
-        # Add directional logic depending on the specific PAI feature
-        pai += C[idx] 
+        pai += C[idx]
         
     return C, float(psi), float(pai)
 
@@ -326,7 +372,7 @@ class AnomalyEngine:
         """Accept a feature dict from extract_features / extract_mouse_features."""
         vec = _dict_to_vector(feature_dict)
         if vec is not None:
-            self.baseline.update(vec)
+            self.baseline.update(vec, mask=_obs_mask(feature_dict))
 
     def analyse(self, feature_dict):
         """
