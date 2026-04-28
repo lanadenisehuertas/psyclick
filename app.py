@@ -1158,19 +1158,51 @@ class EmotionalTaskPage(ctk.CTkFrame):
     def _register_word_boxes(self):
         self.update_idletasks()
         try:
-            lbl   = self.prompt_lbl
-            words = QUESTIONS[self.qi]["prompt"].split()
-            total_w = lbl.winfo_width() or 900; char_w = 8
-            x_start = lbl.winfo_rootx(); y_start = lbl.winfo_rooty()
-            boxes = []; cx, cy = 0, 0; line_h = 22
+            import tkinter.font as tkfont
+            lbl = self.prompt_lbl
+
+            # DPI scale: pynput reports physical screen pixels; Tkinter
+            # winfo_rootx/rooty may return logical pixels on Windows with
+            # display scaling.  Multiply Tkinter coords by this factor.
+            try:
+                import ctypes
+                dpi   = ctypes.windll.user32.GetDpiForSystem()
+                scale = dpi / 96.0
+            except Exception:
+                scale = 1.0
+
+            # Actual rendered font metrics — far more accurate than char_w=8
+            font_obj = tkfont.Font(family="Inter", size=14)
+            line_h   = int(font_obj.metrics("linespace") * scale) + 2
+
+            words   = QUESTIONS[self.qi]["prompt"].split()
+            # Use the widget's actual width; CTkLabel has ~10 px horizontal padding
+            lbl_w   = lbl.winfo_width() or 900
+            total_w = int((lbl_w - 20) * scale)       # subtract CTkLabel padding
+
+            # Label top-left in physical screen pixels
+            x_start = int(lbl.winfo_rootx() * scale) + int(10 * scale)
+            y_start = int(lbl.winfo_rooty() * scale) + int(8  * scale)
+
+            boxes = []
+            cx, cy = 0, 0
             for word in words:
-                ww = len(word)*char_w+6
-                if cx+ww > total_w: cx = 0; cy += line_h
-                boxes.append({"word":word,"x1":x_start+cx,"y1":y_start+cy,
-                               "x2":x_start+cx+ww,"y2":y_start+cy+line_h})
-                cx += ww+5
+                ww = int(font_obj.measure(word) * scale) + 4
+                if cx + ww > total_w:
+                    cx  = 0
+                    cy += line_h
+                boxes.append({
+                    "word": word,
+                    "x1": x_start + cx,
+                    "y1": y_start + cy,
+                    "x2": x_start + cx + ww,
+                    "y2": y_start + cy + line_h,
+                })
+                cx += ww + int(4 * scale)   # inter-word gap
+
             backend.register_word_boxes(boxes)
-        except Exception: backend.register_word_boxes([])
+        except Exception:
+            backend.register_word_boxes([])
 
     def _load(self):
         q = QUESTIONS[self.qi]; n = len(QUESTIONS)

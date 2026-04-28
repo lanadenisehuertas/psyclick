@@ -103,50 +103,49 @@ class PsyClickController:
 
     def _map_hover_words(self, mouse_raw, key_raw):
         """
-        Extract which prompt words the cursor paused over during the
-        pre-typing reading window (cursor on screen before first keypress).
+        Extract which prompt words the cursor paused over while reading
+        the question (pre-typing window + any re-reading pauses during typing).
 
-        We restrict to events BEFORE the first DOWN keystroke timestamp
-        so we only capture genuine reading-hover, not phantom mouse data
-        collected while the patient was typing.
+        Algorithm fix: pynput only fires MOVE events when the cursor actually
+        moves.  A long dt on row[i] means the cursor was STATIONARY at
+        row[i-1]'s position for that duration — so we check row[i-1]'s
+        coordinates against word boxes, not row[i]'s.
+
+        We include the full session (pre- and post-first-keypress) so that
+        brief re-reading pauses mid-response are also captured.  Gaps while
+        the cursor is over the TEXT ENTRY AREA (below the prompt) are excluded
+        via the box-hit test, which only matches the prompt region.
         """
         if not self._word_boxes or not mouse_raw:
             return []
 
         import pandas as pd
 
-        # Find the timestamp of the first keypress
-        first_key_time = None
-        if key_raw:
-            down_events = [e for e in key_raw if e.get("event") == "DOWN"]
-            if down_events:
-                first_key_time = min(e["time"] for e in down_events)
-
+       
         df = pd.DataFrame(mouse_raw).sort_values("time").reset_index(drop=True)
         if len(df) < 2:
             return []
 
-        # Only look at mouse data from BEFORE the first keypress
-        if first_key_time is not None:
-            df = df[df["time"] < first_key_time].copy()
-
-        if df.empty:
-            return []
-
-        dt     = df["time"].diff()
-        pauses = df[dt > 0.15].copy()   # cursor stationary > 150ms
+        dt = df["time"].diff()
 
         hover = {}
-        for idx, row in pauses.iterrows():
-            px, py = row["x"], row["y"]
+        # i is the position-after-gap; i-1 is where the cursor actually sat
+        for i in range(1, len(df)):
+            gap = dt.iloc[i]
+            if gap < 0.10:          # gap < 100 ms → normal movement, skip
+                continue
+            # Cursor was stationary at the PREVIOUS row's position
+            prev = df.iloc[i - 1]
+            px, py = prev["x"], prev["y"]
+            dwell_ms = gap * 1000
+
             for box in self._word_boxes:
                 if box["x1"] <= px <= box["x2"] and box["y1"] <= py <= box["y2"]:
-                    w        = box["word"]
-                    dwell_ms = float(dt.loc[idx]) * 1000
+                    w = box["word"]
                     if w not in hover:
-                        hover[w] = {"word": w, "dwell_ms": 0, "hover_count": 0,
-                                    "x": (box["x1"]+box["x2"])//2,
-                                    "y": (box["y1"]+box["y2"])//2}
+                        hover[w] = {"word": w, "dwell_ms": 0.0, "hover_count": 0,
+                                    "x": (box["x1"] + box["x2"]) // 2,
+                                    "y": (box["y1"] + box["y2"]) // 2}
                     hover[w]["dwell_ms"]    += dwell_ms
                     hover[w]["hover_count"] += 1
                     break
