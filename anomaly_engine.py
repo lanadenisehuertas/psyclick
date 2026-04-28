@@ -48,6 +48,21 @@ _PAI_IDX = [2, 3, 4, 5, 6]       # typing_velocity, error_rate, path_entropy,
 
 # Smoothing parameter for EWMA (lambda)
 _LAMBDA = 0.2
+# Physically-meaningful minimum standard deviations per feature.
+# Prevents astronomically large z-scores when S[i,i] is near-zero
+# (e.g. keyboard features after only mouse-only calibration windows,
+# or when behaviour is so consistent that the EWMA covariance never
+# rises above its seed value).
+_MIN_STD = np.array([
+    0.030,         # 0  flight_time      (30 ms — typical inter-key jitter)
+    0.010,         # 1  dwell_time       (10 ms — key-hold jitter)
+    1.00,          # 2  typing_velocity  (1 char/s — 1-σ within-session spread)
+    0.030,         # 3  error_rate       (3 % — 1-σ backspace variation)
+    0.30,          # 4  path_entropy     (0.3 bit — typical entropy fluctuation)
+    50.0,          # 5  cursor_velocity  (50 px/s — 1-σ speed variation)
+    200_000.0,     # 6  jerk             (200 000 px/s³ — 1-σ at 60Hz sampling)
+    0.05,          # 7  pause_frequency  (0.05 pauses/s)
+])
 
 
 # ── STAGE 2: WITHIN-SESSION EWMA ─────────────────────────────────────────────
@@ -60,9 +75,10 @@ class EWMABaseline:
     """
 
     def __init__(self):
-        self.mu   = None        # mean vector (p,)
-        self.S    = None        # covariance matrix (p, p)
-        self.n    = 0           # number of windows seen
+        self.mu         = None                                 # mean vector (p,)
+        self.S          = None                                 # covariance matrix (p, p)
+        self.n          = 0                                    # number of windows seen
+        self.ever_seen  = np.zeros(N_FEATURES, dtype=bool)    # which features had real data
 
     def update(self, x, mask=None):
         """
@@ -73,11 +89,15 @@ class EWMABaseline:
                contribute diff=0 — preventing spurious cross-covariances
                between keyboard-only and mouse-only calibration windows.
         """
-        x = np.asarray(x, dtype=float)
+        x   = np.asarray(x, dtype=float)
+        obs = mask if mask is not None else np.ones(N_FEATURES, dtype=bool)
+        self.ever_seen |= obs  # track calibrated features
         if self.mu is None:
             self.mu = x.copy()
             self.S  = np.eye(N_FEATURES) * 1e-4
-            x_eff = np.where(mask, x, self.mu) if mask is not None else x
+        else:
+            x_eff = np.where(obs, x, self.mu)
+
             diff    = x_eff - self.mu
             self.mu = _LAMBDA * x_eff + (1.0 - _LAMBDA) * self.mu
             self.S  = _LAMBDA * np.outer(diff, diff) + (1.0 - _LAMBDA) * self.S
@@ -119,31 +139,28 @@ def _obs_mask(feature_dict):
 # ── STAGE 4: HOTELLING'S T² ───────────────────────────────────────────────────
 def _covariance_inverse(S, n):
     """
-    Return the precision matrix (S^-1).
-    Applies deterministic analytical shrinkage for small samples (n < 20)
-    to guarantee invertibility without relying on stochastic data generation.
+    Return the precision matrix (S^-1) in original feature space.
+
+    Operates in correlation space so condition number is bounded by
+    1/shrinkage (~6.7) regardless of feature scale differences.
+    (jerk ~10^5 px/s³ vs flight_time ~0.1 s creates a 6-order magnitude
+    gap; shrinking toward diagonal of raw S still gives κ ~10^9, making
+    S_inv[jerk] astronomical and T² explode to ~10^16.)
+
+    Ledoit-Wolf ridge on R:   R_reg = (1-α)*R + α*I
+    Precision in raw space:   S_inv = D⁻¹ @ R_inv @ D⁻¹  where D = diag(std)
     """
-    p = S.shape[0]
-    
-    if n < 5 * p:   # spec: transition at n > 5p (= 40 for p=8)
-        # Ledoit-Wolf shrinkage toward the diagonal of S (not scaled identity).
-        # Scaled-identity shrinkage uses trace(S)/p as the target, which is
-        # dominated by large-scale mouse features (cursor_velocity ~300 px/s,
-        # jerk ~10000 px/s³) and inflates keyboard feature variances by 4–6
-        # orders of magnitude, making them invisible to T². Diagonal shrinkage
-        # preserves each feature's own scale while reducing spurious cross-
-        # modal off-diagonal correlations.
-        shrinkage = 0.15
-        S_target  = np.diag(np.maximum(np.diag(S), 1e-8))   # floor avoids zero diagonal
-        S_shrunk  = (1.0 - shrinkage) * S + shrinkage * S_target
-        return np.linalg.inv(S_shrunk)
-    else:
-        try:
-            return np.linalg.inv(S)
-        except np.linalg.LinAlgError:
-            # Last-resort regularisation if matrix is computationally singular
-            S_reg = S + np.eye(p) * 1e-6
-            return np.linalg.inv(S_reg)
+    p       = S.shape[0]
+    std     = np.maximum(np.sqrt(np.maximum(np.diag(S), 1e-8)), _MIN_STD)
+    std_out = np.outer(std, std)
+    R       = S / np.maximum(std_out, 1e-16)
+    np.fill_diagonal(R, 1.0)                        # floating-point safety
+
+    shrinkage = 0.15 if n < 5 * p else 0.05        # relax slightly for large n
+    R_reg     = (1.0 - shrinkage) * R + shrinkage * np.eye(p)
+    R_inv     = np.linalg.inv(R_reg)
+
+    return R_inv / std_out                          # S⁻¹ = D⁻¹ R⁻¹ D⁻¹
 
 def _t2_threshold(n, p=N_FEATURES, alpha=0.05):
     """
@@ -164,10 +181,14 @@ def _t2_threshold(n, p=N_FEATURES, alpha=0.05):
 def compute_t2(x, baseline):
     """
     Compute T² score and threshold for a single assessment window.
+    Features never seen during calibration (baseline.ever_seen[i] == False) are
+    zeroed out so they do not contribute to T².  Without this, keyboard-only
+    calibration would leave mouse feature means at 0, and even a normal jerk
+    value (e.g. 800 000 px/s³) would produce a catastrophic z-score vs mu=0.
 
     Returns (t2_score, t2_threshold, precision_matrix)
     """
-    diff   = x - baseline.mu
+    diff   = (x - baseline.mu) * baseline.ever_seen.astype(float)
     S_inv  = _covariance_inverse(baseline.S, baseline.n)
     t2     = float(baseline.n * diff @ S_inv @ diff)
     thresh = _t2_threshold(baseline.n)
@@ -175,8 +196,10 @@ def compute_t2(x, baseline):
 
 
 # ── STAGE 5: FEATURE CONTRIBUTION (PSI / PAI) ────────────────────────────────
-def compute_contributions(x, mu, S_inv):
+def compute_contributions(x, mu, S_inv, ever_seen=None):
     diff = x - mu
+    if ever_seen is not None:
+        diff = diff * ever_seen.astype(float)   # ignore uncalibrated features
     weighted = S_inv @ diff
     C   = diff * weighted  # Magnitude of contribution
     
@@ -240,42 +263,42 @@ def _normalise(val, lo, hi):
 
 def fuzzy_classify(t2, threshold, psi, pai):
     """
-    Fuzzy Logic Classifier + Heuristic Decision Tree (combined Stage 6+7).
+    Fuzzy Logic Classifier + Heuristic Decision Tree (Stage 6+7).
 
-    Inputs
-    ------
-    t2        : raw T² score
-    threshold : F-distribution threshold for the current session
-    psi       : Psychomotor Slowing Index  (sum of PSI contributions)
-    pai       : Psychomotor Agitation Index (sum of PAI contributions)
-
-    Returns
-    -------
-    dict: flag, label, confidence, rationale
+    Six clinical rules (priority-ordered, Mamdani min-conjunction):
+      R1  T²=H  PSI=H  PAI=H  → Mixed Disturbance,        Severe    → RED
+      R2  T²=H  PSI=H  PAI=L  → Psychomotor Retardation,  Severe    → RED
+      R3  T²=H  PAI=H  PSI=L  → Psychomotor Agitation,    Severe    → RED
+      R4  T²=M  PSI=M  PAI=M  → Mixed Disturbance,        Borderline→ AMBER
+      R5  T²=M  PAI=M         → Psychomotor Agitation,    Borderline→ AMBER
+      R6  T²=M  PSI=M         → Psychomotor Retardation,  Borderline→ AMBER
+      R7  T²=L               → Normal Behavior                      → GREEN
     """
-    # ── Normalise inputs to [0, 1] ───────────────────────────────────────────
-    # T² is expressed as a ratio to threshold (0 = baseline, 2 = double threshold)
-    t2_ratio = t2 / (threshold + 1e-9)
-    t2_n     = _normalise(t2_ratio,  0.0, 2.0)
 
-    # PSI and PAI can be negative (within-normal); clamp before normalising
-    psi_n = _normalise(max(psi, 0), 0.0, 5.0)
-    pai_n = _normalise(max(pai, 0), 0.0, 5.0)
+    t2_ratio = t2 / (threshold + 1e-9)
+    t2_n     = _normalise(t2_ratio,       0.0, 2.0)
+    psi_n    = _normalise(max(psi, 0.0),  0.0, 5.0)
+    pai_n    = _normalise(max(pai, 0.0),  0.0, 5.0)
+
 
     # ── Membership degrees ────────────────────────────────────────────────────
     # T² memberships
-    t2_low  = _trapmf(t2_n, 0.0, 0.0, 0.30, 0.55)
-    t2_mod  = _trimf (t2_n, 0.30, 0.55, 0.80)
-    t2_high = _trapmf(t2_n, 0.55, 0.80, 1.0,  1.0)
+    # Note: bounds extend 0.01 past [0,1] so that x clamped to exactly 0.0
+    # or 1.0 by _normalise still lands inside the plateau, not on the dead zone.
+    t2_low  = _trapmf(t2_n, -0.01, 0.0,  0.30, 0.55)
+    t2_mod  = _trimf (t2_n,  0.30, 0.55, 0.80)
+    t2_high = _trapmf(t2_n,  0.55, 0.80, 1.0,  1.01)
 
     # PSI memberships
-    psi_low  = _trapmf(psi_n, 0.0, 0.0, 0.25, 0.50)
-    psi_high = _trapmf(psi_n, 0.40, 0.65, 1.0, 1.0)
+    psi_low  = _trapmf(psi_n, -0.01, 0.0,  0.25, 0.50)
+    psi_mod  = _trimf (psi_n,  0.25, 0.50, 0.75)
+    psi_high = _trapmf(psi_n,  0.50, 0.75, 1.0,  1.01)
+
 
     # PAI memberships
-    pai_low  = _trapmf(pai_n, 0.0, 0.0, 0.25, 0.50)
-    pai_mod  = _trimf (pai_n, 0.30, 0.55, 0.80)
-    pai_high = _trapmf(pai_n, 0.40, 0.65, 1.0, 1.0)
+    pai_low  = _trapmf(pai_n, -0.01, 0.0,  0.25, 0.50)
+    pai_mod  = _trimf (pai_n,  0.25, 0.50, 0.75)
+    pai_high = _trapmf(pai_n,  0.50, 0.75, 1.0,  1.01)
 
     # ── Rule firing strengths (min-conjunction) ───────────────────────────────
     r_normal      = t2_low                                          # R3
@@ -283,35 +306,48 @@ def fuzzy_classify(t2, threshold, psi, pai):
     r_agitation   = min(t2_mod,  pai_mod)                           # R2
     r_mixed       = min(psi_high, pai_high)                         # R4
 
-    # ── Centroid defuzzification (weighted average of rule strengths) ─────────
-    rules = {
-        "Normal":                r_normal,
-        "Psychomotor Retardation": r_retardation,
-        "Psychomotor Agitation":   r_agitation,
-        "Mixed Disturbance":       r_mixed,
-    }
-    total_strength = sum(rules.values())
+    # Rule firing strengths
+    r1 = min(t2_high, psi_high, pai_high)   # Mixed,        Severe
+    r2 = min(t2_high, psi_high, pai_low)    # Retardation,  Severe
+    r3 = min(t2_high, pai_high, psi_low)    # Agitation,    Severe
+    r4 = min(t2_mod,  psi_mod,  pai_mod)    # Mixed,        Borderline
+    r5 = min(t2_mod,  pai_mod)              # Agitation,    Borderline
+    r6 = min(t2_mod,  psi_mod)              # Retardation,  Borderline
+    r7 = t2_low                             # Normal
+
+    severe_strength     = max(r1, r2, r3)
+    borderline_strength = max(r4, r5, r6)
+
+    # Dominant label: highest-firing rule wins
+    rule_labels = [
+        (r1, "Mixed Disturbance"),
+        (r2, "Psychomotor Retardation"),
+        (r3, "Psychomotor Agitation"),
+        (r4, "Mixed Disturbance"),
+        (r5, "Psychomotor Agitation"),
+        (r6, "Psychomotor Retardation"),
+        (r7, "Normal"),
+    ]
+    total_strength = sum(s for s, _ in rule_labels)
     if total_strength == 0:
         dominant_label = "Normal"
         confidence     = 1.0
     else:
-        dominant_label = max(rules, key=rules.get)
-        confidence     = rules[dominant_label] / total_strength
+        dominant_label = max(rule_labels, key=lambda x: x[0])[1]
+        top_strength   = max(s for s, _ in rule_labels)
+        confidence     = top_strength / total_strength
 
-    # ── Heuristic Decision Tree → final flag ─────────────────────────────────
-    # The flag is NOT derived from T² thresholds alone; it is derived from
-    # the fuzzy output so the classification is always graded and consistent.
-    if dominant_label == "Normal" or t2_ratio <= 1.0:
-        flag     = "GREEN"
-        severity = "No psychomotor anomaly detected."
-    elif t2_ratio <= 1.5 or dominant_label in ("Psychomotor Agitation", "Mixed Disturbance"):
-        flag     = "AMBER"
-        severity = "Moderate deviation — warrants clinical attention."
+    # Flag from severity tier of dominant rule set
+    if severe_strength > 0 and severe_strength >= borderline_strength:
+        flag = "RED"
+    elif borderline_strength > 0:
+        flag = "AMBER"
     else:
-        flag     = "RED"
-        severity = "Significant anomaly — clinical intervention recommended."
+        flag = "GREEN"
 
-    # ── Plain-language rationale ──────────────────────────────────────────────
+    # Override: T² below threshold always GREEN regardless of PSI/PAI
+    if t2_ratio <= 1.0:
+        flag = "GREEN"
     rationale = _build_rationale(flag, dominant_label, t2, threshold, psi, pai, confidence)
 
     return {
@@ -387,7 +423,8 @@ class AnomalyEngine:
             return None
 
         t2, thresh, S_inv = compute_t2(vec, self.baseline)
-        C, psi, pai       = compute_contributions(vec, self.baseline.mu, S_inv)
+        C, psi, pai       = compute_contributions(vec, self.baseline.mu, S_inv,
+                                                  ever_seen=self.baseline.ever_seen)
         fuzzy             = fuzzy_classify(t2, thresh, psi, pai)
 
         return {
