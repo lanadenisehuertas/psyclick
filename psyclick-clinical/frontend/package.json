@@ -1,0 +1,80 @@
+{
+  "name": "psyclick-clinical",
+  "version": "1.0.0",
+  "description": "PsyClick Clinical Edition",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "start": "concurrently -k \"python ../api_server.py\" \"vite\" \"wait-on tcp:5173 tcp:5001 && cross-env NODE_ENV=development electron .\"",
+    "dist": "npm run build && electron-builder --config.directories.output=dist-electron-clinical",
+    "dist:portable": "npm run build && electron-builder --win portable --config.directories.output=dist-electron-clinical",
+    "dist:installer": "npm run build && electron-builder --win nsis --config.directories.output=dist-electron-clinical"
+  },
+  "dependencies": {
+    "clsx": "^2.1.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.378.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "recharts": "^2.12.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^5.2.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.psyclick.clinical",
+    "productName": "PsyClick Clinical Edition",
+    "directories": {
+      "output": "dist-electron-clinical"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/downloads/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "../images/LOGOggg.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName} Setup.${ext}"
+    },
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "../config.json",
+        "to": "."
+      },
+      {
+        "from": "../normative_baseline.json",
+        "to": "."
+      },
+      {
+        "from": "../dist-python/psyclick_api",
+        "to": "psyclick_api"
+      },
+      {
+        "from": "../images",
+        "to": "images"
+      }
+    ]
+  }
+}

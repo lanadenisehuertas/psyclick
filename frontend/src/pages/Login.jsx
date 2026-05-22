@@ -1,0 +1,222 @@
+import { useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import { Lock, FlaskConical } from 'lucide-react'
+import { api } from '../api/psyclick.js'
+import { useApp } from '../context/AppContext.jsx'
+
+export default function Login() {
+  const [isRegister, setIsRegister] = useState(false)
+  const [id,   setId]   = useState('')
+  const [name, setName] = useState('')
+  const [pwd,  setPwd]  = useState('')
+  const [err,  setErr]  = useState('')
+  const [busy, setBusy] = useState(false)
+  const { setUser }     = useApp()
+  const navigate        = useNavigate()
+
+  async function handleLogin() {
+    setErr('')
+    if (!id || !pwd) { setErr('Please enter your Clinician ID and Password.'); return }
+    setBusy(true)
+    try {
+      const res = await api.login(id, pwd)
+      if (res.success) { setUser({ name: res.name, id: res.id }); navigate('/dashboard') }
+      else setErr(res.error || 'Sign in failed. Please check the ID, password, and database connection.')
+    } catch (e) {
+      setErr(e?.message || 'Sign in failed unexpectedly.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRegister() {
+    setErr('')
+    if (!name || !pwd) { setErr('Please enter your name and password.'); return }
+    setBusy(true)
+    try {
+      const res = await api.register(name, pwd)
+      if (res.success) {
+        setErr(`Registration successful! Your Clinician ID is: ${res.clinician_id}`)
+        setIsRegister(false)
+        setName('')
+        setId(String(res.clinician_id))
+        setPwd('')
+      } else setErr(res.error || 'Registration failed. Please check the database connection.')
+    } catch (e) {
+      setErr(e?.message || 'Registration failed unexpectedly.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const features = [
+    'Biometric psychomotor analysis',
+    'Validated PHQ-9 & GAD-7 screening',
+    'Encrypted local-first data storage',
+  ]
+
+  return (
+    <div className="h-screen flex overflow-hidden animate-fade-in">
+      {/* ── Left teal panel ── */}
+      <div className="w-[420px] flex-shrink-0 bg-accent flex flex-col items-center justify-center px-10 relative overflow-hidden animate-slide-right">
+        {/* Decorative floating orbs */}
+        <div className="absolute top-[-60px] right-[-60px] w-48 h-48 rounded-full bg-white/10 animate-float" style={{ animationDelay: '0s' }} />
+        <div className="absolute bottom-[80px] left-[-40px] w-32 h-32 rounded-full bg-white/8 animate-float" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-[40%] right-[-20px] w-20 h-20 rounded-full bg-adark/40 animate-float" style={{ animationDelay: '1s' }} />
+
+        <div className="text-center relative z-10">
+          <img
+            src={`${import.meta.env.BASE_URL}images/LOGO%20WITH%20WORD%20white.png`}
+            alt="PsyClick"
+            className="h-16 object-contain mx-auto mb-8 animate-fade-up-1"
+            onError={(e) => { e.currentTarget.src = `${import.meta.env.BASE_URL}images/LOGOggg.png` }}
+          />
+          <p className="text-white/80 text-base animate-fade-up-2">Clinical Decision Support System</p>
+          <div className="mt-10 space-y-3 text-left animate-fade-up-3">
+            {features.map((f, i) => (
+              <div
+                key={f}
+                className="flex items-center gap-3 text-white/75 text-sm transition-all duration-300 hover:text-white hover:translate-x-1"
+                style={{ transitionDelay: `${i * 40}ms` }}
+              >
+                <div className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center flex-shrink-0 animate-shimmer">
+                  <span className="text-xs">✓</span>
+                </div>
+                {f}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-adark" />
+      </div>
+
+      {/* ── Right form panel ── */}
+      <div className="flex-1 bg-bg flex items-center justify-center px-16">
+        <div className="w-full max-w-[400px] animate-slide-up">
+          <h2 className="text-3xl font-bold text-tmain mb-1">
+            {isRegister ? 'Create Account' : 'Welcome back'}
+          </h2>
+          <p className="text-tsub text-base mb-8">
+            {isRegister ? 'Register as a new clinician' : 'Sign in to your clinician account'}
+          </p>
+
+          <div className="bg-white rounded-card shadow-card p-8 border border-border transition-shadow duration-300 hover:shadow-hover">
+            {isRegister ? (
+              <>
+                <div className="mb-5">
+                  <label className="text-sm font-semibold text-tmain mb-2 block">Full Name</label>
+                  <input
+                    className="input-field"
+                    placeholder="Dr. Example"
+                    value={name}
+                    onChange={e => { setName(e.target.value); setErr('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-tmain mb-2 block">Password</label>
+                  <input
+                    className="input-field"
+                    type="password"
+                    placeholder="Create a secure password"
+                    value={pwd}
+                    onChange={e => { setPwd(e.target.value); setErr('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                  />
+                </div>
+
+                {err && (
+                  <p className={`text-sm mb-4 animate-fade-up-1 ${err.includes('successful') ? 'text-success' : 'text-coral'}`}>
+                    {err}
+                  </p>
+                )}
+
+                <button
+                  onClick={handleRegister}
+                  disabled={busy}
+                  className="btn-primary w-full text-base mb-5 transition-transform duration-150 hover:scale-[1.02] active:scale-[0.97]"
+                >
+                  {busy ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Registering…
+                    </span>
+                  ) : 'Register →'}
+                </button>
+
+                <button
+                  onClick={() => { setIsRegister(false); setErr(''); setName(''); setPwd(''); }}
+                  className="w-full text-center text-tsub text-sm hover:text-accent transition-colors"
+                >
+                  Already have an account? Sign in
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mb-5">
+                  <label className="text-sm font-semibold text-tmain mb-2 block">Clinician ID</label>
+                  <input
+                    className="input-field"
+                    placeholder="Enter your clinician ID"
+                    value={id}
+                    onChange={e => { setId(e.target.value); setErr('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-tmain mb-2 block">Password</label>
+                  <input
+                    className="input-field"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={pwd}
+                    onChange={e => { setPwd(e.target.value); setErr('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+
+                {err && (
+                  <p className="text-coral text-sm mb-4 animate-fade-up-1">{err}</p>
+                )}
+
+                <button
+                  onClick={handleLogin}
+                  disabled={busy}
+                  className="btn-primary w-full text-base mb-5 transition-transform duration-150 hover:scale-[1.02] active:scale-[0.97]"
+                >
+                  {busy ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Signing in…
+                    </span>
+                  ) : 'Sign In →'}
+                </button>
+
+                <div className="flex items-center gap-2 bg-accent/10 rounded-xl px-4 py-3 mb-4 transition-colors duration-200 hover:bg-accent/15">
+                  <Lock size={14} className="text-accent flex-shrink-0" />
+                  <span className="text-accent text-xs">All data encrypted and stored locally</span>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    onClick={() => { setIsRegister(true); setErr(''); setId(''); setPwd(''); }}
+                    className="w-full text-center text-tsub text-sm hover:text-accent transition-colors mb-3"
+                  >
+                    Don't have an account? Register
+                  </button>
+                  <Link
+                    to="/normative/tester"
+                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl border border-border text-tsub text-sm hover:border-accent/50 hover:text-accent hover:bg-accent/5 transition-all duration-200"
+                  >
+                    <FlaskConical size={14} />
+                    Normative Tester Portal
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

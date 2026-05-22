@@ -1,0 +1,11 @@
+{
+  "enabledPlugins": {
+    "ui-design@claude-code-workflows": true,
+    "frontend-developer@cc-marketplace": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)"
+    ]
+  }
+}

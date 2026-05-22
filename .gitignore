@@ -1,0 +1,55 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+
+# ── Python cache ──────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Build artifacts ───────────────────────────────────────────
+build/
+dist-python/
+dist-electron*/
+frontend/dist/
+frontend/dist-electron*/
+frontend/public/downloads/
+psyclick-clinical/build/
+psyclick-clinical/dist-python/
+psyclick-clinical/frontend/dist/
+psyclick-clinical/frontend/dist-electron*/
+psyclick-clinical/frontend/frontend/
+psyclick-releases/
+**/*.exe
+**/*.asar
+
+# ── Local databases (patient data — never commit) ─────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Credentials / config (contains Supabase keys) ─────────────
+config.json
+psyclick-clinical/config.json
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+api_stderr.log
+api_stdout.log
+build_log.txt
+
+# ── OS junk ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Misc ──────────────────────────────────────────────────────
+docx_rendered/
+skills-lock.json
+
+psyclick-clinical/frontend/public/downloads/*.exe
+
+# ── Chrome runtime profiles (generated at runtime, contain secrets) ──
+frontend/.chrome-profile-pdf/
+frontend/.chrome-profile-pdf2/
+**/.chrome-profile*/
