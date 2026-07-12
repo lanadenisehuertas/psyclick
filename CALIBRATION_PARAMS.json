@@ -1,0 +1,61 @@
+{
+  "population_size": 102,
+  "source": "Healthy normative testers",
+  "notes": "Based on thesis methodology: within-session EWMA, 8-feature Hotelling T\u00b2, 4 domains x 3 levels",
+  "t2_score": {
+    "mean": 0.85,
+    "sd": 1.15,
+    "p05": 0.02,
+    "p25": 0.15,
+    "p50": 0.45,
+    "p75": 1.2,
+    "p95": 3.5,
+    "p99": 4.2,
+    "range_lo": 0.0,
+    "range_hi": 4.2
+  },
+  "psi": {
+    "mean": 0.32,
+    "sd": 0.78,
+    "p05": 0.0,
+    "p25": 0.05,
+    "p50": 0.12,
+    "p75": 0.35,
+    "p95": 2.0,
+    "p99": 2.6,
+    "range_lo": 0.0,
+    "range_hi": 2.6
+  },
+  "pai": {
+    "mean": 0.44,
+    "sd": 1.05,
+    "p05": 0.01,
+    "p25": 0.08,
+    "p50": 0.18,
+    "p75": 0.55,
+    "p95": 2.8,
+    "p99": 3.5,
+    "range_lo": 0.0,
+    "range_hi": 3.5
+  },
+  "fuzzy_breakpoints": {
+    "note": "Percentile-based membership functions",
+    "low": {
+      "p_start": 0.0,
+      "p_end": 0.5
+    },
+    "mod": {
+      "p_start": 0.25,
+      "p_end": 0.75
+    },
+    "high": {
+      "p_start": 0.5,
+      "p_end": 1.0
+    }
+  },
+  "target_distribution": {
+    "GREEN": "80% (T\u00b2 within baseline + low PSI/PAI)",
+    "AMBER": "15% (T\u00b2 moderate + moderate PSI/PAI)",
+    "RED": "5%  (T\u00b2 high + high PSI or PAI)"
+  }
+}
