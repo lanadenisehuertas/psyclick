@@ -1,11 +1,12 @@
-"""
+﻿"""
 PsyClick API Server
 Run:  python api_server.py
 """
 
 import os, sys, json, traceback
+from functools import wraps
 from datetime import datetime, timedelta
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 
 # Support both dev (script) and production (PyInstaller frozen bundle)
@@ -43,6 +44,8 @@ from database_manager import (
     get_normative_count, get_normative_stats,
     compute_normative_stats, get_normative_compare,
     register_clinician, get_clinician_by_id, verify_clinician as db_verify_clinician,
+    create_security_session, authenticate_security_session, revoke_security_session,
+    record_consent, has_active_consent, verify_audit_chain,
     reapply_db_config,
     get_db_mode,
     get_db_status,
@@ -51,25 +54,26 @@ from database_manager import (
     get_next_tester_id,
 )
 from report_exporter import export_report, export_summary
+from security_manager import protect_file, create_encrypted_backup, validate_encrypted_backup
 
 # Ensure DB mode reflects PSYCLICK_DB_URL / config after all imports (packaged API).
 reapply_db_config()
 
 app  = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": [
+    "http://localhost:5173", "http://127.0.0.1:5173", "null"
+]}})
 STARTUP_ERRORS = []
 
 
 def _safe_error(exc, message="Something went wrong."):
-    detail = str(exc) if exc else ""
-    return {"success": False, "error": detail or message}
+    return {"success": False, "error": message}
 
 
 def _db_unavailable_response(exc):
     return jsonify({
         "success": False,
-        "error": str(exc),
-        "db": get_db_status(),
+        "error": "The protected local database is unavailable. Contact the administrator.",
     }), 503
 
 
@@ -128,7 +132,46 @@ def handle_unexpected_error(e):
 def handle_database_unavailable(e):
     return _db_unavailable_response(e)
 
-NORMER_PASSWORD = "NORMER123"
+PUBLIC_ENDPOINTS = {"login", "register", "ping"}
+
+
+def _bearer_token():
+    header = request.headers.get("Authorization", "")
+    return header[7:].strip() if header.startswith("Bearer ") else ""
+
+
+@app.before_request
+def enforce_authenticated_api():
+    if request.method == "OPTIONS" or request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    user = authenticate_security_session(_bearer_token())
+    if not user:
+        return jsonify({"success": False, "error": "Authentication required or session expired."}), 401
+    g.current_user = user
+
+
+def require_roles(*roles):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            user = getattr(g, "current_user", None)
+            if not user or user.get("role") not in roles:
+                log_audit("security", "Authorization denied", request.path,
+                          actor_id=user.get("id") if user else None, outcome="denied")
+                return jsonify({"success": False, "error": "Insufficient permission."}), 403
+            return fn(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+def _scoped_clinician_id(requested=None):
+    user = g.current_user
+    if user["role"] == "admin" and requested:
+        try:
+            return int(requested)
+        except (TypeError, ValueError):
+            return user["id"]
+    return user["id"]
 
 # ─── Auth ──────────────────────────────────────────────────────────────────────
 @app.route("/api/login", methods=["POST"])
@@ -146,14 +189,19 @@ def login():
         if success:
             clinician_data = get_clinician_by_id(clinician_id)
             if clinician_data:
-                log_audit("clinician", "Logged in", clinician_data["name"])
-                return jsonify({"success": True, "name": clinician_data["name"], "id": clinician_id})
+                token, expires_at = create_security_session(clinician_id, clinician_data["role"])
+                log_audit("clinician", "Logged in", clinician_data["name"], actor_id=clinician_id)
+                return jsonify({
+                    "success": True, "name": clinician_data["name"], "id": clinician_id,
+                    "role": clinician_data["role"], "token": token, "expires_at": expires_at,
+                })
             return jsonify({"success": False, "error": "Clinician not found."})
-        return jsonify({"success": False, "error": error_msg or "Invalid Clinician ID or Password."})
+        log_audit("security", "Failed login", f"clinician_id={uid}", outcome="denied")
+        return jsonify({"success": False, "error": error_msg or "Invalid clinician ID or password."}), 401
     except DatabaseUnavailableError as e:
         return _db_unavailable_response(e)
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    except Exception:
+        return jsonify({"success": False, "error": "Authentication service unavailable."}), 503
 
 @app.route("/api/register", methods=["POST"])
 def register():
@@ -162,10 +210,22 @@ def register():
     pwd = str(d.get("password", "")).strip()
     if not name or not pwd:
         return jsonify({"success": False, "error": "Please enter name and password."})
-    success, clinician_id, error_msg = register_clinician(name, pwd)
+    # First account bootstraps administration. Later provisioning is admin-only.
+    conn = _conn(); count = _exec(conn, "SELECT COUNT(*) FROM clinicians").fetchone()[0]; conn.close()
+    requested_role = "admin" if count == 0 else "clinician"
+    actor = None
+    if count > 0:
+        actor = authenticate_security_session(_bearer_token())
+        if not actor or actor.get("role") != "admin":
+            return jsonify({"success": False, "error": "Administrator authorization is required."}), 403
+        requested_role = str(d.get("role", "clinician")).lower()
+        if requested_role not in {"clinician", "auditor", "admin"}:
+            return jsonify({"success": False, "error": "Invalid role."}), 400
+    success, clinician_id, error_msg = register_clinician(name, pwd, requested_role)
     if success:
-        log_audit("clinician", "Registered", name)
-        return jsonify({"success": True, "clinician_id": clinician_id, "name": name})
+        log_audit("admin" if actor else "system", "Registered account", name,
+                  actor_id=actor.get("id") if actor else clinician_id)
+        return jsonify({"success": True, "clinician_id": clinician_id, "name": name, "role": requested_role})
     return jsonify({"success": False, "error": error_msg or "Registration failed."})
 
 @app.route("/api/verify-clinician", methods=["POST"])
@@ -178,18 +238,16 @@ def verify_clinician_endpoint():
     try:
         clinician_id = int(uid)
         success, error_msg = db_verify_clinician(clinician_id, pwd)
-        if success:
+        if success and (g.current_user["role"] == "admin" or clinician_id == g.current_user["id"]):
             return jsonify({"success": True})
-        # Allow test password for any clinician ID during development
-        if pwd == "test":
-            return jsonify({"success": True})
-        return jsonify({"success": False, "error": error_msg or "Incorrect password."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": "Verification failed."}), 401
+    except Exception:
+        return jsonify({"success": False, "error": "Verification failed."}), 401
 
 @app.route("/api/logout", methods=["POST"])
 def logout():
-    log_audit("clinician", "Logged out")
+    revoke_security_session(_bearer_token())
+    log_audit("clinician", "Logged out", actor_id=g.current_user["id"])
     return jsonify({"success": True})
 
 # ─── Dashboard stats ───────────────────────────────────────────────────────────
@@ -200,7 +258,7 @@ def stats():
         ph = _ph()
         conn = _conn()
         c = conn.cursor()
-        cid = request.args.get("clinician_id")
+        cid = _scoped_clinician_id(request.args.get("clinician_id"))
         if cid:
             cid_filter = f" WHERE clinician_id={ph}"
             cid_and    = f" AND clinician_id={ph}"
@@ -223,7 +281,7 @@ def recent_sessions():
     try:
         conn = _conn(); c = conn.cursor()
         ph = _ph()
-        cid = request.args.get("clinician_id")
+        cid = _scoped_clinician_id(request.args.get("clinician_id"))
         if cid:
             c.execute(f"""SELECT session_id,student_id,timestamp,flag,
                                 phq_score,gad_score,psi,pai,fuzzy_label
@@ -248,7 +306,7 @@ def patients():
     try:
         conn = _conn(); c = conn.cursor()
         ph = _ph()
-        cid = request.args.get("clinician_id")
+        cid = _scoped_clinician_id(request.args.get("clinician_id"))
         if cid:
             c.execute(f"""SELECT student_id,COUNT(*) as n,MAX(timestamp),
                                 MAX(CASE flag WHEN 'RED' THEN 3 WHEN 'AMBER' THEN 2
@@ -274,10 +332,11 @@ def patient_sessions(patient_id):
     try:
         ph = _ph()
         conn = _conn(); c = conn.cursor()
+        clinician_id = _scoped_clinician_id()
         c.execute(f"""SELECT session_id,timestamp,phq_score,gad_score,flag,
-                            fuzzy_label,t2_score,psi,pai
-                     FROM intake_sessions WHERE student_id={ph}
-                     ORDER BY timestamp DESC""", (patient_id,))
+                              fuzzy_label,t2_score,psi,pai
+                      FROM intake_sessions WHERE student_id={ph} AND clinician_id={ph}
+                      ORDER BY timestamp DESC""", (patient_id, clinician_id))
         rows = c.fetchall(); conn.close()
         return jsonify([{
             "session_id": r[0], "timestamp": str(r[1])[:16],
@@ -293,11 +352,13 @@ def session_detail(session_id):
     try:
         ph = _ph()
         conn = _conn(); c = conn.cursor()
+        clinician_id = _scoped_clinician_id()
         c.execute(f"""SELECT student_id,timestamp,phq_score,gad_score,
-                            t2_score,t2_threshold,psi,pai,
-                            fuzzy_label,fuzzy_confidence,flag,rationale,
-                            domain_t2_json,question_snapshots_json,flight_times_json
-                     FROM intake_sessions WHERE session_id={ph}""", (session_id,))
+                              t2_score,t2_threshold,psi,pai,
+                              fuzzy_label,fuzzy_confidence,flag,rationale,
+                              domain_t2_json,question_snapshots_json,flight_times_json
+                      FROM intake_sessions WHERE session_id={ph} AND clinician_id={ph}""",
+                  (session_id, clinician_id))
         row = c.fetchone(); conn.close()
         if not row: return jsonify({"error":"Session not found"}), 404
         sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j = row
@@ -335,20 +396,26 @@ def session_detail(session_id):
 def intake_start():
     d   = request.get_json() or {}
     pid = d.get("patient_id", "PT-UNKNOWN").strip() or "PT-UNKNOWN"
-    cid = d.get("clinician_id")
+    cid = _scoped_clinician_id(d.get("clinician_id"))
+    consent = d.get("consent") is True
+    consent_version = str(d.get("consent_version", "1.0")).strip() or "1.0"
+    if not consent:
+        log_audit("clinician", "Consent gate blocked", pid, actor_id=cid, outcome="denied")
+        return jsonify({"success": False, "error": "Recorded informed consent is required."}), 400
+    record_consent(pid, cid, "granted", consent_version)
     existing = get_student_session_count(pid, cid)
     controller = require_controller()
     controller.set_student_id(pid)
-    if cid:
-        controller.session_data["clinician_id"] = cid
-    log_audit("patient", "Start Session", pid)
+    controller.session_data["clinician_id"] = cid
+    controller.session_data["consent_verified"] = True
+    log_audit("clinician", "Consent granted and session started", pid, actor_id=cid)
     return jsonify({"success": True, "existing_sessions": existing, "patient_id": pid})
 
 
 @app.route("/api/next-client-id")
 def next_client_id():
     try:
-        cid = request.args.get("clinician_id")
+        cid = _scoped_clinician_id(request.args.get("clinician_id"))
         nid = get_next_client_id(cid)
         if nid:
             return jsonify({"success": True, "id": nid})
@@ -371,6 +438,8 @@ def next_tester_id():
 @app.route("/api/calibration/keyboard/start", methods=["POST"])
 def kcal_start():
     controller = require_controller()
+    if not controller.session_data.get("consent_verified"):
+        return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_key_capture(calibration_mode=True)
     log_audit("patient", "Entered Keyboard Calibration", controller.session_data["student_id"])
     return jsonify({"success": True})
@@ -384,6 +453,8 @@ def kcal_save():
 @app.route("/api/calibration/mouse/start", methods=["POST"])
 def mcal_start():
     controller = require_controller()
+    if not controller.session_data.get("consent_verified"):
+        return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
     log_audit("patient", "Entered Mouse Calibration", controller.session_data["student_id"])
     return jsonify({"success": True})
@@ -397,6 +468,8 @@ def mcal_save():
 @app.route("/api/assessment/phq/start", methods=["POST"])
 def phq_start():
     controller = require_controller()
+    if not controller.session_data.get("consent_verified"):
+        return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
     log_audit("patient", "Entered PHQ-9", controller.session_data["student_id"])
     return jsonify({"success": True})
@@ -410,6 +483,8 @@ def phq_save():
 @app.route("/api/assessment/gad/start", methods=["POST"])
 def gad_start():
     controller = require_controller()
+    if not controller.session_data.get("consent_verified"):
+        return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
     log_audit("patient", "Entered GAD-7", controller.session_data["student_id"])
     return jsonify({"success": True})
@@ -423,6 +498,8 @@ def gad_save():
 @app.route("/api/assessment/emotional/start", methods=["POST"])
 def emotional_start():
     controller = require_controller()
+    if not controller.session_data.get("consent_verified"):
+        return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
     controller.start_key_capture()
     log_audit("patient", "Entered Clinical Assessment", controller.session_data["student_id"])
@@ -481,6 +558,7 @@ def audit_idle():
 
 # ─── Audit log ─────────────────────────────────────────────────────────────────
 @app.route("/api/audit")
+@require_roles("admin", "auditor")
 def audit():
     actor = request.args.get("actor") or None   # None → all actors; "clinician"/"patient" → filtered
     rows  = get_audit_logs(actor=actor)
@@ -494,8 +572,17 @@ def audit():
 @app.route("/api/audit/log", methods=["POST"])
 def audit_log():
     d = request.get_json() or {}
-    log_audit(d.get("actor","clinician"), d.get("action",""), d.get("detail",""))
+    action = str(d.get("action", ""))[:120]
+    detail = str(d.get("detail", ""))[:500]
+    log_audit(g.current_user["role"], action, detail, actor_id=g.current_user["id"])
     return jsonify({"success": True})
+
+
+@app.route("/api/audit/verify")
+@require_roles("admin", "auditor")
+def audit_verify():
+    valid, checked, first_invalid = verify_audit_chain()
+    return jsonify({"valid": valid, "checked": checked, "first_invalid_log_id": first_invalid})
 
 # ─── Export ────────────────────────────────────────────────────────────────────
 @app.route("/api/export/report", methods=["POST"])
@@ -503,9 +590,12 @@ def do_export_report():
     d = request.get_json() or {}
     try:
         fp = export_report(d.get("report", {}))
-        return jsonify({"success": True, "file": fp})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        protected_file, digest = protect_file(fp)
+        log_audit(g.current_user["role"], "Exported encrypted clinical report",
+                  os.path.basename(protected_file), actor_id=g.current_user["id"])
+        return jsonify({"success": True, "file": protected_file, "sha256": digest, "encrypted": True})
+    except Exception:
+        return jsonify({"success": False, "error": "Secure report export failed."}), 500
 
 @app.route("/api/export/summary", methods=["POST"])
 def do_export_summary():
@@ -514,40 +604,43 @@ def do_export_summary():
         c.execute("""SELECT student_id,timestamp,flag,phq_score,gad_score,
                             psi,pai,fuzzy_label FROM intake_sessions ORDER BY timestamp DESC""")
         rows = c.fetchall(); conn.close()
-        log_audit("clinician", "Exported Generated Reports")
+        log_audit(g.current_user["role"], "Exported generated reports", actor_id=g.current_user["id"])
         if not rows:
             return jsonify({"success": False, "error": "No sessions to export."})
         fp = export_summary(rows)
-        return jsonify({"success": True, "file": fp})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        protected_file, digest = protect_file(fp)
+        return jsonify({"success": True, "file": protected_file, "sha256": digest, "encrypted": True})
+    except Exception:
+        return jsonify({"success": False, "error": "Secure summary export failed."}), 500
 
 # ─── Delete ────────────────────────────────────────────────────────────────────
 @app.route("/api/clients/<client_id>", methods=["DELETE"])
+@require_roles("admin", "clinician")
 def delete_client(client_id):
     try:
         ph = _ph()
         conn = _conn(); c = conn.cursor()
-        c.execute(f"DELETE FROM intake_sessions WHERE student_id={ph}", (client_id,))
+        clinician_id = _scoped_clinician_id()
+        c.execute(f"DELETE FROM intake_sessions WHERE student_id={ph} AND clinician_id={ph}",
+                  (client_id, clinician_id))
         deleted = c.rowcount
         conn.commit(); conn.close()
-        log_audit("clinician", f"Deleted client record: {client_id}", f"{deleted} session(s) removed")
+        log_audit(g.current_user["role"], f"Deleted client record: {client_id}",
+                  f"{deleted} session(s) removed", actor_id=g.current_user["id"])
         return jsonify({"success": True, "deleted": deleted})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ─── Normative baseline ────────────────────────────────────────────────────────
 @app.route("/api/normative/login", methods=["POST"])
+@require_roles("admin")
 def normative_login():
     d   = request.get_json() or {}
     tid = str(d.get("tester_id", "")).strip() or "NORMER"
-    pwd = str(d.get("password", "")).strip()
-    if pwd != NORMER_PASSWORD:
-        return jsonify({"success": False, "error": "Incorrect tester password."})
     controller = require_controller()
     controller.normative_mode = True
     controller.set_student_id(tid)
-    log_audit("normative", "Normative tester login", tid)
+    log_audit("admin", "Enabled normative mode", tid, actor_id=g.current_user["id"])
     return jsonify({"success": True, "tester_id": tid})
 
 @app.route("/api/normative/mode", methods=["POST"])
@@ -562,21 +655,14 @@ def normative_stats():
     return jsonify(get_normative_stats())
 
 @app.route("/api/normative/compute", methods=["POST"])
+@require_roles("admin")
 def normative_compute():
-    d = request.get_json() or {}
-    uid = str(d.get("id", "")).strip()
-    pwd = str(d.get("password", "")).strip()
-    if not uid or not pwd:
-        return jsonify({"success": False, "error": "Clinician ID and password required."})
     try:
-        clinician_id = int(uid)
-        success, error_msg = db_verify_clinician(clinician_id, pwd)
-        if not success:
-            return jsonify({"success": False, "error": error_msg or "Invalid clinician credentials."})
         ok = compute_normative_stats()
         if ok:
             count = get_normative_count()
-            log_audit("clinician", "Computed normative baseline", f"{count} sessions")
+            log_audit("admin", "Computed normative baseline", f"{count} sessions",
+                      actor_id=g.current_user["id"])
             return jsonify({"success": True, "count": count})
         return jsonify({"success": False, "error": "No normative sessions found."})
     except Exception as e:
@@ -600,6 +686,7 @@ def sync_status():
 
 
 @app.route("/api/sync/now", methods=["POST"])
+@require_roles("admin")
 def sync_now():
     """Trigger an immediate sync attempt (clinician-initiated)."""
     try:
@@ -610,6 +697,7 @@ def sync_now():
 
 
 @app.route("/api/sync/pull", methods=["POST"])
+@require_roles("admin")
 def sync_pull():
     """Pull existing sessions from Supabase into local SQLite (one-time migration)."""
     try:
@@ -619,6 +707,97 @@ def sync_pull():
         return jsonify({"success": True, "pulled": pulled})
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "pulled": 0}), 500
+
+
+@app.route("/api/admin/backup", methods=["POST"])
+@require_roles("admin")
+def admin_backup():
+    try:
+        result = create_encrypted_backup(g.current_user["id"])
+        log_audit("admin", "Created encrypted backup", os.path.basename(result["file"]),
+                  actor_id=g.current_user["id"])
+        return jsonify({"success": True, **result})
+    except Exception:
+        return jsonify({"success": False, "error": "Encrypted backup failed."}), 500
+
+
+@app.route("/api/admin/backup/verify", methods=["POST"])
+@require_roles("admin", "auditor")
+def admin_backup_verify():
+    d = request.get_json() or {}
+    try:
+        result = validate_encrypted_backup(str(d.get("file", "")), d.get("sha256"))
+        log_audit(g.current_user["role"], "Verified encrypted backup",
+                  os.path.basename(str(d.get("file", ""))), actor_id=g.current_user["id"],
+                  outcome="success" if result.get("valid") else "failed")
+        return jsonify({"success": bool(result.get("valid")), **result})
+    except Exception:
+        return jsonify({"success": False, "error": "Backup verification failed."}), 400
+
+
+@app.route("/api/admin/users")
+@require_roles("admin")
+def admin_users():
+    conn = _conn()
+    rows = _exec(conn, """
+        SELECT clinician_id, name, role, status, created_at, last_login_at
+        FROM clinicians ORDER BY name
+    """).fetchall()
+    conn.close()
+    return jsonify([{
+        "id": r[0], "name": r[1], "role": r[2] or "clinician",
+        "status": r[3] or "active", "created_at": r[4], "last_login_at": r[5],
+    } for r in rows])
+
+
+@app.route("/api/admin/users/<int:clinician_id>", methods=["PATCH"])
+@require_roles("admin")
+def admin_update_user(clinician_id):
+    d = request.get_json() or {}
+    role = str(d.get("role", "")).lower()
+    status = str(d.get("status", "")).lower()
+    if role not in {"admin", "clinician", "auditor"} or status not in {"active", "disabled"}:
+        return jsonify({"success": False, "error": "Invalid role or status."}), 400
+    if clinician_id == g.current_user["id"] and (role != "admin" or status != "active"):
+        return jsonify({"success": False, "error": "You cannot remove your own active administrator access."}), 400
+    conn = _conn()
+    existing = _exec(conn, "SELECT name FROM clinicians WHERE clinician_id=?", (clinician_id,)).fetchone()
+    if not existing:
+        conn.close(); return jsonify({"success": False, "error": "User not found."}), 404
+    _exec(conn, "UPDATE clinicians SET role=?, status=? WHERE clinician_id=?",
+          (role, status, clinician_id))
+    if status == "disabled":
+        _exec(conn, "UPDATE security_sessions SET revoked_at=? WHERE clinician_id=? AND revoked_at IS NULL",
+              (datetime.now().isoformat(timespec="seconds"), clinician_id))
+    conn.commit(); conn.close()
+    log_audit("admin", "Updated user access", f"{clinician_id}: {role}/{status}",
+              actor_id=g.current_user["id"])
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/security-status")
+@require_roles("admin", "auditor")
+def admin_security_status():
+    valid, checked, first_invalid = verify_audit_chain()
+    conn = _conn()
+    latest = _exec(conn, """
+        SELECT created_at, file_path, sha256, verified_at, status
+        FROM backup_records ORDER BY backup_id DESC LIMIT 1
+    """).fetchone()
+    active_users = _exec(conn, "SELECT COUNT(*) FROM clinicians WHERE status='active'").fetchone()[0]
+    active_sessions = _exec(conn, """
+        SELECT COUNT(*) FROM security_sessions
+        WHERE revoked_at IS NULL AND expires_at>?
+    """, (datetime.now().isoformat(timespec="seconds"),)).fetchone()[0]
+    conn.close()
+    return jsonify({
+        "audit": {"valid": valid, "checked": checked, "first_invalid_log_id": first_invalid},
+        "latest_backup": None if not latest else {
+            "created_at": latest[0], "file": latest[1], "sha256": latest[2],
+            "verified_at": latest[3], "status": latest[4],
+        },
+        "active_users": active_users, "active_sessions": active_sessions,
+    })
 
 
 # ─── Health check ──────────────────────────────────────────────────────────────

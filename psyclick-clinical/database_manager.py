@@ -6,8 +6,9 @@ This version uses ONLY local SQLite database.
 No network connections, no configuration files, no external dependencies.
 Perfect for air-gapped clinical environments and demo deployments.
 """
-import sqlite3, math, json, os, sys, time
+import sqlite3, math, json, os, sys, time, hashlib, secrets
 import logging
+from datetime import datetime, timedelta
 
 # Configure logging for database operations
 logger = logging.getLogger(__name__)
@@ -164,6 +165,22 @@ def init_db():
         _add_col(conn, 'intake_sessions', 'synced_at',                'TEXT')
         conn.commit()
 
+    if 'clinicians' in tables:
+        _add_col(conn, 'clinicians', 'password_hash',   'TEXT')
+        _add_col(conn, 'clinicians', 'role',            'TEXT')
+        _add_col(conn, 'clinicians', 'status',          'TEXT')
+        _add_col(conn, 'clinicians', 'failed_attempts', 'INTEGER')
+        _add_col(conn, 'clinicians', 'locked_until',    'TEXT')
+        _add_col(conn, 'clinicians', 'last_login_at',   'TEXT')
+        conn.commit()
+
+    if 'audit_log' in tables:
+        _add_col(conn, 'audit_log', 'actor_id',  'INTEGER')
+        _add_col(conn, 'audit_log', 'outcome',   'TEXT')
+        _add_col(conn, 'audit_log', 'prev_hash', 'TEXT')
+        _add_col(conn, 'audit_log', 'entry_hash','TEXT')
+        conn.commit()
+
     # Each table is created in its own try-except + commit
     _DDL_TABLES = [
         # ── Clinicians ────────────────────────────────────────────────────────
@@ -172,6 +189,12 @@ def init_db():
                 clinician_id     INTEGER PRIMARY KEY,
                 name             TEXT NOT NULL UNIQUE,
                 password         TEXT NOT NULL,
+                password_hash    TEXT,
+                role             TEXT DEFAULT 'clinician',
+                status           TEXT DEFAULT 'active',
+                failed_attempts  INTEGER DEFAULT 0,
+                locked_until     TEXT,
+                last_login_at    TEXT,
                 created_at       TEXT DEFAULT (datetime('now'))
             )
         """),
@@ -235,9 +258,53 @@ def init_db():
             CREATE TABLE IF NOT EXISTS audit_log (
                 log_id    INTEGER PRIMARY KEY AUTOINCREMENT,
                 actor     TEXT,
+                actor_id  INTEGER,
                 action    TEXT,
                 detail    TEXT,
+                outcome   TEXT DEFAULT 'success',
+                prev_hash TEXT,
+                entry_hash TEXT,
                 timestamp TEXT DEFAULT (datetime('now','localtime'))
+            )
+        """),
+
+        ("security_sessions", """
+            CREATE TABLE IF NOT EXISTS security_sessions (
+                session_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_hash  TEXT NOT NULL UNIQUE,
+                clinician_id INTEGER NOT NULL,
+                role        TEXT NOT NULL,
+                created_at  TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                expires_at  TEXT NOT NULL,
+                revoked_at  TEXT,
+                FOREIGN KEY (clinician_id) REFERENCES clinicians(clinician_id)
+            )
+        """),
+
+        ("consent_records", """
+            CREATE TABLE IF NOT EXISTS consent_records (
+                consent_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id  TEXT NOT NULL,
+                clinician_id INTEGER NOT NULL,
+                consent_version TEXT NOT NULL,
+                decision    TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                withdrawn_at TEXT,
+                FOREIGN KEY (clinician_id) REFERENCES clinicians(clinician_id)
+            )
+        """),
+
+        ("backup_records", """
+            CREATE TABLE IF NOT EXISTS backup_records (
+                backup_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at  TEXT NOT NULL,
+                created_by  INTEGER NOT NULL,
+                file_path   TEXT NOT NULL,
+                sha256      TEXT NOT NULL,
+                encrypted   INTEGER NOT NULL DEFAULT 1,
+                verified_at TEXT,
+                status      TEXT NOT NULL DEFAULT 'created'
             )
         """),
 
@@ -284,6 +351,21 @@ def init_db():
             except Exception:
                 pass
 
+    # Security defaults for upgraded databases. The earliest account becomes
+    # the bootstrap administrator when no administrator exists.
+    try:
+        c.execute("UPDATE clinicians SET role='clinician' WHERE role IS NULL OR role='' ")
+        c.execute("UPDATE clinicians SET status='active' WHERE status IS NULL OR status='' ")
+        c.execute("UPDATE clinicians SET failed_attempts=0 WHERE failed_attempts IS NULL")
+        admin = c.execute("SELECT clinician_id FROM clinicians WHERE role='admin' LIMIT 1").fetchone()
+        if not admin:
+            first = c.execute("SELECT MIN(clinician_id) FROM clinicians").fetchone()
+            if first and first[0] is not None:
+                c.execute("UPDATE clinicians SET role='admin' WHERE clinician_id=?", (first[0],))
+        conn.commit()
+    except Exception as exc:
+        logger.error(f"init_db: failed to apply security defaults: {exc}")
+
     # Migration guard for question_shown_at
     _add_col(conn, 'question_snapshots', 'question_shown_at', 'REAL')
 
@@ -292,6 +374,49 @@ def init_db():
     except Exception:
         pass
     conn.close()
+
+    # Seed normative stats if the table is empty
+    _seed_normative_stats()
+
+
+def _seed_normative_stats():
+    """
+    Pre-seed normative_stats from the 102-session healthy-tester population
+    (110 collected; 3 cold-start artifacts excluded by T²/threshold ratio >10×).
+
+    Cross-validated against BAT calibration values:
+      PSI  p99 = 39.1050  ✓
+      PAI  p99 = 107.8280 ✓
+      T²-ratio p99 = 6.9975 ✓
+
+    Only runs when normative_stats is empty — never overwrites existing data.
+    """
+    # Derived from CURRENT DATABASE MERGED.csv, T-format tester rows only,
+    # excluding IDs 1-3 (T-001/T-002/T-003 first sessions — EWMA cold-start).
+    SEED = {
+        't2_score':         {'mean': 20.792655, 'sd': 26.479331, 'count': 102},
+        'psi':              {'mean':  6.500542, 'sd':  9.169439, 'count': 102},
+        'pai':              {'mean': 14.801972, 'sd': 24.432572, 'count': 102},
+        'phq_score':        {'mean':  4.676471, 'sd':  1.791961, 'count': 102},
+        'gad_score':        {'mean':  4.156863, 'sd':  2.151422, 'count': 102},
+        'flight_time_mean': {'mean':  0.163393, 'sd':  0.064421, 'count': 102},
+    }
+    try:
+        conn = _conn()
+        existing = _exec(conn, "SELECT COUNT(*) FROM normative_stats").fetchone()[0]
+        if existing > 0:
+            conn.close()
+            return  # already populated — don't overwrite
+        for metric, s in SEED.items():
+            _exec(conn, """
+                INSERT OR REPLACE INTO normative_stats (metric, norm_mean, norm_sd, count)
+                VALUES (?, ?, ?, ?)
+            """, (metric, s['mean'], s['sd'], s['count']))
+        conn.commit()
+        conn.close()
+        logger.info('[DB] Seeded normative_stats from 102-session population baseline.')
+    except Exception as exc:
+        logger.warning(f'[DB] Could not seed normative_stats: {exc}')
 
 
 # ── Utility ───────────────────────────────────────────────────────────────────
@@ -445,14 +570,25 @@ def save_full_intake(data):
 
 # ── Audit ─────────────────────────────────────────────────────────────────────
 
-def log_audit(actor, action, detail=None):
+def log_audit(actor, action, detail=None, actor_id=None, outcome="success"):
+    """Append a hash-chained audit event without storing credentials or tokens."""
     try:
-        import datetime as _dt
-        ts = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn = _conn()
+        previous = _exec(conn,
+            "SELECT entry_hash FROM audit_log ORDER BY log_id DESC LIMIT 1"
+        ).fetchone()
+        prev_hash = (previous[0] if previous and previous[0] else "0" * 64)
+        canonical = "|".join([
+            prev_hash, ts, str(actor or "system"), str(actor_id or ""),
+            str(action or ""), str(detail or ""), str(outcome or "success"),
+        ])
+        entry_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         _exec(conn,
-              "INSERT INTO audit_log (actor, action, detail, timestamp) VALUES (?,?,?,?)",
-              (actor, action, detail, ts))
+              """INSERT INTO audit_log
+                 (actor, actor_id, action, detail, outcome, prev_hash, entry_hash, timestamp)
+                 VALUES (?,?,?,?,?,?,?,?)""",
+              (actor, actor_id, action, detail, outcome, prev_hash, entry_hash, ts))
         conn.commit()
         conn.close()
         return True
@@ -477,6 +613,34 @@ def get_audit_logs(actor=None):
     except Exception as e:
         logger.error(f"Failed to retrieve audit logs (actor={actor}): {str(e)}")
         return []
+
+
+def verify_audit_chain():
+    """Return (valid, checked_count, first_invalid_log_id)."""
+    conn = _conn()
+    rows = _exec(conn, """
+        SELECT log_id, actor, actor_id, action, detail, outcome,
+               prev_hash, entry_hash, timestamp
+        FROM audit_log ORDER BY log_id ASC
+    """).fetchall()
+    conn.close()
+    previous = "0" * 64
+    checked = 0
+    for row in rows:
+        log_id, actor, actor_id, action, detail, outcome, prev_hash, entry_hash, ts = row
+        # Legacy rows predate chaining and remain visible but start a new chain.
+        if not entry_hash:
+            continue
+        canonical = "|".join([
+            str(prev_hash or previous), str(ts), str(actor or "system"), str(actor_id or ""),
+            str(action or ""), str(detail or ""), str(outcome or "success"),
+        ])
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if prev_hash != previous or not secrets.compare_digest(entry_hash, expected):
+            return False, checked, log_id
+        previous = entry_hash
+        checked += 1
+    return True, checked, None
 
 
 # ── Session queries ───────────────────────────────────────────────────────────
@@ -629,6 +793,8 @@ def get_normative_stats():
 def get_normative_compare(session_id):
     try:
         from scipy.stats import norm as scipy_norm
+        # Self-healing: ensure stats are seeded even if init_db() ran before the edit
+        _seed_normative_stats()
         conn = _conn()
 
         row = _exec(conn, """
@@ -740,14 +906,54 @@ def get_question_snapshots(session_id):
 
 # ── Clinician auth ────────────────────────────────────────────────────────────
 
-def register_clinician(name, password):
+PASSWORD_MIN_LENGTH = 12
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
+SESSION_IDLE_MINUTES = 15
+SESSION_ABSOLUTE_HOURS = 8
+
+
+def _hash_password(password):
+    salt = secrets.token_bytes(16)
+    n, r, p = 16384, 8, 1
+    derived = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=32)
+    return f"scrypt:{n}:{r}:{p}${salt.hex()}${derived.hex()}"
+
+
+def _check_password(stored, password):
+    try:
+        params, salt_hex, expected_hex = stored.split("$")
+        _, n, r, p = params.split(":")
+        actual = hashlib.scrypt(
+            password.encode("utf-8"), salt=bytes.fromhex(salt_hex),
+            n=int(n), r=int(r), p=int(p), dklen=len(bytes.fromhex(expected_hex)),
+        )
+        return secrets.compare_digest(actual.hex(), expected_hex)
+    except (ValueError, TypeError):
+        return False
+
+
+def _password_policy_error(password):
+    if len(password or "") < PASSWORD_MIN_LENGTH:
+        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters."
+    if not any(ch.isalpha() for ch in password) or not any(ch.isdigit() for ch in password):
+        return "Password must contain at least one letter and one number."
+    common = {"password1234", "123456789012", "qwerty123456", "psyclick12345"}
+    if password.lower() in common:
+        return "Choose a password that is not commonly used."
+    return None
+
+
+def register_clinician(name, password, role=None):
     """
     Register a new clinician with auto-incrementing ID format: YYYYNNN
     (e.g., 2026001, 2026002, etc).
     Returns: (success, clinician_id, error_msg)
     """
     try:
-        from datetime import datetime
+        policy_error = _password_policy_error(password)
+        if policy_error:
+            return False, None, policy_error
         conn = _conn()
 
         existing = _exec(conn,
@@ -769,9 +975,14 @@ def register_clinician(name, password):
         next_seq = (latest[0] % 1000) + 1 if (latest and latest[0]) else 1
         clinician_id = int(f"{year_prefix}{next_seq:03d}")
 
+        count = _exec(conn, "SELECT COUNT(*) FROM clinicians").fetchone()[0]
+        assigned_role = role if role in {"admin", "clinician", "auditor"} else ("admin" if count == 0 else "clinician")
+        password_hash = _hash_password(password)
         _exec(conn,
-            "INSERT INTO clinicians (clinician_id, name, password) VALUES (?, ?, ?)",
-            (clinician_id, name, password))
+            """INSERT INTO clinicians
+               (clinician_id, name, password, password_hash, role, status, failed_attempts)
+               VALUES (?, ?, '', ?, ?, 'active', 0)""",
+            (clinician_id, name, password_hash, assigned_role))
         conn.commit()
         conn.close()
         return True, clinician_id, None
@@ -784,29 +995,160 @@ def get_clinician_by_id(clinician_id):
     try:
         conn = _conn()
         row  = _exec(conn,
-            "SELECT clinician_id, name FROM clinicians WHERE clinician_id=?",
+            "SELECT clinician_id, name, role, status FROM clinicians WHERE clinician_id=?",
             (clinician_id,)).fetchone()
         conn.close()
-        return {"clinician_id": row[0], "name": row[1]} if row else None
+        return {
+            "clinician_id": row[0], "name": row[1],
+            "role": row[2] or "clinician", "status": row[3] or "active",
+        } if row else None
     except Exception:
         return None
 
 
 def verify_clinician(clinician_id, password):
-    """Verify clinician credentials. Returns (success, name_or_error_msg)."""
+    """Verify a credential, enforce lockout, and migrate legacy plaintext once."""
     try:
         conn = _conn()
         row  = _exec(conn,
-            "SELECT password, name FROM clinicians WHERE clinician_id=?",
+            """SELECT password, password_hash, name, status,
+                      COALESCE(failed_attempts,0), locked_until
+               FROM clinicians WHERE clinician_id=?""",
             (clinician_id,)).fetchone()
-        conn.close()
         if not row:
-            return False, "Clinician ID not found"
-        if row[0] != password:
-            return False, "Incorrect password"
-        return True, row[1]
-    except Exception as e:
-        return False, str(e)
+            conn.close()
+            return False, "Invalid clinician ID or password."
+
+        legacy_password, password_hash, name, status, failed_attempts, locked_until = row
+        now = datetime.now()
+        if status != "active":
+            conn.close()
+            return False, "Account is disabled. Contact the administrator."
+        if locked_until:
+            try:
+                if datetime.fromisoformat(locked_until) > now:
+                    conn.close()
+                    return False, "Account is temporarily locked. Try again later."
+            except ValueError:
+                pass
+
+        verified = False
+        if password_hash:
+            try:
+                verified = _check_password(password_hash, password)
+            except (ValueError, TypeError):
+                verified = False
+        elif legacy_password:
+            # One-time migration path for existing academic prototype accounts.
+            verified = secrets.compare_digest(str(legacy_password), str(password))
+
+        if not verified:
+            failed_attempts += 1
+            new_lock = None
+            if failed_attempts >= MAX_FAILED_ATTEMPTS:
+                new_lock = (now + timedelta(minutes=LOCKOUT_MINUTES)).isoformat(timespec="seconds")
+                failed_attempts = 0
+            _exec(conn,
+                "UPDATE clinicians SET failed_attempts=?, locked_until=? WHERE clinician_id=?",
+                (failed_attempts, new_lock, clinician_id))
+            conn.commit(); conn.close()
+            return False, "Invalid clinician ID or password."
+
+        if not password_hash:
+            password_hash = _hash_password(password)
+        _exec(conn, """
+            UPDATE clinicians
+            SET password='', password_hash=?, failed_attempts=0,
+                locked_until=NULL, last_login_at=?
+            WHERE clinician_id=?
+        """, (password_hash, now.isoformat(timespec="seconds"), clinician_id))
+        conn.commit(); conn.close()
+        return True, name
+    except Exception:
+        return False, "Authentication service unavailable."
+
+
+def create_security_session(clinician_id, role):
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = datetime.now()
+    expires = now + timedelta(hours=SESSION_ABSOLUTE_HOURS)
+    conn = _conn()
+    _exec(conn, """
+        INSERT INTO security_sessions
+        (token_hash, clinician_id, role, created_at, last_seen_at, expires_at)
+        VALUES (?,?,?,?,?,?)
+    """, (token_hash, clinician_id, role, now.isoformat(timespec="seconds"),
+          now.isoformat(timespec="seconds"), expires.isoformat(timespec="seconds")))
+    conn.commit(); conn.close()
+    return token, expires.isoformat(timespec="seconds")
+
+
+def authenticate_security_session(token):
+    if not token:
+        return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = _conn()
+    row = _exec(conn, """
+        SELECT s.session_id, s.clinician_id, s.role, s.last_seen_at, s.expires_at,
+               c.name, c.status
+        FROM security_sessions s
+        JOIN clinicians c ON c.clinician_id=s.clinician_id
+        WHERE s.token_hash=? AND s.revoked_at IS NULL
+    """, (token_hash,)).fetchone()
+    if not row:
+        conn.close(); return None
+    session_id, clinician_id, role, last_seen_at, expires_at, name, status = row
+    now = datetime.now()
+    try:
+        expired = datetime.fromisoformat(expires_at) <= now
+        idle = datetime.fromisoformat(last_seen_at) + timedelta(minutes=SESSION_IDLE_MINUTES) <= now
+    except ValueError:
+        expired = idle = True
+    if status != "active" or expired or idle:
+        _exec(conn, "UPDATE security_sessions SET revoked_at=? WHERE session_id=?",
+              (now.isoformat(timespec="seconds"), session_id))
+        conn.commit(); conn.close(); return None
+    _exec(conn, "UPDATE security_sessions SET last_seen_at=? WHERE session_id=?",
+          (now.isoformat(timespec="seconds"), session_id))
+    conn.commit(); conn.close()
+    return {"session_id": session_id, "id": clinician_id, "name": name, "role": role}
+
+
+def revoke_security_session(token):
+    if not token:
+        return False
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn = _conn()
+    cursor = _exec(conn, "UPDATE security_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
+                   (datetime.now().isoformat(timespec="seconds"), token_hash))
+    conn.commit(); changed = cursor.rowcount; conn.close()
+    return changed > 0
+
+
+def record_consent(patient_id, clinician_id, decision="granted", version="1.0"):
+    if decision not in {"granted", "denied", "withdrawn"}:
+        raise ValueError("Invalid consent decision")
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = _conn()
+    _exec(conn, """
+        INSERT INTO consent_records
+        (patient_id, clinician_id, consent_version, decision, recorded_at, withdrawn_at)
+        VALUES (?,?,?,?,?,?)
+    """, (patient_id, clinician_id, version, decision, now, now if decision == "withdrawn" else None))
+    conn.commit(); conn.close()
+    return True
+
+
+def has_active_consent(patient_id, clinician_id):
+    conn = _conn()
+    row = _exec(conn, """
+        SELECT decision FROM consent_records
+        WHERE patient_id=? AND clinician_id=?
+        ORDER BY consent_id DESC LIMIT 1
+    """, (patient_id, clinician_id)).fetchone()
+    conn.close()
+    return bool(row and row[0] == "granted")
 
 
 # ── Auto-ID generation ────────────────────────────────────────────────────────

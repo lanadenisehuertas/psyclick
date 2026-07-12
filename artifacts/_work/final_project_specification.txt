@@ -1,0 +1,289 @@
+SOURCE: C:\Users\Lana\Downloads\Final Project Specification.docx
+PARAGRAPHS: 201
+TABLES: 10
+
+=== PARAGRAPHS ===
+P0 [Normal]: 
+P1 [Normal]: 	COLLEGE OF COMPUTER STUDIES AND MULTIMEDIA ARTS 	 
+P2 [Normal]:  	 
+P3 [Normal]: CS0029
+P4 [Normal]: (Information Assurance & Security) 
+P5 [Normal]:  
+P6 [Normal]:  
+P7 [Normal]:   
+P8 [Normal]: 
+P9 [Normal]: Final Project Specification
+P10 [Normal]: 
+P11 [Normal]: Design, Development, and Security Evaluation of a Proposed System Title
+P12 [Normal]: 
+P13 [Normal]: 
+P14 [Normal]: 
+P15 [Normal]:  
+P16 [Normal]: I. Project Overview
+P17 [Normal]: The Final Project requires students to propose, design, and evaluate a secure information system that addresses a real-world organizational problem. The project must demonstrate the application of Information Assurance and Security principles, including confidentiality, integrity, availability, authentication, authorization, accountability, risk management, and cybersecurity controls.
+P18 [Normal]: Students will produce a complete system proposal, security architecture, implementation prototype (if applicable), security assessment, and final defense presentation.
+P19 [Normal]: 
+P20 [Normal]: II. Project Objectives
+P21 [Normal]: By the end of the project, students should be able to:
+P22 [Normal]: Identify security requirements for an information system. 
+P23 [Normal]: Conduct risk assessment and threat analysis. 
+P24 [Normal]: Design secure system architecture. 
+P25 [Normal]: Implement appropriate security controls. 
+P26 [Normal]: Evaluate system vulnerabilities and mitigation strategies. 
+P27 [Normal]: Apply information assurance principles in system development. 
+P28 [Normal]: Present and defend security decisions professionally. 
+P29 [Normal]: 
+P30 [Normal]: III. Proposed System Requirements
+P31 [Normal]: The proposed system may belong to any of the following categories:
+P32 [Normal]: Student Information Management System 
+P33 [Normal]: Inventory Management System 
+P34 [Normal]: Healthcare Information System 
+P35 [Normal]: E-Commerce System 
+P36 [Normal]: Human Resource Management System 
+P37 [Normal]: Library Management System 
+P38 [Normal]: Payroll System 
+P39 [Normal]: Online Reservation System 
+P40 [Normal]: Learning Management System 
+P41 [Normal]: Custom Organizational Information System 
+P42 [Normal]: Your Current Proposed System in Project Management 2
+P43 [Normal]: The system must include security features relevant to Information Assurance and Security.
+P44 [Normal]: 
+P45 [Normal]: Mandatory Security Features
+P46 [Normal]: The proposed system must include:
+P47 [Normal]: Authentication
+P48 [Normal]: Secure login mechanism 
+P49 [Normal]: Password policy implementation 
+P50 [Normal]: Multi-factor authentication (optional but highly encouraged) 
+P51 [Normal]: Authorization
+P52 [Normal]: Role-Based Access Control (RBAC) 
+P53 [Normal]: User privilege management 
+P54 [Normal]: Data Protection
+P55 [Normal]: Data encryption 
+P56 [Normal]: Secure password storage (hashing) 
+P57 [Normal]: Secure data transmission 
+P58 [Normal]: Audit and Accountability
+P59 [Normal]: Activity logs 
+P60 [Normal]: User action tracking 
+P61 [Normal]: Login history 
+P62 [Normal]: Availability
+P63 [Normal]: Backup and recovery plan 
+P64 [Normal]: System redundancy discussion 
+P65 [Normal]: Security Monitoring
+P66 [Normal]: Intrusion detection concept 
+P67 [Normal]: Incident response procedures 
+P68 [Normal]: 
+P69 [Normal]: IV. Project Deliverables
+P70 [Normal]: A. Written Thesis Documentation
+P71 [Normal]: Chapter 1: Introduction
+P72 [Normal]: Include:
+P73 [Normal]: Background of the Study 
+P74 [Normal]: Problem Statement 
+P75 [Normal]: Objectives 
+P76 [Normal]: Scope and Limitations 
+P77 [Normal]: Significance of the Study 
+P78 [Normal]: Chapter 2: Review of Related Literature and Studies
+P79 [Normal]: Include:
+P80 [Normal]: Local Literature 
+P81 [Normal]: Foreign Literature 
+P82 [Normal]: Local Studies 
+P83 [Normal]: Foreign Studies 
+P84 [Normal]: Synthesis 
+P85 [Normal]: Research Gap 
+P86 [Normal]: Chapter 3: System Analysis and Design
+P87 [Normal]: Include:
+P88 [Normal]: System Requirements 
+P89 [Normal]: Feasibility Study 
+P90 [Normal]: Use Case Diagram 
+P91 [Normal]: Data Flow Diagram (DFD) 
+P92 [Normal]: Entity Relationship Diagram (ERD) 
+P93 [Normal]: Network Architecture 
+P94 [Normal]: Security Architecture 
+P95 [Normal]: Database Design 
+P96 [Normal]: Chapter 4: System Development and Security Implementation
+P97 [Normal]: Include:
+P98 [Normal]: Development Methodology 
+P99 [Normal]: System Features 
+P100 [Normal]: Security Controls Implemented 
+P101 [Normal]: Encryption Techniques 
+P102 [Normal]: Authentication and Authorization Mechanisms 
+P103 [Normal]: Secure Coding Practices 
+P104 [Normal]: Chapter 5: Security Evaluation and Testing
+P105 [Normal]: Include:
+P106 [Normal]: Functional Testing 
+P107 [Normal]: Vulnerability Assessment 
+P108 [Normal]: Risk Assessment 
+P109 [Normal]: Penetration Testing Results (Simulation or Conceptual) 
+P110 [Normal]: Security Analysis 
+P111 [Normal]: User Acceptance Testing 
+P112 [Normal]: Chapter 6: Conclusions and Recommendations
+P113 [Normal]: Include:
+P114 [Normal]: Summary of Findings 
+P115 [Normal]: Conclusions 
+P116 [Normal]: Recommendations 
+P117 [Normal]: Future Enhancements 
+P118 [Normal]: 
+P119 [Normal]: B. Proposed System Output
+P120 [Normal]: The final output must include the following:
+P121 [Normal]: 1. System Prototype or Working Application
+P122 [Normal]: Minimum Modules:
+P123 [Normal]: User Management 
+P124 [Normal]: Authentication Module 
+P125 [Normal]: Dashboard 
+P126 [Normal]: Main Business Process Module 
+P127 [Normal]: Reports Module 
+P128 [Normal]: Audit Logs Module 
+P129 [Normal]: 2. Security Documentation
+P130 [Normal]: Must contain:
+P131 [Normal]: Threat Model 
+P132 [Normal]: Risk Assessment Matrix 
+P133 [Normal]: Security Policy 
+P134 [Normal]: Incident Response Plan 
+P135 [Normal]: Backup and Recovery Plan 
+P136 [Normal]: 3. Technical Documentation
+P137 [Normal]: Must contain:
+P138 [Normal]: System Architecture Diagram 
+P139 [Normal]: Database Schema 
+P140 [Normal]: API Documentation (if applicable) 
+P141 [Normal]: Installation Guide 
+P142 [Normal]: User Manual 
+P143 [Normal]: 4. Security Evaluation Report
+P144 [Normal]: Must contain:
+P145 [Normal]: 
+P146 [Normal]: V. Required Security Analysis
+P147 [Normal]: Students must analyze:
+P148 [Normal]: Threat Identification
+P149 [Normal]: Examples:
+P150 [Normal]: Unauthorized access 
+P151 [Normal]: Data leakage 
+P152 [Normal]: Malware infection 
+P153 [Normal]: Insider threats 
+P154 [Normal]: Denial of Service (DoS) 
+P155 [Normal]: SQL Injection 
+P156 [Normal]: Cross-Site Scripting (XSS) 
+P157 [Normal]: Risk Assessment Matrix
+P158 [Normal]: Security Controls Mapping
+P159 [Normal]: Students must identify:
+P160 [Normal]: 
+P161 [Normal]: VI. Final Defense Requirements
+P162 [Normal]: Students shall prepare:
+P163 [Normal]: Presentation Slides
+P164 [Normal]: Must include:
+P165 [Normal]: Introduction 
+P166 [Normal]: Problem Statement 
+P167 [Normal]: Proposed Solution 
+P168 [Normal]: System Architecture 
+P169 [Normal]: Security Architecture 
+P170 [Normal]: Demonstration 
+P171 [Normal]: Security Assessment 
+P172 [Normal]: Findings 
+P173 [Normal]: Recommendations 
+P174 [Normal]: Live Demonstration
+P175 [Normal]: Demonstrate:
+P176 [Normal]: User login 
+P177 [Normal]: Role management 
+P178 [Normal]: Security controls 
+P179 [Normal]: Audit logs 
+P180 [Normal]: Core system functionality 
+P181 [Normal]: Defense Duration
+P182 [Normal]: Total: 30–40 minutes
+P183 [Normal]: 
+P184 [Normal]: VII. Evaluation Rubric (100 Points)
+P185 [Normal]: A. Documentation (25 Points)
+P186 [Normal]: 
+P187 [Normal]: B. System Design and Development (25 Points)
+P188 [Normal]: 
+P189 [Normal]: C. Information Assurance and Security Implementation (30 Points)
+P190 [Normal]: 
+P191 [Normal]: D. Final Defense and Presentation (20 Points)
+P192 [Normal]: 
+P193 [Normal]: VIII. Grading Summary
+P194 [Normal]: 
+P195 [Normal]: IX. Expected Final Output
+P196 [Normal]: Each group must submit:
+P197 [Normal]: Complete Thesis Manuscript (Chapters 1–6)
+System Prototype/Working Application
+Security Architecture Diagram
+Risk Assessment Report
+Security Testing Report
+User Manual
+Source Code Repository
+Presentation Slides
+Final Defense Demonstration
+P198 [Normal]: 
+P199 [Normal]: Outcome: Students must demonstrate that the proposed system is not only functional but also secure, resilient, and compliant with Information Assurance and Security principles through proper analysis, implementation, testing, and documentation.
+P200 [Normal]: 
+
+=== TABLES ===
+TABLE 0 (7 rows x 5 columns)
+R0: Student Name / Group Name:  |   /   |   /   |  | 
+R1: Members (if Group):  |   | Name  | Role  | 
+R2: Members (if Group):  |   |   |   | 
+R3: Members (if Group):  |   |   |   | 
+R4: Members (if Group):  |   |   |   | 
+R5: Section:  |   /   |   /   |  | 
+R6: Professor:  |   /   |   /   |  | 
+
+TABLE 1 (5 rows x 2 columns)
+R0: Component | Requirement
+R1: Vulnerability Assessment | Required
+R2: Risk Analysis | Required
+R3: Security Controls Review | Required
+R4: Security Recommendations | Required
+
+TABLE 2 (4 rows x 4 columns)
+R0: Risk | Likelihood | Impact | Mitigation
+R1: SQL Injection | High | High | Input validation
+R2: Data Breach | Medium | High | Encryption
+R3: Account Hijacking | Medium | High | MFA
+
+TABLE 3 (5 rows x 2 columns)
+R0: Security Objective | Control
+R1: Confidentiality | Encryption
+R2: Integrity | Hashing
+R3: Availability | Backup System
+R4: Accountability | Audit Logs
+
+TABLE 4 (4 rows x 2 columns)
+R0: Activity | Time
+R1: Presentation | 15–20 minutes
+R2: System Demonstration | 15–20 minutes
+R3:  | 
+
+TABLE 5 (6 rows x 6 columns)
+R0: Criteria | Excellent | Good | Fair | Poor | Points
+R1: Organization and Structure | 5 | 4 | 3 | 1–2 | 5
+R2: Literature Review | 5 | 4 | 3 | 1–2 | 5
+R3: Technical Content | 5 | 4 | 3 | 1–2 | 5
+R4: Security Documentation | 5 | 4 | 3 | 1–2 | 5
+R5: Writing Quality | 5 | 4 | 3 | 1–2 | 5
+
+TABLE 6 (5 rows x 6 columns)
+R0: Criteria | Excellent | Good | Fair | Poor | Points
+R1: System Functionality | 10 | 8 | 6 | 3–5 | 10
+R2: User Interface Design | 5 | 4 | 3 | 1–2 | 5
+R3: Database Design | 5 | 4 | 3 | 1–2 | 5
+R4: Technical Innovation | 5 | 4 | 3 | 1–2 | 5
+
+TABLE 7 (7 rows x 6 columns)
+R0: Criteria | Excellent | Good | Fair | Poor | Points
+R1: Authentication Security | 5 | 4 | 3 | 1–2 | 5
+R2: Authorization Controls | 5 | 4 | 3 | 1–2 | 5
+R3: Data Protection Measures | 5 | 4 | 3 | 1–2 | 5
+R4: Risk Assessment Quality | 5 | 4 | 3 | 1–2 | 5
+R5: Security Testing and Evaluation | 5 | 4 | 3 | 1–2 | 5
+R6: Audit and Monitoring Features | 5 | 4 | 3 | 1–2 | 5
+
+TABLE 8 (5 rows x 6 columns)
+R0: Criteria | Excellent | Good | Fair | Poor | Points
+R1: Presentation Quality | 5 | 4 | 3 | 1–2 | 5
+R2: Demonstration Effectiveness | 5 | 4 | 3 | 1–2 | 5
+R3: Completeness | 5 | 4 | 3 | 1–2 | 5
+R4: Professionalism and Teamwork | 5 | 4 | 3 | 1–2 | 5
+
+TABLE 9 (6 rows x 2 columns)
+R0: Component | Percentage
+R1: Documentation | 25%
+R2: System Design & Development | 25%
+R3: Information Assurance & Security | 30%
+R4: Final Defense | 20%
+R5: Total | 100%

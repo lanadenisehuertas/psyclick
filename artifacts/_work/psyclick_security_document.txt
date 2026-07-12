@@ -1,0 +1,649 @@
+SOURCE: C:\Users\Lana\Downloads\PsyClick_CS0029_Security_Document.docx
+PARAGRAPHS: 293
+TABLES: 31
+
+=== PARAGRAPHS ===
+P0 [Normal]: 
+P1 [Normal]: FEU INSTITUTE OF TECHNOLOGY
+P2 [Normal]: COLLEGE OF COMPUTER STUDIES AND MULTIMEDIA ARTS
+P3 [Normal]: 
+P4 [Normal]: CS0029
+P5 [Normal]: INFORMATION ASSURANCE AND SECURITY
+P6 [Normal]: 
+P7 [Normal]: DESIGN, DEVELOPMENT, AND SECURITY EVALUATION OF
+P8 [Normal]: PSYCLICK: CLINICAL DECISION SUPPORT SYSTEM FOR DETECTING SINGLE-SESSION PSYCHOMOTOR DISTURBANCES VIA EWMA-BASED MULTIVARIATE ANALYSIS OF KEYSTROKE AND CURSOR DYNAMICS
+P9 [Normal]: 
+P10 [Normal]: Prepared by
+P11 [Normal]: Añonuevo, Jon Rian A.
+P12 [Normal]: Ballano, Denise Nicole M.
+P13 [Normal]: Huertas, Lana Denise R.
+P14 [Normal]: Tablate, Judea Ann C.
+P15 [Normal]: 
+P16 [Normal]: Section: ____________________
+P17 [Normal]: Professor: ____________________
+P18 [Normal]: July 2026
+P19 [Normal]: 
+P20 [Heading 1]: PROJECT OVERVIEW
+P21 [Normal]: PsyClick is a standalone, local-first clinical decision support system designed to assist mental health professionals in detecting single-session psychomotor disturbances through high-resolution keystroke and cursor dynamics. During a structured 10- to 15-minute assessment, the system records timestamped keyboard and mouse events, applies hardware normalization, constructs an individualized within-session Exponentially Weighted Moving Average (EWMA) baseline, and evaluates eight psychomotor biomarkers using Hotelling’s T² multivariate anomaly detection. Feature Contribution Analysis decomposes the anomaly into a Psychomotor Slowing Index (PSI) and Psychomotor Agitation Index (PAI), while a fuzzy logic classifier and heuristic decision tree convert the statistical profile into Green, Amber, or Red clinician-facing flags.
+P22 [Normal]: The system is explicitly non-diagnostic. Its purpose is to augment, not replace, professional judgment by supplying objective behavioral evidence that may not be visible through interview and observation alone. The thesis evaluated PsyClick using 105 normative adult participants and 15 clinical sessions. The software obtained an overall ISO/IEC 25010 mean of 4.54 out of 5.00, with Reliability rated 4.67 and Security rated 4.64. System-clinician agreement reached Cohen’s kappa of 0.466, classified as Moderate Agreement. These results support PsyClick as a technically functional prototype and a behavioral signal amplifier for controlled clinical and counseling settings.
+P23 [Normal]: From an Information Assurance and Security perspective, PsyClick processes highly sensitive behavioral and mental-health-related data. Keystroke and cursor dynamics may function as behavioral biometrics; therefore, confidentiality, integrity, availability, authentication, authorization, accountability, privacy, and non-repudiation must be addressed throughout the system life cycle. The proposed security design uses local processing, data minimization, consent-gated capture, role-based access control, encrypted storage and backups, secure authentication, tamper-evident audit logging, integrity verification, and documented incident-response and recovery procedures.
+P24 [Normal]: Document scope note: Sections describing the existing statistical pipeline and validated prototype are based on the PsyClick thesis. Security features not yet fully implemented in the research prototype are presented as the proposed CS0029 security hardening baseline and should be labeled “proposed” when inserted into the thesis.
+P25 [Heading 1]: PROJECT OBJECTIVES
+P26 [Heading 2]: General Objective
+P27 [Normal]: To design, develop, and evaluate a secure clinical decision support system that applies multivariate statistical analysis to keystroke and cursor dynamics while protecting the confidentiality, integrity, availability, privacy, and accountability of behavioral and clinical information.
+P28 [Heading 2]: Specific Objectives
+P29 [List Number]: Engineer a hardware-abstracted telemetry module that captures synchronized millisecond-level keystroke and cursor events while minimizing hardware-induced timing bias.
+P30 [List Number]: Implement a within-session EWMA algorithm that builds a dynamic personal baseline and discards the transient baseline state at session termination.
+P31 [List Number]: Use Hotelling’s T² and a shrinkage covariance estimator to detect multivariate psychomotor deviations across eight simultaneous biomarkers.
+P32 [List Number]: Use Feature Contribution Analysis, PSI, PAI, fuzzy logic, and a heuristic decision tree to produce transparent, clinician-interpretable Green, Amber, and Red outputs.
+P33 [List Number]: Enforce informed consent before any behavioral telemetry is captured.
+P34 [List Number]: Implement secure clinician authentication, password policy, account lockout, session timeout, and optional multi-factor authentication.
+P35 [List Number]: Implement role-based access control for administrators, clinicians, research/normative personnel, and read-only auditors.
+P36 [List Number]: Protect sensitive records through encryption at rest, encryption of exported files and backups, secure password hashing, and controlled local data transmission.
+P37 [List Number]: Maintain complete and tamper-evident audit logs for authentication, record access, configuration changes, consent events, report generation, exports, and administrative actions.
+P38 [List Number]: Perform functional testing, vulnerability assessment, risk assessment, conceptual penetration testing, and user acceptance testing.
+P39 [List Number]: Establish an incident-response plan and a tested backup-and-recovery plan appropriate for a local clinical workstation deployment.
+P40 [List Number]: Evaluate system quality through ISO/IEC 25010 characteristics and document residual security and clinical risks.
+P41 [Heading 1]: PROPOSED SYSTEM REQUIREMENTS
+P42 [Heading 2]: Functional Requirements
+P43 [Normal]: 
+P44 [Heading 2]: Security and Information Assurance Requirements
+P45 [Normal]: 
+P46 [Heading 2]: Non-Functional Requirements
+P47 [Normal]: 
+P48 [Heading 2]: Minimum Hardware and Software Requirements
+P49 [Normal]: 
+P50 [Normal]: 
+P51 [Heading 1]: CHAPTER 3 – SYSTEM ANALYSIS AND DESIGN
+P52 [Heading 2]: 3.1 System Requirements
+P53 [Normal]: The system requirements are derived from the thesis workflow and the security obligations of handling behavioral biometrics and mental-health-related information. The primary user is the mental health professional, who authenticates, performs patient intake, confirms consent, administers calibration and assessment tasks, reviews results, and exports reports. The adult patient provides behavioral telemetry during the controlled tasks. A normative tester may complete the same protocol for research baseline development. An administrator manages accounts, policies, backups, and security configuration. An auditor or data-protection officer may review logs without changing clinical content.
+P54 [Heading 3]: 3.1.1 User Roles
+P55 [Normal]: 
+P56 [Heading 2]: 3.2 Feasibility Study
+P57 [Heading 3]: 3.2.1 Technical Feasibility
+P58 [Normal]: PsyClick is technically feasible because the thesis demonstrates a complete local pipeline for telemetry capture, hardware normalization, feature extraction, EWMA baseline construction, Hotelling’s T² analysis, feature contribution, fuzzy classification, and report generation. The fixed eight-feature model has constant-size state and linear processing time over session windows, allowing operation on ordinary clinic or school-counseling workstations. SQLite is appropriate for a standalone prototype because it provides ACID transactions, file portability, foreign keys, and low administrative overhead. Security hardening requires a maintained cryptographic library, protected key storage, and disciplined application-layer authorization.
+P59 [Heading 3]: 3.2.2 Operational Feasibility
+P60 [Normal]: The workflow fits a controlled 10- to 15-minute counseling or assessment session. Consent is obtained before capture; patients complete familiar keyboard and mouse tasks; clinicians review a dashboard after their independent observation. The local-first model does not require continuous internet connectivity and reduces infrastructure complexity. Training is required to explain the meaning of T², PSI, PAI, fuzzy confidence, and the non-diagnostic Green/Amber/Red flags. Operational procedures must also define account provisioning, log review, incident reporting, and backup responsibilities.
+P61 [Heading 3]: 3.2.3 Economic Feasibility
+P62 [Normal]: The solution uses existing desktop computers, keyboards, and mice, avoiding specialized sensors or cloud subscriptions. Primary costs include development, secure configuration, staff training, encrypted backup media, maintenance, endpoint protection, and periodic security testing. For educational or research deployment, the local architecture offers a favorable cost profile because it avoids recurring hosting and network-transmission expenses.
+P63 [Heading 3]: 3.2.4 Schedule Feasibility
+P64 [Normal]: 
+P65 [Heading 3]: 3.2.5 Legal, Ethical, and Privacy Feasibility
+P66 [Normal]: The system can be operated ethically when informed consent, purpose limitation, data minimization, local processing, secure retention, and access controls are enforced. Behavioral telemetry should be treated as sensitive personal information and potentially as behavioral biometric data. Deployment must comply with institutional ethics approval and the Data Privacy Act of 2012 (RA 10173). PsyClick must remain a non-diagnostic support tool, and clinicians must not rely solely on automated flags.
+P67 [Heading 2]: 3.3 Use Case Description
+P68 [Normal]: 
+P69 [Heading 2]: 3.4 Data Flow Diagram (DFD)
+P70 [Heading 3]: 3.4.1 Context Diagram – Level 0
+P71 [Normal]: External entities and flows:
+P72 [List Bullet]: Mental Health Professional → PsyClick: credentials, patient intake data, consent confirmation, session commands, report requests. PsyClick → Mental Health Professional: authentication result, dashboard, clinical report, alerts.
+P73 [List Bullet]: Patient/Participant → PsyClick: consent decision and keyboard/mouse interactions. PsyClick → Patient/Participant: standardized task prompts and completion status.
+P74 [List Bullet]: System Administrator → PsyClick: account, security policy, backup, and recovery commands. PsyClick → Administrator: system status, audit events, backup verification.
+P75 [List Bullet]: Auditor/Data Protection Officer → PsyClick: log queries. PsyClick → Auditor: read-only compliance and audit reports.
+P76 [Heading 3]: 3.4.2 Level 1 DFD
+P77 [Normal]: 
+P78 [Normal]: Suggested diagram notation: draw external entities as rectangles, processes as circles/rounded rectangles, data stores as open-ended rectangles, and label every arrow using the flow names above.
+P79 [Heading 2]: 3.5 Entity Relationship Diagram (ERD)
+P80 [Normal]: The recommended relational model separates identity, consent, session, analytical result, report, and audit data. Patient identifiers should be pseudonymous, and raw telemetry should be optional and retention-limited.
+P81 [Normal]: 
+P82 [Heading 2]: 3.6 Network Architecture
+P83 [Normal]: The preferred deployment is a local-first single-workstation or protected local-area-network architecture. The patient interacts directly with the clinician-controlled workstation. The desktop application contains the presentation layer, service layer, analytics engine, cryptographic services, and SQLite datastore. No raw keystroke or cursor data is transmitted to an external cloud service. Optional institutional backup storage is reached only through an authenticated and encrypted channel, such as an encrypted removable drive or institution-approved network share protected by TLS and access controls.
+P84 [Normal]: 
+P85 [Heading 2]: 3.7 Security Architecture
+P86 [Normal]: Security follows defense in depth and privacy by design. The following layered architecture is recommended:
+P87 [List Number]: Presentation Layer: hides administrative functions from non-administrators, masks sensitive fields, warns before exports, and locks the session after inactivity.
+P88 [List Number]: Authentication Layer: validates unique user accounts, Argon2id/bcrypt password hashes, optional TOTP MFA, account status, lockout state, and secure session tokens.
+P89 [List Number]: Authorization Layer: enforces RBAC and record ownership at every service method; UI visibility is supplementary and not the sole control.
+P90 [List Number]: Consent and Privacy Layer: blocks telemetry capture until valid consent exists; supports withdrawal; minimizes fields and prohibits semantic analysis of typed content.
+P91 [List Number]: Application Security Layer: validates inputs, uses parameterized SQL, catches exceptions safely, prevents path traversal, and applies secure defaults.
+P92 [List Number]: Cryptographic Layer: encrypts protected database fields or the database file, exported reports, and backups; stores keys outside the database using OS-protected storage.
+P93 [List Number]: Integrity and Audit Layer: uses transaction controls, report hashes, backup hashes, and chained audit entries; monitors failed login and mass-export patterns.
+P94 [List Number]: Availability Layer: automatic backups, restore drills, transaction rollback, disk-space monitoring, controlled shutdown, and documented recovery objectives.
+P95 [List Number]: Endpoint and Physical Layer: patched OS, endpoint protection, encrypted disk, restricted workstation access, automatic screen lock, and secure backup storage.
+P96 [Heading 2]: 3.8 Database Design
+P97 [Heading 3]: 3.8.1 Data Classification
+P98 [Normal]: 
+P99 [Heading 3]: 3.8.2 Database Security Rules
+P100 [List Bullet]: Enable foreign-key enforcement and use ACID transactions for all multi-record session operations.
+P101 [List Bullet]: Use parameterized queries only; prohibit string concatenation in SQL.
+P102 [List Bullet]: Deny direct database file access to ordinary users through operating-system permissions.
+P103 [List Bullet]: Encrypt the database file using a supported encrypted SQLite build or encrypt designated sensitive fields with authenticated encryption such as AES-256-GCM.
+P104 [List Bullet]: Store encryption keys in OS credential storage or a protected key file separated from the database; never hard-code keys in source code.
+P105 [List Bullet]: Discard the transient EWMA baseline and unnecessary event buffers at session termination.
+P106 [List Bullet]: Apply retention schedules and secure deletion to raw telemetry and expired records.
+P107 [List Bullet]: Create indexes on user name, patient pseudonym, session timestamps, and audit timestamp while avoiding plaintext sensitive values in index names or logs.
+P108 [Normal]: 
+P109 [Heading 1]: CHAPTER 4 – SYSTEM DEVELOPMENT AND SECURITY IMPLEMENTATION
+P110 [Heading 2]: 4.1 Development Methodology
+P111 [Normal]: PsyClick follows an Agile/Scrum-oriented iterative development process. Each sprint produces a testable increment of the data-capture, analytics, clinical interface, and security components. Security is integrated into the Definition of Done rather than postponed to final testing. Every user story includes misuse cases, authorization rules, logging requirements, and acceptance tests.
+P112 [Normal]: 
+P113 [Heading 2]: 4.2 System Features
+P114 [Normal]: 
+P115 [Heading 2]: 4.3 Security Controls Implemented/Proposed
+P116 [Normal]: 
+P117 [Heading 2]: 4.4 Encryption
+P118 [Heading 3]: 4.4.1 Data at Rest
+P119 [Normal]: The preferred design encrypts the application database and backup packages using AES-256 authenticated encryption. If full-database encryption is unavailable, restricted fields such as patient identity, clinical instrument values, and report paths are encrypted individually with AES-256-GCM. Authenticated encryption protects both confidentiality and integrity. The encryption key is not stored in the database; it is protected by the operating system credential manager, DPAPI, Keyring, or a separately permissioned key file.
+P120 [Heading 3]: 4.4.2 Password Storage
+P121 [Normal]: Passwords are never encrypted reversibly. They are hashed using Argon2id, preferably with memory, iteration, and parallelism parameters appropriate for the deployment workstation, or bcrypt with a work factor of at least 12 when Argon2id is unavailable. Each password receives a unique random salt. A server-side pepper may be stored separately in protected OS storage.
+P122 [Heading 3]: 4.4.3 Data in Transit and Export
+P123 [Normal]: The normal prototype performs analysis locally and therefore avoids network transmission. If a report or backup is transferred to institutional storage, the transfer must use a protected channel such as TLS 1.2 or later, SFTP, or an encrypted removable medium. Exported PDF/HTML files should be encrypted or placed in an encrypted container when they contain restricted information. Emailing unencrypted reports is prohibited.
+P124 [Heading 3]: 4.4.4 Key Management
+P125 [List Bullet]: Generate keys using a cryptographically secure random number generator.
+P126 [List Bullet]: Assign a key identifier and creation date; do not expose the key in logs or user interfaces.
+P127 [List Bullet]: Back up recovery keys separately under dual control.
+P128 [List Bullet]: Rotate keys after compromise, personnel change, or scheduled policy interval.
+P129 [List Bullet]: Re-encrypt protected records or maintain controlled access to historical keys during rotation.
+P130 [List Bullet]: Destroy retired keys only after retention and recovery obligations are satisfied.
+P131 [Heading 2]: 4.5 Authentication
+P132 [Normal]: 
+P133 [Heading 2]: 4.6 Authorization
+P134 [Normal]: Authorization uses Role-Based Access Control combined with record-level rules. Permissions are evaluated on every protected operation. Hiding a button is not considered sufficient authorization. Clinicians may access only patients and sessions assigned to them or explicitly shared by an authorized supervisor. Administrators manage accounts and security settings but should not automatically receive unrestricted clinical-content access. Auditors receive read-only access to logs and compliance metadata.
+P135 [Normal]: 
+P136 [Heading 2]: 4.7 Secure Coding Practices
+P137 [List Bullet]: Validate all inputs at the application boundary and normalize Unicode before comparison where applicable.
+P138 [List Bullet]: Use parameterized SQL and explicit allowlists for sortable columns, file types, task identifiers, and export destinations.
+P139 [List Bullet]: Prevent path traversal by resolving paths under a fixed application data directory and rejecting external relative paths.
+P140 [List Bullet]: Do not collect or log the semantic content of typed responses when the research design requires only timing and motor features.
+P141 [List Bullet]: Handle exceptions without displaying stack traces, database paths, keys, or internal class names to end users.
+P142 [List Bullet]: Use secure temporary files with restrictive permissions and delete them after report creation.
+P143 [List Bullet]: Use cryptographically secure randomness for tokens, keys, and nonces; never reuse AES-GCM nonces with the same key.
+P144 [List Bullet]: Pin dependency versions, scan dependencies, and review licenses and maintainers before release.
+P145 [List Bullet]: Apply code review to authentication, authorization, cryptography, data export, and deletion functions.
+P146 [List Bullet]: Run static analysis, unit tests, integration tests, and negative security tests in continuous integration.
+P147 [List Bullet]: Separate configuration from source code and exclude secrets, database files, and patient data from version control.
+P148 [List Bullet]: Implement safe database migrations with a pre-migration backup and rollback plan.
+P149 [Normal]: 
+P150 [Heading 1]: CHAPTER 5 – SECURITY EVALUATION AND TESTING
+P151 [Heading 2]: 5.1 Functional Testing
+P152 [Normal]: 
+P153 [Heading 2]: 5.2 Vulnerability Assessment
+P154 [Normal]: 
+P155 [Heading 2]: 5.3 Risk Assessment
+P156 [Normal]: Risk is evaluated using a 5 × 5 likelihood-impact matrix. Scores 1–4 are Low, 5–9 Moderate, 10–16 High, and 17–25 Critical. Impact considers patient privacy, clinical safety, legal exposure, data integrity, and service interruption.
+P157 [Normal]: 
+P158 [Heading 2]: 5.4 Penetration Testing – Conceptual
+P159 [Normal]: The penetration test is limited to an authorized laboratory copy containing synthetic data. No testing is performed against live clinical records. The following test cases are proposed:
+P160 [Normal]: 
+P161 [Heading 2]: 5.5 Security Analysis
+P162 [Normal]: The strongest existing security properties of PsyClick are its local-first architecture, consent enforcement, transient within-session baseline, and non-semantic telemetry design. The thesis security evaluation reported a mean of 4.64/5.00, with strong ratings for consent gate enforcement, database stability, baseline discard, audit log integrity, and fine-grained access control. Local processing reduces exposure to cloud interception and centralized breach. The white-box statistical pipeline also supports integrity and accountability because every clinical flag is traceable to deterministic stages.
+P163 [Normal]: The primary residual risks are endpoint compromise, weak credential management, unprotected database or export files, inadequate audit visibility, backup failure, and automation bias. The CS0029 hardening plan addresses these through encryption, MFA, stronger audit-chain design, formal backup testing, documented incident response, security-focused negative testing, and clearer role separation. Clinical risk remains even after technical controls; therefore, the output must always be presented as supportive evidence rather than a diagnosis.
+P164 [Heading 2]: 5.6 User Acceptance Testing
+P165 [Normal]: 
+P166 [Normal]: 
+P167 [Heading 1]: CHAPTER 6 – CONCLUSIONS AND RECOMMENDATIONS
+P168 [Heading 2]: 6.1 Conclusions
+P169 [Normal]: PsyClick demonstrates that a local, hardware-abstracted clinical decision support system can transform ordinary keyboard and mouse interactions into explainable within-session psychomotor indicators. The prototype successfully integrates HAL normalization, sliding-window filtering, EWMA baseline construction, Hotelling’s T² anomaly detection, PSI/PAI decomposition, fuzzy logic, and clinician-facing reporting. The thesis results show strong technical quality, crash-free operation across the normative sessions, excellent ISO/IEC 25010 ratings, and moderate agreement with independent clinician observation.
+P170 [Normal]: The system’s security posture benefits from data minimization, local processing, consent-gated capture, transient baseline state, and auditable deterministic analysis. However, production or institutional deployment requires formal authentication hardening, RBAC, encryption at rest and in backup, protected exports, tamper-evident audit logs, routine vulnerability assessment, tested recovery, and documented incident response. With these controls, PsyClick can satisfy the core Information Assurance objectives of confidentiality, integrity, availability, authentication, authorization, accountability, and privacy while preserving its non-diagnostic clinical-support role.
+P171 [Heading 2]: 6.2 Recommendations
+P172 [List Number]: Implement Argon2id password hashing, administrator MFA, progressive lockout, and secure session timeout before broader deployment.
+P173 [List Number]: Encrypt the local database, reports, and backups; establish OS-protected key management and recovery-key procedures.
+P174 [List Number]: Centralize RBAC and record-level authorization in the service layer and add automated privilege-bypass regression tests.
+P175 [List Number]: Upgrade audit logging to a chained, append-only design and provide administrators and auditors with granular filtering and review tools.
+P176 [List Number]: Conduct quarterly encrypted-backup verification and at least annual full restoration exercises.
+P177 [List Number]: Perform source-code analysis, dependency scanning, and authorized penetration testing before each major release.
+P178 [List Number]: Expand validation to larger and more diverse clinical samples and conduct longitudinal within-person studies.
+P179 [List Number]: Provide clinician training on threshold interpretation, automation bias, and the limits of state-level psychomotor measures.
+P180 [List Number]: Develop formal retention, withdrawal, secure deletion, and data-subject request procedures under RA 10173.
+P181 [List Number]: Consider future FHIR integration only after network, API, identity, consent, and interoperability security controls are independently reviewed.
+P182 [Normal]: 
+P183 [Heading 1]: THREAT MODEL
+P184 [Heading 2]: Assets
+P185 [List Bullet]: Patient identity and contact/demographic information.
+P186 [List Bullet]: Consent records and clinical screening scores.
+P187 [List Bullet]: Keystroke and cursor telemetry and derived biometric features.
+P188 [List Bullet]: T², PSI, PAI, fuzzy confidence, flags, visualizations, and reports.
+P189 [List Bullet]: Clinician accounts, password hashes, MFA secrets, and roles.
+P190 [List Bullet]: Encryption keys, backup packages, audit logs, and software configuration.
+P191 [List Bullet]: Clinical trust and patient safety.
+P192 [Heading 2]: Threat Actors
+P193 [List Bullet]: Unauthorized local user or curious insider.
+P194 [List Bullet]: Malicious or compromised clinician account.
+P195 [List Bullet]: External attacker using malware, stolen media, or a compromised endpoint.
+P196 [List Bullet]: Accidental actor causing deletion, misconfiguration, or improper export.
+P197 [List Bullet]: Supply-chain attacker through a vulnerable dependency or update.
+P198 [List Bullet]: Patient or tester attempting to access administrative controls.
+P199 [Heading 2]: STRIDE Threat Summary
+P200 [Normal]: 
+P201 [Heading 1]: RISK ASSESSMENT MATRIX
+P202 [Normal]: 
+P203 [Normal]: Risk acceptance rule: Critical risks must be treated before release. High risks require mitigation and owner approval. Moderate risks require documented controls and monitoring. Low risks may be accepted with periodic review.
+P204 [Heading 1]: SECURITY CONTROLS MAPPING
+P205 [Normal]: 
+P206 [Normal]: 
+P207 [Heading 1]: SECURITY POLICY
+P208 [Heading 2]: Purpose
+P209 [Normal]: This policy establishes minimum controls for protecting PsyClick information, software, devices, users, and clinical workflows.
+P210 [Heading 2]: Scope
+P211 [Normal]: The policy applies to all users, workstations, databases, reports, backups, source code, and removable media used for PsyClick clinical, research, demonstration, or administrative activities.
+P212 [Heading 2]: Policy Statements
+P213 [List Number]: Access shall be granted only to authorized individuals with unique accounts and a documented role.
+P214 [List Number]: Users shall not share credentials. Administrators and remote-access users shall use MFA where available.
+P215 [List Number]: Behavioral telemetry shall not be captured without valid informed consent.
+P216 [List Number]: Only the minimum information required for the approved purpose shall be collected and retained.
+P217 [List Number]: Restricted data shall be encrypted at rest and during transfer. Unencrypted email or consumer file sharing is prohibited.
+P218 [List Number]: Users shall access only records necessary for assigned duties. All access and exports shall be logged.
+P219 [List Number]: Raw typed content shall not be analyzed or stored unless separately approved and explicitly consented.
+P220 [List Number]: Workstations shall use supported operating systems, current patches, endpoint protection, full-disk encryption, and automatic screen locking.
+P221 [List Number]: Backups shall be encrypted, integrity-checked, separated from the primary workstation, and periodically restored in a test environment.
+P222 [List Number]: Suspected loss, malware, unauthorized access, consent failure, data corruption, or improper disclosure shall be reported immediately.
+P223 [List Number]: PsyClick outputs shall not be treated as diagnoses and shall not override independent professional judgment.
+P224 [List Number]: Violations may result in access suspension, investigation, corrective action, and required breach notification.
+P225 [Heading 1]: INCIDENT RESPONSE PLAN
+P226 [Heading 2]: Roles
+P227 [Normal]: 
+P228 [Heading 2]: Response Phases
+P229 [List Number]: Preparation: maintain contacts, backups, tools, log access, tabletop exercises, and evidence-handling procedures.
+P230 [List Number]: Identification: confirm indicators, affected assets, users, records, and timeframe; classify severity.
+P231 [List Number]: Containment: disconnect compromised workstation, disable account, block export, preserve volatile information where feasible, and protect backups.
+P232 [List Number]: Eradication: remove malware, reset credentials, rotate keys, patch vulnerabilities, and validate clean configuration.
+P233 [List Number]: Recovery: restore verified data, monitor closely, re-enable users gradually, and confirm clinical workflow integrity.
+P234 [List Number]: Post-Incident Review: determine root cause, document impact, update controls and training, and retain lessons learned.
+P235 [Heading 2]: Severity Guide
+P236 [Normal]: 
+P237 [Heading 1]: BACKUP AND RECOVERY PLAN
+P238 [Heading 2]: Backup Strategy
+P239 [Normal]: 
+P240 [Heading 2]: Recovery Objectives
+P241 [Normal]: Proposed Recovery Point Objective (RPO): 24 hours for routine deployments, or immediately after each clinical day. Proposed Recovery Time Objective (RTO): 4 hours for a single workstation deployment. Higher-criticality institutional use should adopt more stringent objectives.
+P242 [Heading 2]: Restore Procedure
+P243 [List Number]: Isolate the failed or compromised environment and preserve relevant logs.
+P244 [List Number]: Identify the newest verified backup preceding the incident.
+P245 [List Number]: Validate backup hash and decryption key availability.
+P246 [List Number]: Restore first to an isolated validation directory or test workstation.
+P247 [List Number]: Run database integrity check, schema version check, record-count comparison, and sample report verification.
+P248 [List Number]: Obtain administrator and clinical owner approval before replacing the production copy.
+P249 [List Number]: Restore service, monitor audit events, and document the recovery time and data gap.
+P250 [List Number]: Investigate root cause and update the backup or recovery process if needed.
+P251 [Normal]: 
+P252 [Heading 1]: TECHNICAL DOCUMENTATION
+P253 [Heading 2]: Architecture Summary
+P254 [Normal]: PsyClick is a layered desktop application composed of a clinician/patient user interface, authentication and authorization services, consent manager, session manager, hardware abstraction and telemetry capture layer, feature extraction pipeline, statistical analytics engine, report generator, SQLite persistence layer, cryptographic service, audit service, and backup service. The analytics engine is a transparent white-box pipeline: normalized telemetry → sliding-window features → within-session EWMA baseline → Hotelling’s T² → Feature Contribution Analysis → PSI/PAI → fuzzy classification → heuristic Green/Amber/Red flag.
+P255 [Heading 2]: Installation Guide – Proposed Secure Deployment
+P256 [List Number]: Prepare a supported workstation with full-disk encryption, current patches, endpoint protection, and a standard non-administrator user account.
+P257 [List Number]: Install the signed PsyClick application package from an approved source and verify the package checksum.
+P258 [List Number]: Create the protected application data directory with permissions limited to the application account and administrators.
+P259 [List Number]: Initialize the encrypted database and protected key storage.
+P260 [List Number]: Create the initial administrator account and enroll MFA; change temporary credentials immediately.
+P261 [List Number]: Configure retention, report export directory, backup location, automatic screen lock, and audit review schedule.
+P262 [List Number]: Run the self-test: database integrity, telemetry capture, HAL normalization, analysis test vector, report generation, encryption, and backup verification.
+P263 [List Number]: Create clinician accounts with least-privilege roles and complete user/security training.
+P264 [List Number]: Document the installed version, schema version, cryptographic configuration, and responsible administrator.
+P265 [Heading 2]: Operational Guide
+P266 [List Number]: Clinician authenticates and selects or creates a pseudonymous patient record.
+P267 [List Number]: Clinician explains the purpose, data captured, limits, retention, and non-diagnostic nature of PsyClick.
+P268 [List Number]: Consent is recorded; the application verifies the consent gate before enabling capture.
+P269 [List Number]: Patient completes calibration and assessment tasks under clinician supervision.
+P270 [List Number]: System computes and finalizes results; clinician records independent observations before viewing the report when required by protocol.
+P271 [List Number]: Clinician reviews T², PSI, PAI, confidence, task/domain profile, and rationale.
+P272 [List Number]: Any report export is protected, classified, and logged.
+P273 [List Number]: Clinician logs out; the workstation is locked when unattended; transient baseline state is discarded.
+P274 [Heading 2]: Maintenance Guide
+P275 [List Bullet]: Weekly: review backup status, disk space, failed logins, and unusual exports.
+P276 [List Bullet]: Monthly: install approved updates after backup; run dependency and integrity checks.
+P277 [List Bullet]: Quarterly: perform restore test, user access review, audit sampling, and retention cleanup.
+P278 [List Bullet]: Annually: conduct risk review, penetration test or independent security assessment, incident tabletop exercise, and policy update.
+P279 [Heading 2]: Data Dictionary – Core Analytical Fields
+P280 [Normal]: 
+P281 [Heading 1]: SECURITY EVALUATION REPORT
+P282 [Heading 2]: Executive Summary
+P283 [Normal]: The PsyClick prototype demonstrates a strong foundational security posture for a local clinical decision support application. The thesis reported an ISO/IEC 25010 Security mean of 4.64/5.00 and an overall quality mean of 4.54/5.00. Existing strengths include consent-gated collection, local processing, transient within-session baseline disposal, database stability, access control, and audit logging. Reliability was rated 4.67/5.00, and the normative evaluation completed without application crashes or data loss.
+P284 [Heading 2]: Findings
+P285 [Normal]: 
+P286 [Heading 2]: Overall Security Rating
+P287 [Normal]: Current thesis prototype: Good to Excellent foundational security for controlled research use, subject to the controls documented in the approved ethics and local deployment environment. Proposed CS0029 hardened baseline: Suitable for supervised institutional pilot deployment after all High-priority gaps are implemented, independently tested, and approved by the responsible privacy and clinical authorities. It is not yet certified for unsupervised diagnostic or large-scale production use.
+P288 [Normal]: 
+P289 [Heading 1]: PRESENTATION OUTLINE
+P290 [Normal]: 
+P291 [Heading 1]: APPENDIX A – IMPLEMENTATION STATUS LEGEND
+P292 [Normal]: 
+
+=== TABLES ===
+TABLE 0 (13 rows x 2 columns)
+R0: ID | Requirement
+R1: FR-01 | The system shall authenticate authorized personnel before permitting access to patient, session, report, or configuration data.
+R2: FR-02 | The system shall require a documented consent decision before activating keystroke or cursor capture.
+R3: FR-03 | The system shall support patient intake using a pseudonymous participant or patient identifier.
+R4: FR-04 | The system shall capture key-down, key-up, mouse-move, mouse-click, and mouse-scroll events with high-resolution timestamps.
+R5: FR-05 | The system shall normalize device timing and cursor data using the Hardware Abstraction Layer and sliding-window filtering.
+R6: FR-06 | The system shall calculate flight time, dwell time, typing velocity, error rate, path entropy, cursor velocity, jerk, and pause frequency.
+R7: FR-07 | The system shall construct a within-session EWMA mean vector and covariance matrix during calibration.
+R8: FR-08 | The system shall compute Hotelling’s T², statistical thresholds, feature contributions, PSI, PAI, fuzzy confidence, and final clinical flags.
+R9: FR-09 | The system shall generate a clinician dashboard and exportable report containing numerical results, visualizations, and a non-diagnostic rationale.
+R10: FR-10 | The system shall record audit events for security-relevant actions.
+R11: FR-11 | The system shall support backup, restoration, archival, retention, and secure deletion operations.
+R12: FR-12 | The system shall prevent unauthorized users from viewing, changing, exporting, or deleting protected records.
+
+TABLE 1 (10 rows x 2 columns)
+R0: Domain | Requirement
+R1: Confidentiality | Local-first processing; least-privilege access; encrypted database and backups; protected exports; screen-lock and session timeout.
+R2: Integrity | Database constraints; parameterized queries; validation; cryptographic hashes for reports/backups; append-only or chained audit records.
+R3: Availability | Automatic backups; recovery testing; local redundancy; UPS recommendation; graceful failure and transaction rollback.
+R4: Authentication | Unique accounts, strong password policy, Argon2id or bcrypt hashing, lockout/rate limiting, optional TOTP MFA.
+R5: Authorization | RBAC and record-level access checks applied in the service layer and UI.
+R6: Accountability | Login history, user-action tracking, timestamped audit logs, export logging, administrative review.
+R7: Privacy | Consent gate, purpose limitation, data minimization, pseudonymization, retention limits, secure deletion, no semantic analysis of typed content.
+R8: Monitoring | Failed-login alerts, suspicious export detection, integrity checks, audit review, backup-status monitoring.
+R9: Compliance | Alignment with RA 10173 principles and institutional research ethics requirements; clinical use remains non-diagnostic.
+
+TABLE 2 (9 rows x 2 columns)
+R0: ID | Requirement
+R1: NFR-01 | The application shall complete a standard 10- to 15-minute session without crashes or data loss.
+R2: NFR-02 | The analysis pipeline shall operate with linear session-time complexity and remain responsive on minimum-specification hardware.
+R3: NFR-03 | Security controls shall fail closed: capture must not begin without consent, and protected screens shall not load without authorization.
+R4: NFR-04 | All user-facing interpretations shall clearly state that PsyClick is a decision-support tool and not a diagnosis.
+R5: NFR-05 | The application shall maintain usability for non-statistician clinicians through plain-language rationales and visible threshold explanations.
+R6: NFR-06 | The system shall remain deployable as a standalone desktop application without mandatory cloud connectivity.
+R7: NFR-07 | Backups and exported reports shall be recoverable and verifiable using integrity checks.
+R8: NFR-08 | The system shall retain only information necessary for the approved clinical or research purpose.
+
+TABLE 3 (7 rows x 2 columns)
+R0: Category | Minimum/Recommended Specification
+R1: Workstation | 64-bit Windows or Linux workstation; modern dual-core processor or better; 8 GB RAM recommended; 2 GB free storage plus backup capacity.
+R2: Input Devices | Standard USB or integrated keyboard and mouse/trackpad; device metadata and sampling characteristics recorded for normalization.
+R3: Display | 1366 × 768 minimum; 1920 × 1080 recommended for dashboard and report review.
+R4: Storage | Encrypted local drive or encrypted application data directory; external encrypted backup medium or protected institutional storage.
+R5: Software | Python-based desktop application and analytics libraries; SQLite local datastore; supported PDF/HTML report generation; cryptographic library for hashing/encryption.
+R6: Operational | Endpoint protection, patched operating system, least-privilege workstation account, automatic screen lock, and restricted physical access.
+
+TABLE 4 (6 rows x 3 columns)
+R0: Role | Permitted Activities | Restrictions
+R1: System Administrator | Create/disable accounts; assign roles; configure retention; initiate backup/restore; review security events. | Cannot alter clinical calculations or silently edit finalized reports.
+R2: Clinician | Authenticate; register/select patient; obtain consent; run sessions; view assigned records; generate and export reports. | Cannot manage system-wide security configuration or other clinicians’ records without authorization.
+R3: Research/Normative User | Run approved normative sessions and view de-identified aggregate outputs. | No access to identifiable clinical patient records.
+R4: Auditor/Data Protection Officer | Read audit logs, access reports, and compliance status. | Read-only; no modification of accounts or clinical data.
+R5: Patient/Participant | Complete tasks and provide/revoke consent. | No direct access to clinician administration screens or other records.
+
+TABLE 5 (7 rows x 3 columns)
+R0: Phase | Estimated Duration | Main Outputs
+R1: Security requirements and threat modeling | 1–2 weeks | Asset inventory, data classification, misuse cases, acceptance criteria.
+R2: Authentication/RBAC hardening | 2–3 weeks | Account lifecycle, password hashing, lockout, permissions tests.
+R3: Encryption and audit subsystem | 2–3 weeks | Protected database/backups, key handling, tamper-evident logs.
+R4: Backup/recovery and incident procedures | 1–2 weeks | Automated backups, restoration drill, response playbooks.
+R5: Security testing and remediation | 2–3 weeks | SAST/dependency review, vulnerability tests, conceptual penetration test, fixes.
+R6: Documentation and final validation | 1–2 weeks | Policies, technical guide, security evaluation report, presentation.
+
+TABLE 6 (11 rows x 5 columns)
+R0: Use Case | Primary Actor | Preconditions | Main Flow | Security Controls
+R1: UC-01 Authenticate User | Clinician/Admin/Auditor | Active account. | Enter credentials; verify password and optional MFA; create secure session; record login. | Hash verification, rate limiting, lockout, generic errors, login audit.
+R2: UC-02 Register or Select Patient | Clinician | Authenticated clinician. | Create pseudonymous profile or select authorized record. | Role and record-level check; input validation; audit.
+R3: UC-03 Record Consent | Clinician and Patient | Patient informed; purpose presented. | Record consent status, version, timestamp, and clinician witness. | Consent gate; immutable event; withdrawal handling.
+R4: UC-04 Run Calibration | Patient | Valid consent; device available. | Capture neutral task telemetry; normalize and build EWMA baseline. | No capture before consent; in-memory transient baseline; error handling.
+R5: UC-05 Run Assessment | Patient | Calibration completed. | Complete standardized tasks; capture events; compute features and analyses. | Data minimization; local processing; bounds and state validation.
+R6: UC-06 Review Dashboard | Clinician | Session finalized; authorization confirmed. | View T², PSI, PAI, flags, charts, rationale, and domain profile. | Least privilege; no hidden modification; access audit.
+R7: UC-07 Export Report | Clinician | Authorized finalized session. | Generate report; select protected destination; confirm export. | Watermark/classification label; encryption option; hash; export audit.
+R8: UC-08 Manage Accounts | Administrator | Administrator MFA session. | Create, disable, reset, and assign roles. | Separation of duties; re-authentication; audit.
+R9: UC-09 Backup and Restore | Administrator | Authorized maintenance window. | Create encrypted backup; verify hash; restore to isolated validation copy. | Encrypted media; dual confirmation; restore audit.
+R10: UC-10 Review Audit Logs | Administrator/Auditor | Authorized read-only access. | Filter, review, and export security events. | Tamper-evident chain; read-only access; log-export audit.
+
+TABLE 7 (8 rows x 4 columns)
+R0: Process | Inputs | Outputs | Data Store
+R1: P1 Authentication and Access Control | Credentials, MFA code, role. | Authorized session or denial; login event. | D1 Users/Roles; D6 Audit Log.
+R2: P2 Patient Intake and Consent | Patient identifier, demographics/minimum metadata, consent. | Authorized patient context; consent record. | D2 Patients; D3 Consent Records; D6 Audit Log.
+R3: P3 Telemetry Capture and HAL | Key/mouse events, device metadata. | Normalized event stream. | Temporary session memory; optional protected raw telemetry store.
+R4: P4 Feature and Baseline Processing | Normalized events. | Eight features; EWMA mean/covariance. | D4 Session/Feature Records; transient baseline memory.
+R5: P5 Multivariate Analysis and Classification | Feature vector and baseline. | T², threshold, PSI, PAI, confidence, flag. | D4 Session Results.
+R6: P6 Clinical Reporting | Results, charts, rationale request. | Dashboard and protected report. | D5 Reports; D6 Audit Log.
+R7: P7 Security Operations | Audit events, backup schedule, integrity checks. | Alerts, encrypted backups, verification results. | D6 Audit Log; D7 Backup Repository.
+
+TABLE 8 (14 rows x 4 columns)
+R0: Entity | Primary Key | Important Attributes | Relationships
+R1: users | user_id | username, password_hash, role_id, status, failed_attempts, locked_until, last_login_at | Many users belong to one role; users create sessions and audit events.
+R2: roles | role_id | role_name, description | One role has many users and many role_permissions.
+R3: permissions | permission_id | permission_code, description | Many-to-many with roles.
+R4: patients | patient_id | pseudonym, encrypted_demographics, created_by, status | One patient has many consent records and sessions.
+R5: consents | consent_id | patient_id, consent_version, decision, timestamp, witnessed_by, withdrawal_at | Many consent records belong to one patient.
+R6: sessions | session_id | patient_id, clinician_id, started_at, ended_at, status, device_profile_id | One session has many task windows, features, results, reports, and audit events.
+R7: device_profiles | device_profile_id | keyboard_type, mouse_type, polling_rate, correction_metadata | One profile may be associated with many sessions.
+R8: task_windows | window_id | session_id, task_type, domain, difficulty, start_time, end_time | One window has one or more feature records.
+R9: feature_vectors | feature_id | window_id, eight normalized biomarker values | Belongs to one task window.
+R10: analysis_results | result_id | session_id, t2_score, threshold, p_value, psi, pai, fuzzy_confidence, flag | One finalized result per session or versioned analysis run.
+R11: reports | report_id | session_id, file_path, file_hash, generated_by, generated_at, classification | Belongs to one session; generated by one user.
+R12: audit_logs | audit_id | timestamp, actor_id, action, object_type, object_id, outcome, prev_hash, entry_hash | Append-only security and accountability record.
+R13: backups | backup_id | created_at, location, hash, encryption_key_id, status, verified_at | Tracks backup and restore verification.
+
+TABLE 9 (6 rows x 3 columns)
+R0: Zone/Component | Purpose | Security Boundary
+R1: Patient Interaction Zone | Keyboard, mouse, display, standardized task interface. | Physical supervision; no access to administrative controls.
+R2: Application Zone | Desktop UI, session manager, capture service, analytics engine, report generator. | Runs under standard OS account; least privilege; code-signing recommended.
+R3: Protected Data Zone | Encrypted SQLite database, report directory, key references, audit logs. | OS ACLs, application authorization, encryption at rest, integrity checks.
+R4: Backup Zone | Encrypted external drive or protected institutional repository. | Separate credentials/media; offline or access-controlled; periodic verification.
+R5: Administrative Zone | Account management, policy configuration, log review. | Administrator MFA, re-authentication for high-risk actions, full audit.
+
+TABLE 10 (5 rows x 3 columns)
+R0: Classification | Examples | Protection
+R1: Restricted – Clinical/Behavioral | Patient identifiers, consent, PHQ-9/GAD-7, T²/PSI/PAI results, raw telemetry if retained. | Encryption, strict RBAC, access logging, minimum retention, no unsecured export.
+R2: Confidential – Security | Password hashes, MFA secrets, audit logs, backup metadata, recovery information. | Strong hashing/encryption, administrator-only access, tamper evidence.
+R3: Internal | Device profiles, software configuration, task definitions. | Integrity controls, administrator write access, version control.
+R4: Public | User manual, non-sensitive task instructions, presentation material. | Integrity and version control.
+
+TABLE 11 (7 rows x 2 columns)
+R0: Sprint Activity | Security Integration
+R1: Backlog refinement | Classify data, identify abuse cases, assign security acceptance criteria.
+R2: Design | Review trust boundaries, data flows, privileges, cryptographic needs, and failure behavior.
+R3: Implementation | Peer review, parameterized queries, dependency pinning, secret scanning, unit tests.
+R4: Testing | Positive and negative tests, role-bypass tests, invalid-state tests, vulnerability scanning.
+R5: Review | Clinician usability feedback, privacy review, security findings, residual risk approval.
+R6: Release | Signed build, versioned schema, backup before migration, rollback plan, release notes.
+
+TABLE 12 (11 rows x 2 columns)
+R0: Module | Major Features
+R1: User Management | Unique accounts, roles, status, password reset, lockout, login history.
+R2: Authentication | Password verification, optional MFA, secure session lifecycle, inactivity timeout.
+R3: Patient Intake | Pseudonymous profile, consent status, minimal demographic/clinical metadata.
+R4: Assessment | Calibration task, standardized stimulus tasks, microstressor prompts, background event logging.
+R5: Hardware Abstraction | Jitter compensation, polling-rate normalization, device metadata, sliding-window filtering.
+R6: Analytics | Eight biomarkers, EWMA baseline, Hotelling’s T², Ledoit-Wolf covariance, PSI/PAI, fuzzy logic, decision tree.
+R7: Dashboard | Green/Amber/Red flag, T² control chart, feature contributions, domain profile, clinician rationale.
+R8: Reports | Local HTML/PDF generation, classification label, hash, protected export, export audit.
+R9: Audit and Monitoring | Authentication logs, access logs, consent events, exports, configuration and backup events.
+R10: Backup and Recovery | Scheduled encrypted backups, integrity verification, documented restore workflow.
+
+TABLE 13 (11 rows x 2 columns)
+R0: Control | Implementation
+R1: Consent Gate | Capture service remains disabled until an approved consent record is validated for the active session.
+R2: Least Privilege | Application runs under a non-administrator OS account; role checks are performed by the service layer.
+R3: Secure Defaults | New accounts are disabled until provisioned; exports are protected by default; raw telemetry retention is off or minimized.
+R4: Input Validation | Length, type, range, encoding, file-path, and state-transition validation at trust boundaries.
+R5: SQL Injection Prevention | Prepared statements/parameterized queries for all SQLite access.
+R6: Session Security | Cryptographically random session identifier, idle timeout, absolute timeout, logout invalidation, re-authentication for high-risk actions.
+R7: Audit Logging | Append-only/chained events include who, what, when, object, outcome, and workstation; no plaintext passwords or typed content.
+R8: Integrity Checks | SHA-256 hashes for generated reports and encrypted backup packages; verification before restore.
+R9: Privacy Controls | Pseudonymization, no semantic analysis, local processing, baseline discard, retention and deletion schedule.
+R10: Dependency Security | Pinned dependencies, vulnerability scanning, trusted package sources, controlled update process.
+
+TABLE 14 (10 rows x 2 columns)
+R0: Element | Policy
+R1: User ID | Unique, non-shared account for every authorized person.
+R2: Password Length | Minimum 12 characters; passphrases encouraged; reject commonly compromised passwords.
+R3: Complexity | Do not require arbitrary periodic character changes; require change on compromise or administrator reset.
+R4: MFA | TOTP or hardware-backed MFA recommended for administrators and remote/backup access.
+R5: Failed Attempts | Progressive delay; temporary lock after 5 failed attempts within 15 minutes; administrator review for repeated failures.
+R6: Session Timeout | 15 minutes inactivity for clinical workstations; shorter for unattended public areas; absolute session lifetime of 8 hours.
+R7: Password Reset | Administrator-initiated temporary token; force change at next login; identity verification and audit.
+R8: Login Messages | Generic failure response to prevent username enumeration; no password hints.
+R9: Credential Logging | Never log passwords, MFA secrets, reset tokens, or full authentication headers.
+
+TABLE 15 (9 rows x 5 columns)
+R0: Permission | Admin | Clinician | Research | Auditor
+R1: Manage users/roles | Allow | Deny | Deny | Deny
+R2: Create patient/clinical session | Deny or limited | Allow | Deny | Deny
+R3: Run normative session | Configurable | Allow if approved | Allow | Deny
+R4: View assigned clinical record | Need-based only | Allow | Deny | Read-only if authorized
+R5: Export clinical report | Need-based only | Allow | Deny | Deny
+R6: View aggregate de-identified statistics | Allow | Allow | Allow | Allow
+R7: Review audit logs | Allow | Own actions only | Own actions only | Allow
+R8: Backup/restore | Allow with re-authentication | Deny | Deny | Observe only
+
+TABLE 16 (11 rows x 3 columns)
+R0: Test ID | Scenario | Expected Result
+R1: FT-01 | Valid clinician login. | Dashboard opens; login is audited.
+R2: FT-02 | Invalid password. | Access denied with generic message; failed attempt logged; no username enumeration.
+R3: FT-03 | Start capture without consent. | Capture remains disabled; event logged as blocked action.
+R4: FT-04 | Complete calibration and assessment. | Eight features, EWMA, T², PSI/PAI, confidence, and flag are produced.
+R5: FT-05 | Terminate session. | Transient EWMA state/event buffers are discarded according to policy.
+R6: FT-06 | Clinician accesses another clinician’s unshared record. | Access denied and logged.
+R7: FT-07 | Export report. | Report generated, classified, hashed, protected, and export event recorded.
+R8: FT-08 | Create and verify backup. | Encrypted backup produced; hash verification succeeds.
+R9: FT-09 | Restore backup to validation environment. | Database opens; record counts and hashes match; restore is logged.
+R10: FT-10 | Unexpected application interruption. | Transaction rolls back or recovers without partial session corruption.
+
+TABLE 17 (9 rows x 4 columns)
+R0: Area | Assessment Method | Target Findings | Mitigation
+R1: Dependencies | Software composition analysis / package audit. | Known vulnerable libraries, abandoned packages. | Upgrade, replace, pin, document exception.
+R2: Source Code | Static analysis and manual review. | Injection, insecure randomness, hard-coded secrets, unsafe file handling. | Refactor and add regression tests.
+R3: Authentication | Negative login tests. | Brute force, enumeration, weak reset, session fixation. | Lockout, generic errors, token rotation.
+R4: Authorization | Role and direct-object-reference tests. | Privilege escalation, IDOR, missing record ownership checks. | Centralize authorization and deny by default.
+R5: Database | Configuration and query review. | Unencrypted file, broad ACL, SQL injection, disabled foreign keys. | Encryption, ACL hardening, prepared statements, constraints.
+R6: Reports/Exports | File and path tests. | Path traversal, unprotected export, sensitive temp files. | Fixed export directory, protection, secure cleanup.
+R7: Logging | Log injection and disclosure review. | Typed content/password leakage, modifiable logs. | Structured logs, redaction, chaining, restricted write access.
+R8: Backup | Media and restore review. | Plaintext backups, no integrity check, untested restore. | Encrypt, hash, isolate, test quarterly.
+
+TABLE 18 (13 rows x 5 columns)
+R0: Risk | Likelihood | Impact | Score | Treatment
+R1: Unauthorized local access to patient records | 3 | 5 | 15 High | RBAC, MFA, OS lock, encryption, access logs.
+R2: Loss or theft of workstation/backup media | 3 | 5 | 15 High | Full-disk/database encryption, encrypted backups, physical controls.
+R3: SQL injection or malicious input | 2 | 5 | 10 High | Parameterized queries, validation, tests.
+R4: Privilege escalation/IDOR | 3 | 5 | 15 High | Central authorization, record ownership checks, negative tests.
+R5: Malware/ransomware | 3 | 5 | 15 High | Endpoint protection, patching, offline backups, least privilege.
+R6: Audit log tampering | 2 | 4 | 8 Moderate | Append-only/chained logs, restricted access, backup.
+R7: Unencrypted report export | 3 | 4 | 12 High | Protected export, confirmation, classification label, export audit.
+R8: Consent bypass | 2 | 5 | 10 High | Fail-closed consent gate and automated tests.
+R9: Data corruption or failed storage | 2 | 5 | 10 High | Transactions, integrity checks, verified backups.
+R10: Clinical over-reliance/automation bias | 3 | 4 | 12 High | Non-diagnostic warning, independent clinician rating, training.
+R11: Denial of service through resource exhaustion | 2 | 3 | 6 Moderate | Input limits, disk-space monitoring, graceful handling.
+R12: Cryptographic key loss | 2 | 5 | 10 High | Recovery-key escrow, documented rotation and restore.
+
+TABLE 19 (11 rows x 3 columns)
+R0: PT ID | Attack Simulation | Expected Secure Behavior
+R1: PT-01 | Password guessing and username enumeration. | Progressive delay/lockout; generic response; event alert.
+R2: PT-02 | Session token reuse after logout. | Token rejected and session invalidated.
+R3: PT-03 | Modify role or patient identifier in local request/state. | Server/service-layer authorization denies operation.
+R4: PT-04 | Inject SQL metacharacters in all text fields. | Input treated as data; no query manipulation or error leakage.
+R5: PT-05 | Use ../ path sequences in export name. | Path rejected or normalized within approved directory.
+R6: PT-06 | Open database and backup file outside application. | Content unreadable without key; OS access denied.
+R7: PT-07 | Edit a finalized report or backup package. | Hash/integrity verification fails and event is recorded.
+R8: PT-08 | Alter or delete audit records. | Tamper-evident chain breaks; restricted permissions prevent normal user modification.
+R9: PT-09 | Start capture through UI manipulation before consent. | Capture service independently verifies consent and refuses.
+R10: PT-10 | Crash or power interruption during session write. | Transaction rollback/recovery prevents partial committed state.
+
+TABLE 20 (11 rows x 2 columns)
+R0: UAT Area | Acceptance Criterion
+R1: Authentication | Authorized users can log in without confusion; unauthorized attempts are denied and logged.
+R2: Consent | Clinician can clearly explain and record consent; system cannot capture before approval.
+R3: Workflow | A full session can be completed in the expected 10–15 minutes without data loss.
+R4: Dashboard | Clinicians can identify the session flag, threshold, PSI/PAI direction, confidence, and relevant task/domain.
+R5: Privacy | Users understand what is and is not captured; semantic typed content is not analyzed or exposed.
+R6: Reports | Authorized clinician can generate and securely export a readable report.
+R7: Recovery | Administrator can restore a verified backup using the documented procedure.
+R8: Audit | Auditor can locate login, consent, access, export, and configuration events.
+R9: Clinical Safety | Users recognize that results do not replace diagnosis or independent clinical judgment.
+R10: Overall Quality | Mean acceptance rating of at least 4.0/5.0 with no unresolved critical security defect.
+
+TABLE 21 (7 rows x 3 columns)
+R0: Category | Threat Example | Primary Controls
+R1: Spoofing | Stolen clinician credentials or forged session. | MFA, strong hashing, lockout, secure sessions, login alerts.
+R2: Tampering | Altered analysis result, report, audit record, or backup. | Transactions, hashes, signatures/chained logs, restricted write access.
+R3: Repudiation | User denies viewing/exporting a patient record. | Timestamped audit trail with actor, object, outcome, and integrity chain.
+R4: Information Disclosure | Database, report, or backup copied from workstation. | Encryption, RBAC, OS ACLs, protected exports, physical controls.
+R5: Denial of Service | Disk exhaustion, corrupted database, ransomware, repeated login attempts. | Resource limits, monitoring, transactions, offline backups, endpoint protection.
+R6: Elevation of Privilege | Clinician becomes administrator or accesses unrelated patient. | Central RBAC, record ownership, deny-by-default, re-authentication, tests.
+
+TABLE 22 (6 rows x 6 columns)
+R0: Likelihood / Impact | 1 Insignificant | 2 Minor | 3 Moderate | 4 Major | 5 Severe
+R1: 1 Rare | 1 Low | 2 Low | 3 Low | 4 Low | 5 Moderate
+R2: 2 Unlikely | 2 Low | 4 Low | 6 Moderate | 8 Moderate | 10 High
+R3: 3 Possible | 3 Low | 6 Moderate | 9 Moderate | 12 High | 15 High
+R4: 4 Likely | 4 Low | 8 Moderate | 12 High | 16 High | 20 Critical
+R5: 5 Almost Certain | 5 Moderate | 10 High | 15 High | 20 Critical | 25 Critical
+
+TABLE 23 (11 rows x 3 columns)
+R0: Security Objective | Control | PsyClick Application
+R1: Confidentiality | Encryption and least privilege | Encrypted datastore/backups, RBAC, protected export, local processing.
+R2: Integrity | Hashing, transactions, validation | SHA-256 report/backup hashes, ACID SQLite transactions, parameterized queries.
+R3: Availability | Backup and recovery | Automated encrypted backups, offline copy, restore tests, graceful rollback.
+R4: Authentication | Unique identity and MFA | Argon2id passwords, optional TOTP, lockout and timeout.
+R5: Authorization | RBAC and record-level policy | Admin, clinician, research, auditor roles; assigned-patient checks.
+R6: Accountability | Audit logs and tracking | Login history, consent, access, export, configuration, backup, and restore events.
+R7: Privacy | Consent and minimization | Fail-closed consent gate, pseudonymization, no semantic analysis, retention limits.
+R8: Non-repudiation | Tamper-evident evidence | Chained audit hashes and report/backup integrity verification.
+R9: Monitoring | Detection and review | Failed-login monitoring, unusual export review, audit and backup status checks.
+R10: Clinical Safety | Human oversight | Non-diagnostic labels, independent clinician judgment, automation-bias controls.
+
+TABLE 24 (6 rows x 2 columns)
+R0: Role | Responsibility
+R1: Incident Coordinator | Declares incident, coordinates response, maintains timeline, approves closure.
+R2: System Administrator | Isolates device, preserves logs, restores service, applies technical fixes.
+R3: Data Protection Officer/Privacy Lead | Assesses personal-data impact and notification obligations.
+R4: Clinical Lead | Assesses patient safety and clinical communication needs.
+R5: Communications/Management | Approves stakeholder communication and institutional reporting.
+
+TABLE 25 (5 rows x 3 columns)
+R0: Severity | Example | Target Initial Response
+R1: Critical | Confirmed restricted-data exfiltration, ransomware, key compromise, widespread unauthorized access. | Immediate; activate full team and management.
+R2: High | Stolen encrypted device, administrator account compromise, corrupted primary database. | Within 1 hour.
+R3: Moderate | Repeated failed logins, improper internal access without confirmed disclosure, failed backup. | Within 4 hours.
+R4: Low | Minor policy violation or blocked attempt with no data impact. | Within 1 business day.
+
+TABLE 26 (5 rows x 4 columns)
+R0: Backup Type | Frequency | Retention | Location
+R1: Transactional/application backup | Daily or after significant session batches | 30 days rolling | Encrypted local backup folder on separate volume.
+R2: Weekly full backup | Weekly | 12 weeks | Encrypted external drive or protected institutional storage.
+R3: Monthly archival backup | Monthly | According to approved retention schedule | Offline/encrypted controlled storage.
+R4: Pre-upgrade backup | Before every schema or application upgrade | Until upgrade acceptance plus prior rollback window | Separate encrypted package.
+
+TABLE 27 (14 rows x 3 columns)
+R0: Field | Definition | Unit/Format
+R1: flight_time | Time from release of one key to press of next key. | milliseconds
+R2: dwell_time | Duration a key remains pressed. | milliseconds
+R3: typing_velocity | Characters produced per second. | characters/second
+R4: error_rate | Backspace/correction frequency. | count per 100 characters
+R5: path_entropy | Irregularity of cursor trajectory. | bits/normalized score
+R6: cursor_velocity | Cursor displacement over time. | pixels/second
+R7: jerk | Change in cursor acceleration. | pixels/second³
+R8: pause_frequency | Significant cursor hesitations. | count/minute
+R9: t2_score | Multivariate distance from EWMA baseline. | numeric
+R10: psi | Composite slowing contribution. | numeric
+R11: pai | Composite agitation contribution. | numeric
+R12: fuzzy_confidence | Classifier certainty. | 0–1 or percentage
+R13: clinical_flag | Decision-support category. | Green/Amber/Red
+
+TABLE 28 (9 rows x 4 columns)
+R0: Finding | Status | Priority | Required Action
+R1: Local-first processing reduces network exposure. | Strength | Maintain | Keep cloud transmission disabled by default.
+R2: Consent gate is a core privacy safeguard. | Strength | Maintain | Add automated fail-closed regression tests.
+R3: Database/report encryption requires formal implementation or verification. | Gap | High | Deploy authenticated encryption and protected key storage.
+R4: Authentication hardening and MFA should be formalized. | Gap | High | Argon2id/bcrypt, lockout, timeout, MFA for administrators.
+R5: Audit visibility can be more granular. | Improvement | Moderate | Chained logs, filters, alerts, and periodic review.
+R6: Backup and restore need documented evidence. | Gap | High | Encrypted backups, hash verification, quarterly restore tests.
+R7: Clinical automation bias remains a safety risk. | Residual risk | High | Independent clinician assessment, training, non-diagnostic warnings.
+R8: Usability of threshold/rationale can improve. | Improvement | Moderate | Plain-language explanation and embedded help.
+
+TABLE 29 (21 rows x 3 columns)
+R0: Slide | Title | Key Content
+R1: 1 | Title Slide | System title, group, course, professor, date.
+R2: 2 | Background and Problem | Philippine mental-health service constraints; subjective assessment gap; need for objective in-session evidence.
+R3: 3 | Proposed Solution | PsyClick purpose, non-diagnostic role, 10–15-minute local workflow.
+R4: 4 | Objectives | Technical, clinical, and information-assurance objectives.
+R5: 5 | System Workflow | Login → intake/consent → calibration → tasks → analytics → dashboard/report.
+R6: 6 | System Architecture | UI, session manager, HAL, feature extractor, analytics, database, report, audit and backup services.
+R7: 7 | Analytical Pipeline | Eight biomarkers, EWMA, Hotelling’s T², PSI/PAI, fuzzy logic, flags.
+R8: 8 | Data Flow and ERD | DFD processes/data stores and core database entities.
+R9: 9 | Threat Model | Sensitive assets, threat actors, STRIDE summary.
+R10: 10 | Security Architecture | Authentication, RBAC, consent, encryption, integrity, audit, availability.
+R11: 11 | Authentication and Authorization | Password hashing, MFA, lockout, roles, record-level access.
+R12: 12 | Data Protection | Local processing, encryption, key management, privacy minimization, protected exports.
+R13: 13 | Risk Assessment | Top High risks and mitigations.
+R14: 14 | Security Testing | Functional tests, vulnerability assessment, conceptual penetration tests.
+R15: 15 | Results | 105 normative participants, 15 clinical sessions, κ = 0.466, ISO overall 4.54, Security 4.64, Reliability 4.67.
+R16: 16 | Incident Response and Recovery | Response phases, RPO/RTO, encrypted backups and restore testing.
+R17: 17 | Conclusions | Technically functional white-box CDSS; secure local-first foundation; non-diagnostic.
+R18: 18 | Recommendations | Encryption, MFA, audit enhancements, external testing, longitudinal validation.
+R19: 19 | Live Demonstration | Login, consent gate, task capture, dashboard, report, audit log, backup verification.
+R20: 20 | Questions | Thank you and panel discussion.
+
+TABLE 30 (5 rows x 2 columns)
+R0: Label | Meaning
+R1: Validated in Thesis | Feature or result explicitly described and evaluated in the PsyClick thesis.
+R2: Existing Prototype Control | Control described as present in the prototype, such as consent gate, local processing, SQLite, baseline discard, audit/access control.
+R3: Proposed CS0029 Hardening | Security control recommended for the information-assurance version and requiring implementation/verification before claiming completion.
+R4: Future Enhancement | Function outside the current prototype scope, such as FHIR/EHR integration or multi-site deployment.

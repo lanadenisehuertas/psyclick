@@ -96,7 +96,7 @@ class PsyClickController:
 
         # Load normative baseline (v4: hybrid scoring)
         self.norm_stats = self._load_normative_baseline()
-        self.engine = AnomalyEngine()
+        self.engine = AnomalyEngine(normative_baseline=self.norm_stats)
         self.normative_mode = False
 
         self._empty_mouse = {
@@ -128,7 +128,7 @@ class PsyClickController:
         }
         # Reload normative baseline and reinitialize engine (v4)
         self.norm_stats = self._load_normative_baseline()
-        self.engine = AnomalyEngine()
+        self.engine = AnomalyEngine(normative_baseline=self.norm_stats)
         self._word_boxes         = []
         self._current_question   = None
         self._question_snapshots = []

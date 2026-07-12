@@ -11,6 +11,9 @@ async function request(path, options = {}) {
       signal: controller.signal,
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(sessionStorage.getItem('psyclick_token')
+          ? { Authorization: `Bearer ${sessionStorage.getItem('psyclick_token')}` }
+          : {}),
         ...(options.headers || {}),
       },
     })
@@ -48,11 +51,25 @@ const post = (path, body) =>
 const get = (path) => request(path)
 
 export const api = {
+  setSession: (payload) => {
+    if (payload?.token) sessionStorage.setItem('psyclick_token', payload.token)
+    if (payload?.id) sessionStorage.setItem('psyclick_user', JSON.stringify({
+      id: payload.id, name: payload.name, role: payload.role || 'clinician',
+    }))
+  },
+  clearSession: () => {
+    sessionStorage.removeItem('psyclick_token')
+    sessionStorage.removeItem('psyclick_user')
+  },
   // Auth
   login:            (id, password)        => post('/login',                   { id, password }),
-  register:         (name, password)      => post('/register',                { name, password }),
+  register:         (name, password, role = 'clinician') => post('/register', { name, password, role }),
   verifyClinician:  (id, password)        => post('/verify-clinician',        { id, password }),
-  logout:           ()                    => post('/logout',                  {}),
+  logout:           async () => {
+    const result = await post('/logout', {})
+    api.clearSession()
+    return result
+  },
 
   // Dashboard
   stats:            (clinician_id)        => get(`/stats${clinician_id ? `?clinician_id=${clinician_id}` : ''}`),
@@ -64,7 +81,8 @@ export const api = {
   sessionDetail:    (sid)                 => get(`/session/${sid}`),
 
   // Intake
-  intakeStart:      (patient_id, clinician_id) => post('/intake/start',       { patient_id, clinician_id }),
+  intakeStart:      (patient_id, clinician_id, consent, consent_version = '1.0') =>
+    post('/intake/start', { patient_id, clinician_id, consent, consent_version }),
 
   // Auto-ID generation (clients only)
   nextClientId:     (clinician_id)        => get(`/next-client-id${clinician_id ? `?clinician_id=${clinician_id}` : ''}`),
@@ -92,6 +110,7 @@ export const api = {
   // Audit
   auditLogs:        (actor = 'clinician') => get(`/audit?actor=${actor}`),
   auditLog:         (actor, action, detail) => post('/audit/log',            { actor, action, detail }),
+  verifyAudit:      ()                    => get('/audit/verify'),
 
   // Delete
   deleteClient:     (id)                  => request(`/clients/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -99,10 +118,20 @@ export const api = {
   // Export
   exportReport:     (report)              => post('/export/report',           { report }),
   exportSummary:    ()                    => post('/export/summary',          {}),
+  createBackup:     ()                    => post('/admin/backup',            {}),
+  verifyBackup:     (file, sha256)         => post('/admin/backup/verify',     { file, sha256 }),
+  securityStatus:   ()                    => get('/admin/security-status'),
+  users:            ()                    => get('/admin/users'),
+  updateUser:       (id, role, status)     => request(`/admin/users/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ role, status }),
+  }),
 
   // Normative baseline — read-only, pre-computed from 100-participant study population
   normativeStats:   ()                    => get('/normative/stats'),
   normativeCompare: (sessionId)           => get(`/normative/compare/${sessionId}`),
+
+  syncStatus:       ()                    => get('/sync/status'),
+  syncNow:          ()                    => post('/sync/now', {}),
 
   ping:             ()                    => get('/ping'),
   dbHealth:         ()                    => get('/db-health'),

@@ -1,4 +1,4 @@
-# psyclick_api.spec — PyInstaller build spec for PsyClick Clinical Edition API
+﻿# psyclick_api.spec — PyInstaller build spec for PsyClick Clinical Edition API
 # Run: pyinstaller psyclick_api.spec --noconfirm --distpath dist-python
 import os
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
@@ -36,6 +36,7 @@ a = Analysis(
         (os.path.join(SPEC_DIR, 'anomaly_engine.py'), '.'),
         (os.path.join(SPEC_DIR, 'report_exporter.py'), '.'),
         (os.path.join(SPEC_DIR, 'supabase_sync.py'), '.'),
+        (os.path.join(SPEC_DIR, 'security_manager.py'), '.'),
     ],
     hiddenimports=[
         'pynput.keyboard._win32',
@@ -59,6 +60,7 @@ a = Analysis(
         'anomaly_engine',
         'report_exporter',
         'supabase_sync',
+        'security_manager',
         # supabase-py (optional — gracefully skipped if absent)
         'supabase',
         'httpx',

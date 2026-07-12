@@ -1,8 +1,0 @@
-flask>=2.3.0
-flask-cors>=4.0.0
-numpy>=1.26.4
-scipy>=1.12.0
-pandas>=2.2.0
-pynput>=1.7.6
-psycopg2-binary>=2.9.0
-pyinstaller>=6.5.0

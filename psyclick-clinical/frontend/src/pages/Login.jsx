@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock } from 'lucide-react'
 import { api } from '../api/psyclick.js'
@@ -13,6 +13,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const { setUser }     = useApp()
   const navigate        = useNavigate()
+  const pwdRef          = useRef(null)
 
   async function handleLogin() {
     setErr('')
@@ -20,7 +21,11 @@ export default function Login() {
     setBusy(true)
     try {
       const res = await api.login(id, pwd)
-      if (res.success) { setUser({ name: res.name, id: res.id }); navigate('/dashboard') }
+      if (res.success) {
+        api.setSession(res)
+        setUser({ name: res.name, id: res.id, role: res.role || 'clinician' })
+        navigate('/dashboard')
+      }
       else setErr(res.error || 'Sign in failed. Please check the ID, password, and database connection.')
     } catch (e) {
       setErr(e?.message || 'Sign in failed unexpectedly.')
@@ -32,6 +37,10 @@ export default function Login() {
   async function handleRegister() {
     setErr('')
     if (!name || !pwd) { setErr('Please enter your name and password.'); return }
+    if (pwd.length < 12 || !/[A-Za-z]/.test(pwd) || !/\d/.test(pwd)) {
+      setErr('Password must be at least 12 characters and contain a letter and number.')
+      return
+    }
     setBusy(true)
     try {
       const res = await api.register(name, pwd)
@@ -52,7 +61,7 @@ export default function Login() {
   const features = [
     'Biometric psychomotor analysis',
     'Validated PHQ-9 & GAD-7 screening',
-    'Encrypted local-first data storage',
+    'Local-first storage with encrypted exports and backups',
   ]
 
   return (
@@ -60,8 +69,8 @@ export default function Login() {
       {/* ── Left teal panel ── */}
       <div className="w-[420px] flex-shrink-0 bg-accent flex flex-col items-center justify-center px-10 relative overflow-hidden animate-slide-right">
         {/* Decorative floating orbs */}
-        <div className="absolute top-[-60px] right-[-60px] w-48 h-48 rounded-full bg-white/10 animate-float" style={{ animationDelay: '0s' }} />
-        <div className="absolute bottom-[80px] left-[-40px] w-32 h-32 rounded-full bg-white/8 animate-float" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-[-60px] right-[-60px] w-48 h-48 rounded-full bg-white/10 animate-float" style={{ animationDelay: '2s' }} />
+        <div className="absolute bottom-[80px] left-[-40px] w-32 h-32 rounded-full bg-white/[0.08] animate-float" style={{ animationDelay: '4s' }} />
         <div className="absolute top-[40%] right-[-20px] w-20 h-20 rounded-full bg-adark/40 animate-float" style={{ animationDelay: '1s' }} />
 
         <div className="text-center relative z-10">
@@ -102,26 +111,32 @@ export default function Login() {
 
           <div className="bg-white rounded-card shadow-card p-8 border border-border transition-shadow duration-300 hover:shadow-hover">
             {isRegister ? (
-              <>
+              <form onSubmit={e => { e.preventDefault(); handleRegister() }}>
                 <div className="mb-5">
-                  <label className="text-sm font-semibold text-tmain mb-2 block">Full Name</label>
+                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="reg-name">Full Name</label>
                   <input
+                    id="reg-name"
                     className="input-field"
                     placeholder="Dr. Example"
+                    autoComplete="name"
                     value={name}
                     onChange={e => { setName(e.target.value); setErr('') }}
-                    onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), pwdRef.current?.focus())}
                   />
                 </div>
                 <div className="mb-4">
-                  <label className="text-sm font-semibold text-tmain mb-2 block">Password</label>
+                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="reg-pwd">
+                    Password <span className="text-tsub font-normal">(min. 8 characters)</span>
+                  </label>
                   <input
+                    id="reg-pwd"
+                    ref={pwdRef}
                     className="input-field"
                     type="password"
                     placeholder="Create a secure password"
+                    autoComplete="new-password"
                     value={pwd}
                     onChange={e => { setPwd(e.target.value); setErr('') }}
-                    onKeyDown={e => e.key === 'Enter' && handleRegister()}
                   />
                 </div>
 
@@ -132,7 +147,7 @@ export default function Login() {
                 )}
 
                 <button
-                  onClick={handleRegister}
+                  type="submit"
                   disabled={busy}
                   className="btn-primary w-full text-base mb-5 transition-transform duration-150 hover:scale-[1.02] active:scale-[0.97]"
                 >
@@ -145,33 +160,36 @@ export default function Login() {
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => { setIsRegister(false); setErr(''); setName(''); setPwd(''); }}
                   className="w-full text-center text-tsub text-sm hover:text-accent transition-colors"
                 >
                   Already have an account? Sign in
                 </button>
-              </>
+              </form>
             ) : (
-              <>
+              <form onSubmit={e => { e.preventDefault(); handleLogin() }}>
                 <div className="mb-5">
-                  <label className="text-sm font-semibold text-tmain mb-2 block">Clinician ID</label>
+                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="login-id">Clinician ID</label>
                   <input
+                    id="login-id"
                     className="input-field"
                     placeholder="Enter your clinician ID"
+                    autoComplete="username"
                     value={id}
                     onChange={e => { setId(e.target.value); setErr('') }}
-                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
                   />
                 </div>
                 <div className="mb-4">
-                  <label className="text-sm font-semibold text-tmain mb-2 block">Password</label>
+                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="login-pwd">Password</label>
                   <input
+                    id="login-pwd"
                     className="input-field"
                     type="password"
                     placeholder="Enter your password"
+                    autoComplete="current-password"
                     value={pwd}
                     onChange={e => { setPwd(e.target.value); setErr('') }}
-                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
                   />
                 </div>
 
@@ -180,7 +198,7 @@ export default function Login() {
                 )}
 
                 <button
-                  onClick={handleLogin}
+                  type="submit"
                   disabled={busy}
                   className="btn-primary w-full text-base mb-5 transition-transform duration-150 hover:scale-[1.02] active:scale-[0.97]"
                 >
@@ -198,12 +216,13 @@ export default function Login() {
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => { setIsRegister(true); setErr(''); setId(''); setPwd(''); }}
                   className="w-full text-center text-tsub text-sm hover:text-accent transition-colors"
                 >
                   Don't have an account? Register
                 </button>
-              </>
+              </form>
             )}
           </div>
         </div>
