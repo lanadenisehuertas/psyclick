@@ -1,495 +1,139 @@
-# PsyClick User Guide
+<div align="center">
+  <a href="https://psyclick-app.vercel.app/">
+    <img src="./images/LOGO%20WITH%20WORD.png" alt="PsyClick" width="520" />
+  </a>
 
-PsyClick is a Windows desktop app for clinician-guided psychomotor and screening sessions. It supports two main workflows:
+  <p><strong>A calmer, clinician-guided approach to psychomotor screening.</strong></p>
+  <p>
+    PsyClick combines validated questionnaires with typing rhythm, mouse dynamics,
+    and emotional-response tasks to create clear decision-support reports for clinical review.
+  </p>
 
-- Clinician workflow: register or sign in, run client sessions, review results, export reports, and manage records.
-- Normative tester workflow: complete baseline testing sessions that contribute to the normative reference dataset.
+  <p>
+    <a href="https://psyclick-app.vercel.app/"><strong>Explore the website</strong></a>
+    ·
+    <a href="https://psyclick-app.vercel.app/#download">Download PsyClick</a>
+    ·
+    <a href="#getting-started">Run locally</a>
+  </p>
 
-This guide is written for non-developers. Follow only the section for your role unless your supervisor asks you to do otherwise.
+  <p>
+    <img alt="Platform: Windows" src="https://img.shields.io/badge/Platform-Windows-70D6C5?style=flat-square&logo=windows11&logoColor=0B172A" />
+    <img alt="Frontend: React and Electron" src="https://img.shields.io/badge/Desktop-React%20%2B%20Electron-7EDFE7?style=flat-square&logo=electron&logoColor=0B172A" />
+    <img alt="Backend: Python and Flask" src="https://img.shields.io/badge/API-Python%20%2B%20Flask-A8E6CF?style=flat-square&logo=python&logoColor=0B172A" />
+    <img alt="Clinical decision support" src="https://img.shields.io/badge/Purpose-Decision%20Support-B7F3D0?style=flat-square" />
+  </p>
+</div>
 
 ---
 
-## 1. Before You Start
+## One assessment, a clearer clinical picture
 
-You need:
+PsyClick is a desktop clinical decision-support system that turns a guided screening session into an interpretable report. It helps clinicians see behavioral changes alongside familiar questionnaire scores without treating any single signal as a diagnosis.
 
-- A Windows computer.
-- Internet access.
-- The PsyClick installer or portable app.
-- A working mouse and keyboard.
-- Permission from your clinic/research team to use the app.
+| Guided experience | Interpretable results |
+| --- | --- |
+| **Validated screening** with PHQ-9 and GAD-7 questionnaires | **Traffic-light flags** make review priority easy to scan |
+| **Behavioral signals** from keystroke timing and cursor movement | **PSI and PAI profiles** surface slowing and agitation patterns |
+| **Emotional-response tasks** organized around relevant stress domains | **Session heatmaps** show where hesitation appeared during a task |
+| **Local-first collection** with an offline SQLite fallback | **Clinician reports** combine questionnaire and behavioral context |
 
-If your organization uses the cloud database, PsyClick must be connected to Supabase. The app package should already include the correct database connection. If it does not connect, contact the administrator before collecting sessions.
-
----
-
-## 2. Installation and Setup
-
-### Install the app
-
-1. Open the PsyClick installer, usually named `PsyClick Setup.exe`.
-2. If Windows SmartScreen appears, choose `More info`, then `Run anyway`.
-3. Complete the installer.
-4. Open PsyClick from the Start Menu or desktop shortcut.
-
-### Database setup
-
-For normal distributed use, the app should already contain the correct database configuration.
-
-If an administrator asks you to install the database configuration manually:
-
-1. Press `Win + R`.
-2. Type `%APPDATA%` and press Enter.
-3. Open or create the folder named `PsyClick`.
-4. Place `config.json` inside this folder.
-5. Restart PsyClick.
-
-Expected path:
+## How it works
 
 ```text
-%APPDATA%\PsyClick\config.json
+Guided intake
+     ↓
+Typing + cursor telemetry
+     ↓
+Feature extraction and within-session EWMA baseline
+     ↓
+Hotelling T² + PSI/PAI contribution analysis
+     ↓
+GREEN / AMBER / RED decision-support report
+     ↓
+Clinician review
 ```
 
-If Supabase is unavailable, PsyClick shows a database connection error. It should not continue with hidden local-only data when Supabase is configured.
+The analysis pipeline evaluates eight behavioral features, including flight time, dwell time, typing velocity, error rate, cursor velocity, jerk, path entropy, and pause frequency. The implementation and methodology are documented in [`psyclick_system_manifest.md`](./psyclick_system_manifest.md).
 
----
+## Built for focused, responsible screening
 
-## 3. Clinician Instructions
+- **Calm by design** — the mint, aqua, and white interface keeps dense clinical information approachable.
+- **Transparent analysis** — reports expose questionnaire scores, anomaly measures, and feature contributions instead of a black-box conclusion.
+- **Resilient storage** — the clinical build supports local SQLite operation, with cloud-backed workflows available where configured.
+- **Role-aware workflows** — separate patient assessment and clinician review experiences keep each task focused.
+- **Offline capable** — the Windows desktop application can operate without a persistent internet connection.
 
-Use this section if you are a clinician or staff member running client sessions.
+> [!IMPORTANT]
+> PsyClick is a screening and clinical decision-support tool. It does not diagnose a condition and must not replace evaluation by a qualified mental-health professional.
 
-### Clinician account creation
+## Technology
 
-Use this only the first time you create your clinician account.
+| Layer | Stack |
+| --- | --- |
+| Desktop experience | Electron, React 18, Vite, Tailwind CSS |
+| Local API | Python, Flask |
+| Behavioral analysis | NumPy, SciPy, pandas |
+| Storage | SQLite offline fallback, Supabase when configured |
+| Reporting | Recharts and clinician-facing exports |
 
-1. Open PsyClick.
-2. On the login page, choose `Don't have an account? Register`.
-3. Enter your full name.
-4. Enter a password.
-5. Click `Register`.
-6. PsyClick will generate your Clinician ID.
-7. Save your Clinician ID securely. You will need it for future logins.
+## Getting started
 
-Clinician ID format:
+### Requirements
+
+- Windows 10 or 11
+- Python 3.13+
+- Node.js 20+ and npm
+
+### Clinical edition
+
+```powershell
+git clone https://github.com/lanadenisehuertas/psyclick.git
+cd psyclick\psyclick-clinical
+
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
+
+python api_server.py
+```
+
+For desktop development, open a second terminal in `psyclick-clinical/frontend` and run:
+
+```powershell
+npm run electron:dev
+```
+
+The hardened experimental variant and its security regression tests live in [`psyclick-secure`](./psyclick-secure/README.md).
+
+## Repository map
 
 ```text
-YYYYNNN
+psyclick/
+├── psyclick-clinical/      # Current clinical desktop application and API
+│   ├── frontend/           # React, Vite, and Electron interface
+│   └── tests/              # Clinical and security-focused tests
+├── psyclick-secure/        # Hardened experimental build
+├── images/                 # Product branding used by the applications
+├── artifacts/diagrams/     # Architecture and research diagrams
+└── psyclick_system_manifest.md
 ```
 
-Example:
-
-```text
-2026001
-```
-
-### Clinician login
-
-1. Open PsyClick.
-2. Enter your Clinician ID.
-3. Enter your password.
-4. Click `Sign In`.
-
-If login fails:
-
-- Make sure the Clinician ID is numbers only.
-- Check Caps Lock.
-- Confirm you are using the same database/environment where the account was created.
-- If you see a Supabase or database error, stop and contact the administrator.
-
-### Dashboard
-
-After signing in, the dashboard shows:
-
-- Total clients.
-- Sessions this week.
-- No Concerns count.
-- Need Review count.
-- Session overview chart.
-- Sessions this week chart.
-- Recent session list.
-
-Main dashboard actions:
-
-- `New Intake`: starts a new client session.
-- Search clients: filters recent sessions by client ID.
-- Filter button: filters recent sessions by status.
-- `Export`: exports a summary report.
-- `View All`: opens the full client database.
-- Clicking any recent session opens its report.
-
-### Starting a new client intake
-
-1. Click `New Intake`.
-2. Enter the client's full name or client ID.
-3. Ask the client to review the consent statement.
-4. Tick the consent checkbox.
-5. Click `Agree & Begin Baseline Calibration`.
-6. Enter your clinician password if prompted.
-
-Important:
-
-- The Client ID is the identifier used in the database.
-- Client IDs should start at `C-001` and continue upward, for example `C-001`, `C-002`, `C-003`.
-- If the client already has previous sessions, PsyClick asks whether to start a new session. Existing data is preserved.
-- Do not start a session without consent.
-
-### Required session order
-
-Run the session in this order:
-
-1. Keyboard calibration.
-2. Mouse calibration.
-3. PHQ-9.
-4. GAD-7.
-5. Emotional response task.
-6. Final report.
-
-Do not skip steps unless your protocol specifically allows it.
-
-### Keyboard calibration
-
-The client sees a `Typing Task`.
-
-Instructions for the client:
-
-1. Type the displayed paragraph exactly as shown.
-2. Type naturally at a normal pace.
-3. Do not rush.
-4. Click `Continue` when finished.
-
-The app records typing rhythm and baseline keyboard features.
-
-### Mouse calibration
-
-The client sees a `Click Task`.
-
-Instructions for the client:
-
-1. Click each numbered circle in order.
-2. Move naturally at a normal pace.
-3. Finish all 5 circles.
-4. Click `Continue`.
-
-The app records mouse movement and click behavior.
-
-### PHQ-9 screening
-
-The client answers 9 questions about the last 2 weeks.
-
-Options:
-
-- `0` Not at all
-- `1` Several days
-- `2` More than half days
-- `3` Nearly every day
-
-The client must answer all questions before continuing.
-
-### GAD-7 screening
-
-The client answers 7 questions about the last 2 weeks.
-
-Options:
-
-- `0` Not at all
-- `1` Several days
-- `2` More than half days
-- `3` Nearly every day
-
-The client must answer all questions before continuing.
-
-### Emotional response task
-
-The client answers 12 written prompts.
-
-Instructions for the client:
-
-1. Read each prompt carefully.
-2. Type a response in their own words.
-3. Respond naturally.
-4. Avoid switching windows or using other apps.
-5. Continue until all 12 prompts are complete.
-
-The response box has a 500-character limit per prompt.
-
-At the end, clinicians may be asked to confirm with their password before the final report is generated.
-
-### Final report
-
-The final report includes:
-
-- Overall risk flag.
-- PHQ-9 score.
-- GAD-7 score.
-- Hotelling T2 score.
-- Psychomotor Stress Index (PSI).
-- Psychomotor Anxiety Index (PAI).
-- Temporal hesitation heatmap.
-- Keystroke flight time distribution.
-- Domain T2 scores.
-- Emotional load level scores.
-- Normative comparison when available.
-- Clinical recommendation text.
-- Per-question biomarker table.
-
-Actions:
-
-- `Back`: returns to dashboard or client detail.
-- `Export Full Report`: exports the current report file.
-
-### Client database
-
-Open `Clients` from the sidebar.
-
-You can:
-
-- Search by client ID.
-- Filter by `All Clients`, `No Concerns`, or `Need Review`.
-- Open a client record.
-- View total sessions, last seen date, and latest status.
-
-### Client detail page
-
-The client detail page shows:
-
-- Latest status.
-- Latest PHQ-9 and GAD-7 scores.
-- Latest PSI, PAI, and T2 values.
-- Full session history.
-
-Actions:
-
-- `Back to Client Database`: returns to the client list.
-- `View Report`: opens a specific session report.
-- `Delete Record`: permanently deletes the client and all sessions. Use this carefully.
-
-### Audit log
-
-Open `Audit` from the sidebar.
-
-Tabs:
-
-- `Clinician Activity`: login, logout, export, intake actions.
-- `Client Activity`: session progress and client task events.
-
-Use this page for compliance review and troubleshooting.
-
-### Normative dashboard for clinicians
-
-Open `Normative` from the sidebar.
-
-Clinicians can:
-
-- See how many normative sessions have been collected.
-- Start a normative session for a tester.
-- Compute or recompute the normative baseline.
-
-To compute the baseline:
-
-1. Open `Normative`.
-2. Click `Compute Baseline` or `Recompute`.
-3. Enter your clinician password.
-4. Click `Confirm`.
-
-The baseline can be computed from available normative sessions. The target shown in the interface is 100 sessions.
-
----
-
-## 4. Normative Tester Instructions
-
-Use this section if you are a tester contributing to the normative baseline.
-
-### Tester purpose
-
-Normative tester sessions are used to build a reference dataset for comparison. These sessions are not regular clinical client sessions.
-
-### Tester login
-
-1. Open PsyClick.
-2. Click `Normative Tester Portal` on the clinician login screen.
-3. Enter your assigned Tester ID.
-4. Enter the session password.
-5. Click `Begin Normative Session`.
-
-Tester ID:
-
-- Use the ID assigned by the research or clinic team.
-- Tester IDs should start at `T-001` and continue upward, for example `T-001`, `T-002`, `T-003`.
-
-Tester password:
-
-```text
-NORMER123
-```
-
-Keep this password restricted to authorized testers only.
-
-### Tester session flow
-
-Complete the full flow:
-
-1. Keyboard calibration.
-2. Mouse calibration.
-3. PHQ-9.
-4. GAD-7.
-5. Emotional response task.
-6. Session complete page.
-
-### Tester rules
-
-Before starting:
-
-- Use a stable internet connection.
-- Use the same keyboard and mouse for the whole session.
-- Sit comfortably.
-- Close unnecessary apps.
-
-During the session:
-
-- Type naturally.
-- Move the mouse naturally.
-- Do not rush.
-- Do not intentionally perform poorly.
-- Do not switch windows repeatedly.
-- Do not use a phone during active tasks.
-- Ask the supervisor if you do not understand a prompt.
-
-After completion:
-
-- The app shows `Session Complete`.
-- Click `Exit Portal`.
-- Tell the supervisor that the session is done.
-
----
-
-## 5. What the Client or Tester Should Be Told
-
-You may read this aloud:
-
-> You will complete a few typing, mouse, and questionnaire tasks. Please answer honestly and type naturally. The system records typing and mouse interaction patterns during the task. There are no right or wrong answers. If you are unsure what to do, ask before continuing.
-
-For clinical clients, also confirm that consent has been given according to your clinic's procedure.
-
----
-
-## 6. Status Flags and Scores
-
-PsyClick may show these flags:
-
-- `GREEN`: no immediate psychomotor concern detected by the system.
-- `AMBER`: moderate concerns or review recommended.
-- `RED`: significant concerns or review recommended.
-
-Screening score ranges shown in the app:
-
-PHQ-9:
-
-- 0-4: Minimal
-- 5-9: Mild
-- 10-14: Moderate
-- 15-19: Moderately severe
-- 20-27: Severe
-
-GAD-7:
-
-- 0-4: Minimal
-- 5-9: Mild
-- 10-14: Moderate
-- 15-21: Severe
-
-PsyClick is a decision support tool. It does not replace clinical judgment, diagnosis, risk assessment, or emergency procedures.
-
----
-
-## 7. Exports
-
-Available exports:
-
-- Dashboard `Export`: exports a session summary.
-- Report `Export Full Report`: exports a detailed individual report.
-
-If export fails:
-
-- Confirm at least one completed session exists.
-- Reopen the report and try again.
-- Check that Windows allows the app to write files.
-- Contact the administrator if the error continues.
-
----
-
-## 8. Troubleshooting
-
-### The app keeps loading during sign in
-
-Possible causes:
-
-- Supabase is unreachable.
-- The database password is wrong.
-- The packaged config is missing or stale.
-- The user's internet is blocked by firewall or network policy.
-
-What to do:
-
-1. Restart the app.
-2. Confirm internet access.
-3. Contact the administrator with the exact error text.
-
-### Clinician cannot sign in
-
-Check:
-
-- Clinician ID is numeric.
-- Password is correct.
-- The account exists in the current Supabase database.
-- Caps Lock is off.
-
-### Tester cannot sign in
-
-Check:
-
-- Tester ID is entered.
-- Password is exactly `NORMER123`.
-- The tester is using the Normative Tester Portal, not clinician login.
-
-### Data does not appear in Supabase
-
-Check:
-
-- Internet connection.
-- App was rebuilt with the latest `config.json`.
-- `%APPDATA%\PsyClick\config.json` is correct if manually configured.
-- You are viewing the correct Supabase project.
-- The session reached the final completion/report step.
-
-### A client already exists
-
-If PsyClick says the client already has sessions, choose whether to start a new session. Existing sessions are preserved unless you use `Delete Record`.
-
-### Delete record warning
-
-`Delete Record` removes the client and all sessions for that client. This cannot be undone from the app.
-
----
-
-## 9. Security Notes
-
-- Do not share clinician passwords in plain text.
-- Store Clinician IDs and passwords securely.
-- Share the normative tester password only with authorized testers.
-- Do not publish `config.json` publicly.
-- If a password or database URL is exposed, rotate it immediately in Supabase and rebuild the app.
-
----
-
-## 10. Support Checklist
-
-When reporting a problem, include:
-
-- Role: clinician or tester.
-- App version.
-- Exact screen where the issue happened.
-- Exact error message.
-- Clinician ID or Tester ID, but never the password.
-- Whether internet was working.
-- Whether the issue happens on one machine or all machines.
-- Whether the session reached the final report or complete page.
+Generated installers, virtual environments, office documents, database files, and build output are intentionally excluded from source control. Release downloads are available through the [PsyClick website](https://psyclick-app.vercel.app/#download).
+
+## Team ByteMe
+
+| Member | Role |
+| --- | --- |
+| **Jon Añonuevo** | System Architect & Lead Backend Developer |
+| **Denise Ballano** | Full-Stack Developer & QA |
+| **Lana Huertas** | Project Manager, Backend Developer & Lead UI/UX Designer |
+| **Judea Tablate** | Lead Researcher & Documentation |
+
+<div align="center">
+  <sub>Designed to support thoughtful conversations—not replace them.</sub>
+</div>

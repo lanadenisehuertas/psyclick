@@ -1,5 +1,9 @@
 # ── Dependencies ─────────────────────────────────────────────
 node_modules/
+.venv/
+venv/
+**/.venv/
+**/.pydeps/
 
 # ── Python cache ──────────────────────────────────────────────
 __pycache__/
@@ -22,6 +26,15 @@ psyclick-clinical/frontend/frontend/
 psyclick-releases/
 **/*.exe
 **/*.asar
+
+# ── Generated documents and packaged archives ────────────────
+*.docx
+*.pdf
+*.pptx
+*.zip
+*.tmp
+*.db-journal
+artifacts/_work/
 
 # ── Local databases (patient data — never commit) ─────────────
 *.db
