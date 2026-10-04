@@ -24,7 +24,7 @@ function passwordChecks(pwd) {
 function BrandPanel() {
   return (
     <div className="hidden lg:flex w-[46%] max-w-[640px] relative overflow-hidden flex-col justify-between p-12 text-white"
-      style={{ background: '#14211F' }}>
+      style={{ background: 'radial-gradient(40rem 26rem at 0% 100%, rgba(112,232,192,0.28), transparent 70%), radial-gradient(36rem 26rem at 100% 0%, rgba(120,168,216,0.30), transparent 70%), radial-gradient(30rem 20rem at 60% 60%, rgba(104,216,232,0.14), transparent 70%), #0F2A33' }}>
       {/* Calm "signal" lines: a nod to keystroke rhythm */}
       <svg className="absolute inset-x-0 top-[40%] w-full h-40 opacity-40" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
         {[0, 1, 2].map(i => (
@@ -49,7 +49,7 @@ function BrandPanel() {
         {BENEFITS.map((b, i) => (
           <motion.li key={b.title} className="flex gap-4"
             initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.15 + i * 0.08, ease: EASE }}>
-            <span className="w-11 h-11 rounded-full border border-white/20 text-[#7FE3D8] flex items-center justify-center flex-shrink-0"><b.icon size={20} aria-hidden="true" /></span>
+            <span className="w-11 h-11 rounded-full border border-white/20 text-mint flex items-center justify-center flex-shrink-0"><b.icon size={20} aria-hidden="true" /></span>
             <div>
               <p className="font-semibold">{b.title}</p>
               <p className="text-white/70 text-[15px]">{b.text}</p>

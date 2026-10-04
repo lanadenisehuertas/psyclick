@@ -4,8 +4,8 @@ import { DOMAIN_NAMES, DOMAIN_TIPS, LEVEL_NAMES, HEALTHY_GAP, MCID, phqLabel, ga
 
 // ── palette (shared with print) ──────────────────────────────────────────────
 export const C = {
-  ink: '#14211F', sub: '#4E6662', grid: '#E2EAE7', gridMajor: '#CFDCD7', paper: '#FBFCFB',
-  band: '#CFE8DF', teal: '#0C7C78', amber: '#B7791F', coral: '#B83A38', muted: '#A9BAB6',
+  ink: '#0F2A33', sub: '#4A6670', grid: '#E3EDF0', gridMajor: '#CBDDE3', paper: '#FBFDFE',
+  band: '#CDEFE3', teal: '#0A6B80', amber: '#B7791F', coral: '#B83A38', muted: '#A9BEC4',
 }
 const FONT_MONO = "'IBM Plex Mono', ui-monospace, monospace"
 
@@ -168,7 +168,7 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
       )}
 
       {h && (
-        <div className="pointer-events-none absolute z-20 w-[290px] rounded-xl bg-[#14211F] text-white p-4 shadow-xl text-sm"
+        <div className="pointer-events-none absolute z-20 w-[290px] rounded-xl bg-[#0F2A33] text-white p-4 shadow-xl text-sm"
           style={{ left: Math.min(Math.max(xAt(hover) - 145, 0), W - 290), top: M.t + plotH + 44 }}>
           <p className="font-mono text-xs text-white/60">{h.item_id} · {DOMAIN_NAMES[h.group_id]} · {LEVEL_NAMES[h.level]} prompt</p>
           {h.prompt && <p className="mt-1.5 leading-snug">“{h.prompt}”</p>}
@@ -208,8 +208,8 @@ export function TopicGrid({ snapshots, itemP95 }) {
   function cellStyle(v) {
     if (v == null) return { background: 'transparent', color: C.muted }
     let bg
-    if (mode === 'change') bg = v > itemP95 ? mix('F6D9D6', 'B83A38', Math.min(1, (v - itemP95) / itemP95)) : mix('F1F7F5', '0C7C78', Math.min(1, v / itemP95) * 0.85)
-    else bg = mix('F1F7F5', '14211F', Math.min(1, v / pauseMax) * 0.85)
+    if (mode === 'change') bg = v > itemP95 ? mix('F6D9D6', 'B83A38', Math.min(1, (v - itemP95) / itemP95)) : mix('EEF9F6', '3D5FA8', Math.min(1, v / itemP95) * 0.9)
+    else bg = mix('EEF9F6', '0F2A33', Math.min(1, v / pauseMax) * 0.85)
     const dark = parseInt(bg.slice(1, 3), 16) * 0.3 + parseInt(bg.slice(3, 5), 16) * 0.59 + parseInt(bg.slice(5, 7), 16) * 0.11 < 140
     return { background: bg, color: dark ? '#fff' : C.ink }
   }
@@ -217,26 +217,26 @@ export function TopicGrid({ snapshots, itemP95 }) {
   return (
     <div>
       <div className="flex items-center justify-end mb-3">
-        <div role="tablist" aria-label="Map shows" className="inline-flex rounded-lg border border-[#D6E0DC] p-0.5 bg-white text-sm">
+        <div role="tablist" aria-label="Map shows" className="inline-flex rounded-lg border border-[#D9E6EA] p-0.5 bg-white text-sm">
           {[['change', 'Change'], ['pause', 'Pause before typing']].map(([k, l]) => (
             <button key={k} role="tab" aria-selected={mode === k} onClick={() => setMode(k)}
-              className={`px-3 h-8 rounded-md font-semibold cursor-pointer transition-colors ${mode === k ? 'bg-[#14211F] text-white' : 'text-[#4E6662] hover:text-[#14211F]'}`}>{l}</button>
+              className={`px-3 h-8 rounded-md font-semibold cursor-pointer transition-colors ${mode === k ? 'bg-[#0F2A33] text-white' : 'text-[#4A6670] hover:text-[#0F2A33]'}`}>{l}</button>
           ))}
         </div>
       </div>
       <table className="w-full border-separate" style={{ borderSpacing: 6 }}>
         <thead>
           <tr>
-            <th className="text-left text-xs font-semibold text-[#4E6662] font-normal pb-1 w-[34%]"><span className="sr-only">Topic</span></th>
-            {['A', 'B', 'C'].map(l => <th key={l} scope="col" className="text-sm font-semibold text-[#14211F] pb-1">{LEVEL_NAMES[l]}<span className="block text-xs font-normal text-[#4E6662]">prompts</span></th>)}
+            <th className="text-left text-xs font-semibold text-[#4A6670] font-normal pb-1 w-[34%]"><span className="sr-only">Topic</span></th>
+            {['A', 'B', 'C'].map(l => <th key={l} scope="col" className="text-sm font-semibold text-[#0F2A33] pb-1">{LEVEL_NAMES[l]}<span className="block text-xs font-normal text-[#4A6670]">prompts</span></th>)}
           </tr>
         </thead>
         <tbody>
           {[1, 2, 3, 4].map(g => (
             <tr key={g}>
               <th scope="row" className="text-left align-middle pr-2">
-                <span className="block text-sm font-semibold text-[#14211F]">{DOMAIN_NAMES[g]}</span>
-                <span className="block text-xs text-[#4E6662] font-normal">{DOMAIN_TIPS[g]}</span>
+                <span className="block text-sm font-semibold text-[#0F2A33]">{DOMAIN_NAMES[g]}</span>
+                <span className="block text-xs text-[#4A6670] font-normal">{DOMAIN_TIPS[g]}</span>
               </th>
               {['A', 'B', 'C'].map(l => {
                 const c = cells[`${g}-${l}`]
@@ -255,12 +255,12 @@ export function TopicGrid({ snapshots, itemP95 }) {
           ))}
         </tbody>
       </table>
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#4E6662]">
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#4A6670]">
         {mode === 'change' ? (<>
-          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#F1F7F5,#0C7C78)' }} />within healthy range</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#EEF9F6,#3D5FA8)' }} />within healthy range</span>
           <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#F6D9D6,#B83A38)' }} />above healthy range (&gt; {Math.round(itemP95)})</span>
         </>) : (
-          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#F1F7F5,#14211F)' }} />longer pause = darker</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#EEF9F6,#0F2A33)' }} />longer pause = darker</span>
         )}
       </div>
     </div>
@@ -293,13 +293,13 @@ export function RhythmChart({ flights }) {
           ['Key presses', `${gaps.length}`, 'in the written answers'],
         ].map(([k, v, d]) => (
           <div key={k}>
-            <dt className="text-xs text-[#4E6662]">{k}</dt>
-            <dd className="font-mono text-2xl font-semibold text-[#14211F] leading-tight">{v}</dd>
-            <dd className="text-xs text-[#4E6662]">{d}</dd>
+            <dt className="text-xs text-[#4A6670]">{k}</dt>
+            <dd className="font-mono text-2xl font-semibold text-[#0F2A33] leading-tight">{v}</dd>
+            <dd className="text-xs text-[#4A6670]">{d}</dd>
           </div>
         ))}
       </dl>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#4E6662] mb-2" aria-hidden="true">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-[#4A6670] mb-2" aria-hidden="true">
         <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: C.band }} />healthy adults' average gap</span>
         <span className="inline-flex items-center gap-1.5"><span className="w-3 border-t-2 border-dashed" style={{ borderColor: C.coral }} />this client's typical gap</span>
         <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: C.amber }} />pauses over 1 second</span>
@@ -312,7 +312,7 @@ export function RhythmChart({ flights }) {
             {bins.map((c, i) => {
               const h = (c / yMax) * ph
               return <rect key={i} x={M.l + i * bw + 1.5} y={M.t + ph - h} width={Math.max(bw - 3, 1)} height={h} rx="2"
-                fill={i === MAXB ? C.amber : '#3E5753'} opacity={i === MAXB ? 0.9 : 0.85} />
+                fill={i === MAXB ? C.amber : '#33525C'} opacity={i === MAXB ? 0.9 : 0.85} />
             })}
             <line x1={xAtSec(median)} x2={xAtSec(median)} y1={M.t} y2={M.t + ph} stroke={C.coral} strokeWidth="1.5" strokeDasharray="4 3" />
             {[0, 0.25, 0.5, 0.75].map(s => (
@@ -321,7 +321,7 @@ export function RhythmChart({ flights }) {
             <text x={M.l + MAXB * bw + bw / 2} y={H - 10} fontSize="11" fill={C.amber} textAnchor="middle" fontFamily={FONT_MONO}>1 s+</text>
           </svg>
         )}
-        {gaps.length === 0 && <p className="text-sm text-[#4E6662]">No typing was captured in the written answers.</p>}
+        {gaps.length === 0 && <p className="text-sm text-[#4A6670]">No typing was captured in the written answers.</p>}
       </div>
     </div>
   )
@@ -342,12 +342,12 @@ function Spark({ values, current, band, w = 160, h = 40 }) {
 }
 
 export function ChangeSince({ sessions, sessionId, sessionP95 }) {
-  if (!sessions) return <p className="text-sm text-[#4E6662]">Loading earlier sessions…</p>
+  if (!sessions) return <p className="text-sm text-[#4A6670]">Loading earlier sessions…</p>
   const ordered = [...sessions].sort((a, b) => a.session_id - b.session_id)
   const idx = ordered.findIndex(s => String(s.session_id) === String(sessionId))
   if (idx <= 0) {
     return (
-      <p className="text-[15px] text-[#14211F]">
+      <p className="text-[15px] text-[#0F2A33]">
         This is the client's first session. It becomes their personal baseline: from the next visit,
         this section shows how their answers and behaviour have moved since today.
       </p>
@@ -365,11 +365,11 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
 
   return (
     <div>
-      <p className="text-sm text-[#4E6662] mb-4">
+      <p className="text-sm text-[#4A6670] mb-4">
         Compared with the previous session ({new Date(String(prev.timestamp).replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { dateStyle: 'medium' })})
         {idx > 1 ? ` and with the first (${new Date(String(first.timestamp).replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { dateStyle: 'medium' })})` : ''}.
       </p>
-      <div className="divide-y divide-[#E2EAE7]">
+      <div className="divide-y divide-[#E3EDF0]">
         {rows.map(r => {
           const d = Number(now[r.key] || 0) - Number(prev[r.key] || 0)
           const meaningful = r.mcid ? Math.abs(d) >= r.mcid : (Number(prev[r.key]) <= sessionP95) !== (Number(now[r.key]) <= sessionP95)
@@ -377,13 +377,13 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
           return (
             <div key={r.key} className="py-3 grid grid-cols-[1.3fr_1fr_1.4fr_auto] gap-4 items-center">
               <div>
-                <p className="font-semibold text-[#14211F]">{r.name}</p>
-                <p className="text-xs text-[#4E6662]">{r.label(Number(now[r.key] || 0))}</p>
+                <p className="font-semibold text-[#0F2A33]">{r.name}</p>
+                <p className="text-xs text-[#4A6670]">{r.label(Number(now[r.key] || 0))}</p>
               </div>
-              <p className="font-mono text-[#14211F]">
-                <span className="text-[#4E6662]">{r.fmt(Number(prev[r.key] || 0))}</span> → <span className="font-semibold">{r.fmt(Number(now[r.key] || 0))}</span>
+              <p className="font-mono text-[#0F2A33]">
+                <span className="text-[#4A6670]">{r.fmt(Number(prev[r.key] || 0))}</span> → <span className="font-semibold">{r.fmt(Number(now[r.key] || 0))}</span>
               </p>
-              <p className={`text-sm font-semibold ${!meaningful ? 'text-[#4E6662]' : worse ? 'text-coral-ink' : 'text-success-ink'}`}>
+              <p className={`text-sm font-semibold ${!meaningful ? 'text-[#4A6670]' : worse ? 'text-coral-ink' : 'text-success-ink'}`}>
                 {!meaningful ? (r.mcid ? `No meaningful change (needs ±${r.mcid})` : 'Same side of the healthy limit')
                   : r.mcid ? (worse ? `Worse by ${d} — meaningful` : `Better by ${-d} — meaningful`)
                   : (worse ? 'Moved above the healthy range' : 'Returned to the healthy range')}
@@ -393,7 +393,7 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
           )
         })}
       </div>
-      <p className="mt-3 text-xs text-[#4E6662]">
+      <p className="mt-3 text-xs text-[#4A6670]">
         Questionnaire changes count as meaningful at 5 points for PHQ-9 and 4 for GAD-7. Behaviour is re-measured against a new
         warm-up each visit, so compare it by whether it sits inside the healthy range rather than by its exact size.
       </p>

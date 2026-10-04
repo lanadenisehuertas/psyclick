@@ -91,15 +91,19 @@ export default function Dashboard() {
     >
       {/* Primary action */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: EASE }}
-        className="mb-6 rounded-2xl border border-border bg-white px-6 py-5 flex flex-wrap items-center gap-5">
-        <svg width="132" height="40" viewBox="0 0 132 40" aria-hidden="true" className="flex-shrink-0">
-          <path d="M0 26 H18 L24 10 L31 34 L38 18 L46 24 H62 L68 6 L76 36 L83 20 L90 26 H132" fill="none" stroke="#0C7C78" strokeWidth="2" strokeLinejoin="round" />
+        className="mb-6 rounded-[20px] bg-brand px-6 py-5 flex flex-wrap items-center gap-5 relative overflow-hidden shadow-[0_18px_40px_-20px_rgba(61,95,168,0.55),inset_0_1px_0_rgba(255,255,255,0.6)]">
+        <svg className="absolute inset-0 w-full h-full opacity-40" preserveAspectRatio="none" viewBox="0 0 600 120" aria-hidden="true">
+          <path d="M0 70 C 60 30, 110 110, 170 60 S 290 20, 350 70 S 470 100, 600 50" fill="none" stroke="#fff" strokeWidth="1.5" />
+          <path d="M0 95 C 80 70, 140 120, 220 85 S 380 60, 600 90" fill="none" stroke="#fff" strokeWidth="1" />
         </svg>
-        <div className="flex-1 min-w-[240px]">
+        <svg width="132" height="40" viewBox="0 0 132 40" aria-hidden="true" className="flex-shrink-0 relative">
+          <path d="M0 26 H18 L24 10 L31 34 L38 18 L46 24 H62 L68 6 L76 36 L83 20 L90 26 H132" fill="none" stroke="#0F2A33" strokeWidth="2.2" strokeLinejoin="round" />
+        </svg>
+        <div className="flex-1 min-w-[240px] relative">
           <p className="font-display text-xl font-semibold text-tmain">Start a new assessment</p>
-          <p className="text-tsub">About 15 minutes: consent, two warm-ups, two questionnaires and twelve short written answers.</p>
+          <p className="text-tmain/80">About 15 minutes: consent, two warm-ups, two questionnaires and twelve short written answers.</p>
         </div>
-        <Button size="lg" iconRight={ArrowRight} onClick={() => navigate('/intake')}>Begin</Button>
+        <Button size="lg" iconRight={ArrowRight} onClick={() => navigate('/intake')} className="relative !bg-[#0F2A33] hover:!bg-[#173C48]">Begin</Button>
       </motion.div>
 
       {/* Key numbers — each one opens the matching list */}
@@ -133,7 +137,7 @@ export default function Dashboard() {
               </div>
             ) : attention.map(s => (
               <button key={s.session_id} onClick={() => navigate(`/clients/session/${s.session_id}`)}
-                className="w-full flex items-center gap-4 rounded-xl border border-border bg-white px-4 py-3 text-left hover:border-accent/50 hover:bg-[#F7FBFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
+                className="w-full flex items-center gap-4 rounded-xl border border-border bg-white px-4 py-3 text-left hover:border-accent/50 hover:bg-[#F4FAFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
                 <span className="w-10 h-10 rounded-full bg-accent/10 text-accent-ink font-bold flex items-center justify-center flex-shrink-0" aria-hidden="true">{(s.patient_id || '?').slice(-2)}</span>
                 <span className="flex-1 min-w-0">
                   <span className="block font-semibold text-tmain">{s.patient_id}</span>
@@ -218,7 +222,7 @@ export default function Dashboard() {
             <tbody>
               {filtered.map(s => (
                 <tr key={s.session_id} onClick={() => navigate(`/clients/session/${s.session_id}`)}
-                  className="border-t border-border/70 hover:bg-[#F7FBFB] cursor-pointer transition-colors">
+                  className="border-t border-border/70 hover:bg-[#F4FAFB] cursor-pointer transition-colors">
                   <td className="px-6 py-3.5 font-semibold text-tmain">
                     <span className="inline-flex items-center gap-2">
                       {s.patient_id}

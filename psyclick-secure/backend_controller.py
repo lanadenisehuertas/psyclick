@@ -44,6 +44,8 @@ from anomaly_engine import AnomalyEngine
 
 _log = logging.getLogger(__name__)
 
+HOVER_CAP_S = 5.0   # longest single stillness credited to one word
+
 
 def _ae_scalar(ae, key):
     """Extract a scalar float from the clinical engine's nested result dict.
@@ -238,18 +240,24 @@ class PsyClickController:
             # Cursor was stationary at the PREVIOUS row's position
             prev = df.iloc[i - 1]
             px, py = prev["x"], prev["y"]
-            dwell_ms = gap * 1000
+            # A very long stillness is more likely the hand leaving the mouse
+            # than reading one word, so a single stop counts for at most 5 s.
+            dwell_ms = min(gap, HOVER_CAP_S) * 1000
 
-            for box in self._word_boxes:
-                if box["x1"] <= px <= box["x2"] and box["y1"] <= py <= box["y2"]:
-                    w = box["word"]
-                    if w not in hover:
-                        hover[w] = {"word": w, "dwell_ms": 0.0, "hover_count": 0,
-                                    "x": (box["x1"] + box["x2"]) // 2,
-                                    "y": (box["y1"] + box["y2"]) // 2}
-                    hover[w]["dwell_ms"]    += dwell_ms
-                    hover[w]["hover_count"] += 1
-                    break
+            # Word boxes are padded and overlap; credit the nearest word.
+            hits = [b for b in self._word_boxes
+                    if b["x1"] <= px <= b["x2"] and b["y1"] <= py <= b["y2"]]
+            if not hits:
+                continue
+            box = min(hits, key=lambda b: ((b["x1"] + b["x2"]) / 2 - px) ** 2
+                                          + ((b["y1"] + b["y2"]) / 2 - py) ** 2)
+            w = box["word"]
+            if w not in hover:
+                hover[w] = {"word": w, "dwell_ms": 0.0, "hover_count": 0,
+                            "x": (box["x1"] + box["x2"]) // 2,
+                            "y": (box["y1"] + box["y2"]) // 2}
+            hover[w]["dwell_ms"]    += dwell_ms
+            hover[w]["hover_count"] += 1
 
         return sorted(hover.values(), key=lambda d: d["dwell_ms"], reverse=True)
 

@@ -20,7 +20,7 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: EASE }}
-      className={`rounded-2xl border p-6 print-avoid ${m.soft}`}
+      className={`rounded-[20px] border p-6 print-avoid shadow-card ${m.soft}`}
     >
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="flex-1 min-w-0">
@@ -63,9 +63,9 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
           </ol>
         </div>
 
-        <div className="lg:w-[340px] flex-shrink-0 rounded-xl bg-white/80 border border-[#DCE5E1] p-5 flex flex-col gap-4">
+        <div className="lg:w-[340px] flex-shrink-0 rounded-xl bg-white/80 border border-[#D9E6EA] p-5 flex flex-col gap-4">
           <div>
-            <p className="text-sm font-semibold text-[#14211F] mb-1.5">What to do next</p>
+            <p className="text-sm font-semibold text-[#0F2A33] mb-1.5">What to do next</p>
             <p className="text-[15px] text-tmain leading-relaxed flex gap-2">
               <ArrowRight size={18} className={`flex-shrink-0 mt-0.5 ${m.ink}`} aria-hidden="true" />
               {m.next}
@@ -73,7 +73,7 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
           </div>
           {sure && (
             <div>
-              <p className="text-sm font-semibold text-[#14211F] mb-1">How clear the pattern is</p>
+              <p className="text-sm font-semibold text-[#0F2A33] mb-1">How clear the pattern is</p>
               <p className="text-[15px] text-tmain"><span className="font-bold">{sure}</span> <span className="text-tsub">({Math.round(confidence * 100)}%)</span></p>
             </div>
           )}
@@ -118,7 +118,7 @@ export function Collapsible({ title, summary, icon: Icon, defaultOpen = false, f
   const open = forceOpen || openState
   const id = useId()
   return (
-    <div className="bg-white rounded-2xl border border-[#DCE5E1] overflow-hidden print-avoid">
+    <div className="surface overflow-hidden print-avoid">
       <button
         type="button"
         aria-expanded={open}
@@ -127,12 +127,12 @@ export function Collapsible({ title, summary, icon: Icon, defaultOpen = false, f
         className="w-full flex items-center gap-4 px-6 py-4 text-left cursor-pointer hover:bg-[#F7FAFA] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink"
       >
         {Icon && (
-          <span className="w-10 h-10 rounded-full border border-[#DCE5E1] text-[#0C7C78] flex items-center justify-center flex-shrink-0">
+          <span className="w-10 h-10 rounded-full border border-[#D9E6EA] text-[#0A6B80] flex items-center justify-center flex-shrink-0">
             <Icon size={20} aria-hidden="true" />
           </span>
         )}
         <span className="flex-1 min-w-0">
-          <span className="block font-display font-semibold text-[#14211F]">{title}</span>
+          <span className="block font-display font-semibold text-[#0F2A33]">{title}</span>
           {summary && <span className="block text-sm text-tsub mt-0.5">{summary}</span>}
         </span>
         <span className="text-sm font-medium text-accent-ink whitespace-nowrap" data-print-hide>{open ? 'Hide' : 'Show'}</span>
@@ -220,14 +220,14 @@ export function ResultCard({ title, technical, value, valueSuffix, verdict, verd
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay, ease: EASE }}
-      className="bg-white rounded-2xl border border-[#DCE5E1] p-5 flex flex-col print-avoid"
+      className="surface p-5 flex flex-col print-avoid"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-display font-semibold text-[#14211F] text-[16px] flex items-center">{title}{info}</h3>
+          <h3 className="font-display font-semibold text-[#0F2A33] text-[16px] flex items-center">{title}{info}</h3>
           {technical && <p className="text-xs text-tsub mt-0.5">{technical}</p>}
         </div>
-        <p className="font-mono text-2xl font-semibold text-[#14211F] tabular-nums whitespace-nowrap">
+        <p className="font-mono text-2xl font-semibold text-[#0F2A33] tabular-nums whitespace-nowrap">
           {value}{valueSuffix && <span className="text-sm font-medium text-tsub ml-1">{valueSuffix}</span>}
         </p>
       </div>

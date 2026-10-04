@@ -31,8 +31,8 @@ export function PageShell({ title, subtitle, actions, eyebrow, back, children, w
 
 // ── Buttons ──────────────────────────────────────────────────────────────────
 const BTN = {
-  primary:   'bg-accent-ink text-white hover:bg-[#066A68] shadow-sm',
-  secondary: 'bg-white text-tmain border border-border hover:border-accent/50 hover:bg-[#F5FBFB]',
+  primary:   'bg-accent-ink text-white hover:bg-[#08566A] shadow-[0_1px_2px_rgba(15,42,51,0.25),0_6px_14px_-6px_rgba(10,107,128,0.55),inset_0_1px_0_rgba(255,255,255,0.18)]',
+  secondary: 'bg-white text-tmain border border-border shadow-[0_1px_2px_rgba(15,42,51,0.06)] hover:border-accent-ink/40 hover:bg-[#F4FAFB]',
   ghost:     'bg-transparent text-tsub hover:bg-black/[0.04] hover:text-tmain',
   danger:    'bg-white text-coral-ink border border-coral/40 hover:bg-coral/10',
   dangerSolid: 'bg-coral-ink text-white hover:bg-[#9E302E]',
@@ -62,7 +62,7 @@ export function Button({ variant = 'primary', size = 'md', loading = false, icon
 
 // ── Cards ────────────────────────────────────────────────────────────────────
 export function Card({ className = '', children, ...rest }) {
-  return <div {...rest} className={`bg-white rounded-2xl border border-border ${className}`}>{children}</div>
+  return <div {...rest} className={`surface ${className}`}>{children}</div>
 }
 
 // A whole card that is one action: a real button, with hover lift and focus ring.
@@ -76,7 +76,7 @@ export function ActionCard({ onClick, className = '', children, ariaLabel, disab
       whileHover={disabled ? undefined : { y: -3 }}
       whileTap={disabled ? undefined : { scale: 0.985 }}
       transition={{ duration: 0.18, ease: EASE }}
-      className={`text-left rounded-2xl border border-border bg-white hover:shadow-hover hover:border-tmain/30
+      className={`text-left rounded-[20px] border border-border bg-white shadow-card hover:shadow-hover hover:border-accent-ink/30
         transition-[box-shadow,border-color] duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60
         focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-ink ${className}`}
     >
@@ -263,7 +263,7 @@ export function Spinner({ label = 'Loading…' }) {
 // ── Segmented control (tabs / filters) ───────────────────────────────────────
 export function Segmented({ value, onChange, options, ariaLabel }) {
   return (
-    <div role="tablist" aria-label={ariaLabel} className="inline-flex p-1 rounded-xl bg-white border border-border shadow-card">
+    <div role="tablist" aria-label={ariaLabel} className="inline-flex p-1 rounded-xl bg-white/80 border border-border shadow-card backdrop-blur">
       {options.map(o => {
         const active = o.value === value
         return (

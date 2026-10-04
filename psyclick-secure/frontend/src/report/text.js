@@ -51,6 +51,12 @@ export const GLOSSARY = {
     flag: 'Dots above the shaded band changed more than in 95% of healthy adults on a single prompt. Look for where the line rises, not single dots.',
     how: 'Per-prompt T² against the warm-up baseline; band = healthy single-prompt 95th percentile.',
   },
+  Reading: {
+    title: 'Where attention lingered',
+    what: 'While reading each prompt, the cursor often rests near the words a person is dwelling on.',
+    flag: 'Darker words held the cursor longer. Words that stand out in emotional prompts are good, concrete starting points for conversation.',
+    how: 'Mouse stillness of 100 ms or more over a word, summed per word (each stop capped at 5 s). It is a proxy for attention, not eye tracking.',
+  },
   Grid: {
     title: 'Topic × strength map',
     what: 'The same prompts grouped by topic (rows) and by how emotionally strong the prompt was (columns).',

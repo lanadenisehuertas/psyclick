@@ -218,6 +218,35 @@ class NormativeReferenceTests(unittest.TestCase):
         self.assertLess(t["p95"], t["p99"])
 
 
+class HoverWordTests(unittest.TestCase):
+    def _map(self, boxes, moves):
+        import backend_controller as bc
+        fake = type("C", (), {})()
+        fake._word_boxes = boxes
+        return bc.PsyClickController._map_hover_words(fake, moves, [])
+
+    BOXES = [  # padded boxes overlap between neighbouring words
+        {"word": "feel", "x1": 0, "y1": 0, "x2": 80, "y2": 40},
+        {"word": "alone", "x1": 60, "y1": 0, "x2": 160, "y2": 40},
+    ]
+
+    def test_overlap_goes_to_the_nearest_word(self):
+        # x=78 is inside both boxes; it is 32 px from "alone" and 38 px from "feel"
+        moves = [{"x": 78, "y": 20, "time": 0.0}, {"x": 300, "y": 300, "time": 1.0}]
+        out = self._map(self.BOXES, moves)
+        self.assertEqual(out[0]["word"], "alone")
+
+    def test_long_stillness_is_capped(self):
+        moves = [{"x": 120, "y": 20, "time": 0.0}, {"x": 300, "y": 300, "time": 60.0}]
+        out = self._map(self.BOXES, moves)
+        self.assertEqual(out[0]["word"], "alone")
+        self.assertAlmostEqual(out[0]["dwell_ms"], 5000.0)
+
+    def test_short_movement_gaps_are_ignored(self):
+        moves = [{"x": 120, "y": 20, "time": 0.0}, {"x": 125, "y": 20, "time": 0.05}]
+        self.assertEqual(self._map(self.BOXES, moves), [])
+
+
 class EngagementTests(unittest.TestCase):
     def test_keystroke_tiers(self):
         b = ae.EWMABaseline()

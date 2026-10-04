@@ -10,6 +10,8 @@ import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 import InfoTooltip from '../report/InfoTooltip.jsx'
 import { SessionTrace, TopicGrid, RhythmChart, ChangeSince } from '../report/visuals.jsx'
+import ReadingHeatmap from '../report/ReadingHeatmap.jsx'
+import { collectSignals, SignalsList } from '../report/signals.jsx'
 import { NormativeComparison, QuestionBreakdown, percentileText, percentileValue } from '../report/detail.jsx'
 import { HEALTHY_REF, ITEM9_LABEL, phqLabel, gadLabel, clinicalRecs } from '../report/text.js'
 
@@ -20,11 +22,11 @@ const wait = ms => new Promise(r => setTimeout(r, ms))
 
 function Panel({ title, info, caption, children, className = '' }) {
   return (
-    <section className={`bg-white rounded-2xl border border-[#DCE5E1] p-6 print-avoid ${className}`}>
+    <section className={`surface p-6 print-avoid ${className}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-display text-lg font-semibold text-[#14211F] flex items-center">{title}{info && <InfoTooltip glossaryKey={info} />}</h3>
-          {caption && <p className="text-sm text-[#4E6662] mt-0.5 max-w-[72ch]">{caption}</p>}
+          <h3 className="font-display text-lg font-semibold text-[#0F2A33] flex items-center">{title}{info && <InfoTooltip glossaryKey={info} />}</h3>
+          {caption && <p className="text-sm text-[#4A6670] mt-0.5 max-w-[72ch]">{caption}</p>}
         </div>
       </div>
       <div className="mt-4">{children}</div>
@@ -212,11 +214,11 @@ export default function Report() {
             <div className="flex flex-wrap items-center gap-2">
               {student_id && (
                 <button onClick={() => navigate(`/intake?client=${encodeURIComponent(student_id)}`)}
-                  className="h-10 px-4 rounded-xl border border-[#D6E0DC] bg-white text-sm font-semibold text-tmain hover:border-[#0C7C78]/50 inline-flex items-center gap-2 cursor-pointer">
+                  className="h-10 px-4 rounded-xl border border-[#D9E6EA] bg-white text-sm font-semibold text-tmain hover:border-[#0A6B80]/50 inline-flex items-center gap-2 cursor-pointer">
                   <Plus size={16} aria-hidden="true" /> New session
                 </button>
               )}
-              <div className="flex items-center gap-1 bg-white border border-[#D6E0DC] rounded-xl px-1.5 h-10" role="group" aria-label="Text size">
+              <div className="flex items-center gap-1 bg-white border border-[#D9E6EA] rounded-xl px-1.5 h-10" role="group" aria-label="Text size">
                 <button onClick={() => setFontScale(FONT_SCALES[scaleIdx - 1])} disabled={scaleIdx === 0} aria-label="Smaller text"
                   className="w-8 h-8 rounded-lg text-sm font-bold text-tsub hover:bg-bg disabled:opacity-40 cursor-pointer">A−</button>
                 <span className="font-mono text-xs text-tsub w-10 text-center">{Math.round(fontScale * 100)}%</span>
@@ -228,7 +230,7 @@ export default function Report() {
                 <Lock size={15} aria-hidden="true" /> {busy === 'encrypted' ? 'Saving…' : 'Encrypted copy'}
               </button>
               <button onClick={savePdf} disabled={!!busy}
-                className="h-10 px-4 rounded-xl bg-[#0C7C78] hover:bg-[#095F5C] text-white text-sm font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-60">
+                className="btn-primary h-10 px-4 rounded-xl text-sm inline-flex items-center gap-2 cursor-pointer disabled:opacity-60">
                 {busy === 'pdf' ? <FolderOpen size={16} aria-hidden="true" /> : <FileDown size={16} aria-hidden="true" />}
                 {busy === 'pdf' ? 'Choose a folder…' : 'Save as PDF'}
               </button>
@@ -236,13 +238,13 @@ export default function Report() {
           </div>
 
           {/* Title block */}
-          <header className="mb-7 flex flex-wrap items-end justify-between gap-4 border-b border-[#DCE5E1] pb-6">
+          <header className="mb-7 flex flex-wrap items-end justify-between gap-4 border-b border-[#D9E6EA] pb-6">
             <div>
-              <p className="font-mono text-sm text-[#4E6662]">Client {student_id || '—'}{thisSession ? ` · session ${thisSession}` : ''}</p>
-              <h1 className="font-display text-[34px] leading-tight font-semibold text-[#14211F] mt-1">Assessment report</h1>
-              <p className="text-[#4E6662] mt-1">{formatTimestamp(timestamp, { dateStyle: 'full', timeStyle: 'short' })}</p>
+              <p className="font-mono text-sm text-[#4A6670]">Client {student_id || '—'}{thisSession ? ` · session ${thisSession}` : ''}</p>
+              <h1 className="font-display text-[34px] leading-tight font-semibold text-[#0F2A33] mt-1">Assessment report</h1>
+              <p className="text-[#4A6670] mt-1">{formatTimestamp(timestamp, { dateStyle: 'full', timeStyle: 'short' })}</p>
             </div>
-            <p className="text-xs text-[#4E6662] max-w-[34ch] text-right">Screening and decision support. Not a diagnosis.</p>
+            <p className="text-xs text-[#4A6670] max-w-[34ch] text-right">Screening and decision support. Not a diagnosis.</p>
           </header>
 
           <div className="space-y-6">
@@ -251,7 +253,7 @@ export default function Report() {
                 <ShieldAlert size={28} className="text-coral-ink flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <div>
                   <p className="font-display text-lg font-semibold text-coral-ink">Thoughts of self-harm reported</p>
-                  <p className="text-[#14211F] mt-1">
+                  <p className="text-[#0F2A33] mt-1">
                     PHQ-9 question 9 — “thoughts that you would be better off dead, or of hurting yourself” — was answered
                     <strong> “{ITEM9_LABEL[item9]}”</strong>. Complete a structured suicide-risk assessment in this session, whatever the result below.
                   </p>
@@ -261,6 +263,13 @@ export default function Report() {
 
             <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label} />
 
+            <Panel title="What stood out"
+              caption="Every signal in this session, including small ones that did not change the overall result. Small signals are where early changes show first.">
+              <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95,
+                psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
+                snapshots, iP95, levelT2, history, sessionId: thisSession })} />
+            </Panel>
+
             {/* The session, prompt by prompt — the signature view */}
             {snapshots.length > 0 && (
               <Panel title="The session, prompt by prompt" info="Trace"
@@ -269,6 +278,14 @@ export default function Report() {
                     ? `${aboveItems.length} of ${scoredItems.length} prompts rose above the healthy range: ${aboveItems.map(s => s.item_id).join(', ')}. Hover a prompt to read it.`
                     : `All ${scoredItems.length} scored prompts stayed in the healthy range. Hover a prompt to read it.`}>
                 <SessionTrace snapshots={snapshots} itemP95={iP95} itemP99={iP99} />
+              </Panel>
+            )}
+
+            {/* Where attention lingered while reading */}
+            {snapshots.length > 0 && (
+              <Panel title="Where attention lingered" info="Reading"
+                caption="Each prompt as the client saw it. Words are tinted by how long the cursor rested on them while reading — ask about the darkest ones.">
+                <ReadingHeatmap snapshots={snapshots} />
               </Panel>
             )}
 
@@ -328,7 +345,7 @@ export default function Report() {
                 </Panel>
                 {analysis?.rationale && (
                   <Panel title="How the result was reached">
-                    <p className="text-sm text-[#14211F] leading-relaxed font-mono">{analysis.rationale}</p>
+                    <p className="text-sm text-[#0F2A33] leading-relaxed font-mono">{analysis.rationale}</p>
                   </Panel>
                 )}
               </div>
@@ -337,10 +354,10 @@ export default function Report() {
                   {recs.map((r, i) => (
                     <motion.li key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 * i, duration: 0.25 }}
                       className="flex gap-3">
-                      <span className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${r.tone === 'coral' ? 'bg-coral-ink' : r.tone === 'amber' ? 'bg-[#B7791F]' : 'bg-[#0C7C78]'}`} aria-hidden="true" />
+                      <span className={`mt-1.5 w-2.5 h-2.5 rounded-full flex-shrink-0 ${r.tone === 'coral' ? 'bg-coral-ink' : r.tone === 'amber' ? 'bg-[#B7791F]' : 'bg-[#0A6B80]'}`} aria-hidden="true" />
                       <div>
-                        <p className="font-semibold text-[#14211F] leading-snug">{r.title}</p>
-                        <p className="text-sm text-[#4E6662] leading-relaxed">{r.desc}</p>
+                        <p className="font-semibold text-[#0F2A33] leading-snug">{r.title}</p>
+                        <p className="text-sm text-[#4A6670] leading-relaxed">{r.desc}</p>
                       </div>
                     </motion.li>
                   ))}

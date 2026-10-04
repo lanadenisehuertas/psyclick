@@ -16,7 +16,7 @@ const PARTS = [
 
 const RECORDED = [
   'Timing of key presses (not which words are typed)',
-  'Mouse movement and clicks during the tasks',
+  'Mouse movement and clicks, including where the cursor rests while reading',
   'Questionnaire answers and scores',
   'Length of each written answer — the words themselves are not saved',
 ]

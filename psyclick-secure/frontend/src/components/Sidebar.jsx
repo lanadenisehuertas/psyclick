@@ -80,19 +80,17 @@ export default function Sidebar() {
   const initials = (user?.name || 'U').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
   return (
-    <aside className="w-60 flex-shrink-0 h-full flex flex-col bg-sidebar select-none" aria-label="Main navigation">
+    <aside className="w-60 flex-shrink-0 h-full flex flex-col select-none relative" aria-label="Main navigation"
+      style={{ background: 'linear-gradient(180deg, #0F2A33 0%, #0D3440 60%, #10394A 100%)' }}>
       <div className="px-5 pt-6 pb-6 flex items-center gap-3">
         <img src={`${import.meta.env.BASE_URL}images/LOGOggg.png`} alt="" className="w-9 h-9 object-contain flex-shrink-0" />
-        <div>
-          <p className="font-display text-white text-base font-semibold leading-tight">PsyClick</p>
-          <p className="text-[#9BBFBF] text-xs leading-tight font-medium">Secure Edition</p>
-        </div>
+        <p className="font-display text-white text-lg font-semibold leading-tight">PsyClick</p>
       </div>
 
       {canAssess && (
         <div className="px-3 mb-5">
           <button onClick={() => navigate('/intake')}
-            className="w-full h-11 rounded-xl bg-[#0C7C78] text-white font-semibold text-[15px] flex items-center justify-center gap-2 hover:bg-[#0E908B] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+            className="w-full h-11 rounded-xl bg-brand text-[#0F2A33] font-semibold text-[15px] flex items-center justify-center gap-2 shadow-[0_6px_18px_-6px_rgba(104,216,232,0.6),inset_0_1px_0_rgba(255,255,255,0.5)] hover:brightness-105 transition cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
             <Plus size={18} aria-hidden="true" /> New assessment
           </button>
         </div>
@@ -104,16 +102,16 @@ export default function Sidebar() {
           if (!items.length) return null
           return (
             <div key={section.label}>
-              <p className="text-xs font-medium text-[#7F9C97] px-3 mb-1.5">{section.label}</p>
+              <p className="text-xs font-medium text-[#88A9B3] px-3 mb-1.5">{section.label}</p>
               <div className="space-y-1">
                 {items.map(({ to, icon: Icon, label }) => (
                   <NavLink key={to} to={to}
                     className={({ isActive }) =>
                       `flex items-center gap-3 px-3.5 h-11 rounded-xl text-[15px] font-medium transition-colors cursor-pointer
                        focus-visible:outline focus-visible:outline-2 focus-visible:outline-white
-                       ${isActive ? 'bg-white/[0.10] text-white' : 'text-[#A9CACA] hover:bg-white/[0.06] hover:text-white'}`}>
+                       ${isActive ? 'bg-white/[0.10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'text-[#A9CACA] hover:bg-white/[0.06] hover:text-white'}`}>
                     {({ isActive }) => (<>
-                      <span className={`w-1 h-5 rounded-full -ml-2 mr-0.5 ${isActive ? 'bg-[#5FD0C8]' : 'bg-transparent'}`} aria-hidden="true" />
+                      <span className={`w-1 h-5 rounded-full -ml-2 mr-0.5 ${isActive ? 'bg-brand' : 'bg-transparent'}`} aria-hidden="true" />
                       <Icon size={18} aria-hidden="true" />
                       {label}
                     </>)}

@@ -143,7 +143,7 @@ export default function ClientDetail() {
               {list.map((s, i) => (
                 <li key={s.session_id}>
                   <button onClick={() => navigate(`/clients/session/${s.session_id}`)}
-                    className="w-full px-6 py-4 flex flex-wrap items-center gap-4 text-left hover:bg-[#F7FBFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
+                    className="w-full px-6 py-4 flex flex-wrap items-center gap-4 text-left hover:bg-[#F4FAFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
                     <span className="w-24 text-sm font-semibold text-tsub">Session {list.length - i}</span>
                     <span className="flex-1 min-w-[180px] text-tmain">{formatTimestamp(s.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                     <span className="text-sm text-tsub tabular-nums">PHQ-9 <strong className="text-tmain">{s.phq}</strong> · GAD-7 <strong className="text-tmain">{s.gad}</strong></span>

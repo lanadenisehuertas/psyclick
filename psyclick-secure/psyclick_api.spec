@@ -1,4 +1,4 @@
-# psyclick_api.spec — PyInstaller build spec for PsyClick Secure Edition API
+# psyclick_api.spec — PyInstaller build spec for the PsyClick API
 # Run: pyinstaller psyclick_api.spec --noconfirm --distpath dist-python
 import os
 from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules

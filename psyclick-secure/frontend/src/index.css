@@ -24,7 +24,7 @@
   }
   body {
     font-family: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
-    background: #F5F7F5;
+    background: #F2F7F8;
     -webkit-font-smoothing: antialiased;
     color: #0D2D2D;
     font-size: 17px;
@@ -48,7 +48,7 @@
   }
 
   .btn-primary {
-    @apply bg-accent-ink hover:bg-[#066A68] text-white font-semibold rounded-[10px]
+    @apply bg-accent-ink hover:bg-[#08566A] text-white font-semibold rounded-[12px] shadow-[0_1px_2px_rgba(15,42,51,0.2),inset_0_1px_0_rgba(255,255,255,0.18)]
            px-5 h-10 text-sm transition-all duration-150 active:scale-[0.97] select-none
            inline-flex items-center justify-center gap-2;
   }
@@ -127,8 +127,24 @@
     @apply inline-flex items-center justify-center w-7 h-7 rounded-full bg-accent-ink text-white text-sm font-bold;
   }
   /* Quiet clinical canvas: soft light from the top-left, no distraction */
-  .app-canvas { background: #F5F7F5; }
-  .assessment-bg { background: #F5F7F5; }
+  .app-canvas {
+    background:
+      radial-gradient(70rem 22rem at 15% -6rem, rgba(112, 232, 192, 0.22), transparent 70%),
+      radial-gradient(60rem 24rem at 85% -8rem, rgba(120, 168, 216, 0.22), transparent 70%),
+      radial-gradient(40rem 18rem at 50% -6rem, rgba(104, 216, 232, 0.18), transparent 70%),
+      #F2F7F8;
+    background-attachment: local;
+  }
+  /* Raised surface: white, hairline border, layered soft shadow, top highlight */
+  .surface {
+    @apply bg-white rounded-[20px] border border-border shadow-card;
+  }
+  .assessment-bg {
+    background:
+      radial-gradient(70rem 26rem at 10% -8rem, rgba(112, 232, 192, 0.20), transparent 70%),
+      radial-gradient(60rem 26rem at 90% -8rem, rgba(120, 168, 216, 0.20), transparent 70%),
+      #F2F7F8;
+  }
 
   .task-shell {
     @apply flex min-h-screen flex-col items-center px-6 py-10 animate-fade-in;
