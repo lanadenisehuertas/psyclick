@@ -119,7 +119,6 @@ psyclick/
 │   └── tests/              # Clinical and security-focused tests
 ├── psyclick-secure/        # Hardened experimental build
 ├── images/                 # Product branding used by the applications
-├── artifacts/diagrams/     # Architecture and research diagrams
 └── psyclick_system_manifest.md
 ```
 

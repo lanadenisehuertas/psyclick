@@ -66,3 +66,8 @@ psyclick-clinical/frontend/public/downloads/*.exe
 frontend/.chrome-profile-pdf/
 frontend/.chrome-profile-pdf2/
 **/.chrome-profile*/
+
+# AI agent / editor tooling
+.agents/
+.claude/
+.vscode/
