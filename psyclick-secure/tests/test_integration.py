@@ -103,6 +103,8 @@ class EndToEndTests(unittest.TestCase):
     def get(self, path):
         return self.c.get(path, headers=self.h)
 
+    phq_items = [1, 1, 0, 1, 1, 0, 0, 0, 0]
+
     def run_session(self, patient, flight, pause_p, backspace_p, text_len=60, typed=lambda qi: True, response="x" * 80):
         back = api_server.back
         r = self.post("/api/intake/start", patient_id=patient, consent=True)
@@ -112,7 +114,7 @@ class EndToEndTests(unittest.TestCase):
         back.mouse_logger.script = mouse(self.rng, 140, 180)
         self.post("/api/calibration/mouse/start"); self.post("/api/calibration/mouse/save")
         back.mouse_logger.script = mouse(self.rng, 140, 180)
-        self.post("/api/assessment/phq/start"); self.post("/api/assessment/phq/save", score=4)
+        self.post("/api/assessment/phq/start"); self.post("/api/assessment/phq/save", score=4, items=self.phq_items)
         self.post("/api/assessment/gad/start"); self.post("/api/assessment/gad/save", score=3)
         back.mouse_logger.script = []
         self.post("/api/assessment/emotional/start")
@@ -216,6 +218,61 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(self.post("/api/assessment/gad/save", score=-1).status_code, 400)
         self.assertEqual(self.post("/api/assessment/gad/save", score="5").status_code, 400)
         self.assertEqual(self.post("/api/assessment/phq/save", score=27).status_code, 200)
+
+    def test_15_first_run_check_is_public(self):
+        r = self.c.get("/api/setup-status")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.get_json()["has_accounts"])
+
+    def test_16_finished_session_returns_its_id_and_timestamp(self):
+        rep = self.run_session("C-016", 0.16, 0.0, 0.03)["report"]
+        self.assertIsInstance(rep["session_id"], int)
+        self.assertTrue(rep["timestamp"])
+        detail = self.get(f"/api/session/{rep['session_id']}").get_json()
+        self.assertEqual(detail["session_id"], rep["session_id"])
+
+    def test_17_phq_item9_is_stored_and_surfaced(self):
+        type(self).phq_items = [1, 1, 0, 1, 0, 0, 0, 0, 1]
+        try:
+            rep = self.run_session("C-017", 0.16, 0.0, 0.03)["report"]
+        finally:
+            type(self).phq_items = [1, 1, 0, 1, 1, 0, 0, 0, 0]
+        detail = self.get(f"/api/session/{rep['session_id']}").get_json()
+        self.assertEqual(detail["phq"]["item9"], 1)
+        rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
+        self.assertTrue(rows["C-017"]["safety"])
+        self.assertGreaterEqual(self.get("/api/stats").get_json()["safety"], 1)
+
+    def test_18_phq_items_must_match_total(self):
+        self.post("/api/intake/start", patient_id="C-018", consent=True)
+        r = self.post("/api/assessment/phq/save", score=5, items=[1, 1, 1, 1, 0, 0, 0, 0, 0])
+        self.assertEqual(r.status_code, 400)
+        r = self.post("/api/assessment/phq/save", score=5, items=[3, 3, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(r.status_code, 400)
+
+    def test_19_revisited_item_is_counted_once(self):
+        back = api_server.back
+        self.post("/api/intake/start", patient_id="C-019", consent=True)
+        back.key_logger.script = typing(self.rng, 70, 0.16, 0.07, 0.03)
+        self.post("/api/calibration/keyboard/start"); self.post("/api/calibration/keyboard/save")
+        back.mouse_logger.script = mouse(self.rng); self.post("/api/calibration/mouse/start"); self.post("/api/calibration/mouse/save")
+        self.post("/api/assessment/phq/start"); self.post("/api/assessment/phq/save", score=0)
+        self.post("/api/assessment/gad/start"); self.post("/api/assessment/gad/save", score=0)
+        self.post("/api/assessment/emotional/start")
+        q = QUESTIONS[0]
+        for n_keys in (60, 8):          # first answer, then a short edit after going back
+            self.post("/api/assessment/question/set", question=q)
+            back.key_logger.raw_data = typing(self.rng, n_keys, 0.16, 0.07, 0.03)
+            self.post("/api/assessment/question/snapshot", question=q, response="x" * 80, qi=0, total=12)
+        snaps = [s for s in back._question_snapshots if s["item_id"] == q["item_id"]]
+        self.assertEqual(len(snaps), 1)
+        self.assertGreater(snaps[0]["key_count"], 20)
+
+    def test_20_client_status_is_latest_session(self):
+        self.run_session("C-020", 0.55, 0.25, 0.22)
+        self.run_session("C-020", 0.16, 0.0, 0.03)
+        rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
+        self.assertEqual(rows["C-020"]["flag"], "GREEN")
 
     def test_10_logout_revokes_token(self):
         tok = self.c.post("/api/login", json={"id": str(self.admin_id), "password": "CorrectHorse!2026"}).get_json()["token"]

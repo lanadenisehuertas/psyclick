@@ -1,75 +1,44 @@
-import { useEffect, useState } from 'react'
-import { Lock, X } from 'lucide-react'
+import { useState } from 'react'
+import { Lock } from 'lucide-react'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
+import { Modal, Button, Field, PasswordInput } from './ui.jsx'
 
-export default function PasswordDialog({ onConfirm, onCancel }) {
+// Clinician re-verification before leaving the client-facing part of the app.
+export default function PasswordDialog({ onConfirm, onCancel, open = true,
+  title = 'Clinician check', description = 'Enter your password to continue.', confirmLabel = 'Continue' }) {
   const { user } = useApp()
   const [pwd,  setPwd]  = useState('')
   const [err,  setErr]  = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Dismiss on Escape key
-  useEffect(() => {
-    function onKey(e) { if (e.key === 'Escape') onCancel() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
-
-  async function handleConfirm() {
-    if (!pwd) { setErr('Please enter your password.'); return }
-    if (!user?.id) { setErr('Clinician session invalid. Please log in again.'); return }
+  async function handleConfirm(e) {
+    e?.preventDefault()
+    if (!pwd) { setErr('Enter your password.'); return }
+    if (!user?.id) { setErr('Your sign-in has ended. Please sign in again.'); return }
     setBusy(true)
-    try {
-      const res = await api.verifyClinician(user.id, pwd)
-      setBusy(false)
-      if (res.success) {
-        onConfirm()
-      } else {
-        setErr(res.error || 'Incorrect password.')
-        setPwd('')
-      }
-    } catch (e) {
-      setBusy(false)
-      setErr('Verification failed. Check your connection.')
-    }
+    const res = await api.verifyClinician(user.id, pwd)
+    setBusy(false)
+    if (res.success) { setPwd(''); onConfirm() }
+    else { setErr('That password is not correct.'); setPwd('') }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-[24px] shadow-modal w-[400px] p-8 animate-slide-up">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-6">
-          <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center">
-            <Lock className="text-accent-ink" size={24} />
-          </div>
-          <button onClick={onCancel} aria-label="Cancel" className="text-tsub hover:text-tmain transition-colors">
-            <X size={20} />
-          </button>
+    <Modal open={open} onClose={onCancel} title={title} description={description}>
+      <form onSubmit={handleConfirm} noValidate>
+        <div className="flex items-center gap-3 rounded-xl bg-[#F5FAFA] border border-border p-3 mb-4">
+          <span className="w-9 h-9 rounded-lg bg-accent/10 text-accent-ink flex items-center justify-center" aria-hidden="true"><Lock size={18} /></span>
+          <p className="text-sm text-tmain"><span className="font-semibold">{user?.name}</span> <span className="text-tsub">· ID {user?.id}</span></p>
         </div>
-
-        <h2 className="text-lg font-bold text-tmain mb-1">Clinician Verification</h2>
-        <p className="text-sm text-tsub mb-6">Enter your clinician password to continue.</p>
-
-        <input
-          type="password"
-          value={pwd}
-          autoComplete="current-password"
-          onChange={e => { setPwd(e.target.value); setErr('') }}
-          onKeyDown={e => e.key === 'Enter' && handleConfirm()}
-          placeholder="Clinician password"
-          className="input-field mb-2"
-          autoFocus
-        />
-        {err && <p className="text-coral-ink text-sm mb-3">{err}</p>}
-
-        <div className="flex gap-3 mt-4">
-          <button onClick={onCancel} className="btn-ghost flex-1">Cancel</button>
-          <button onClick={handleConfirm} disabled={busy} className="btn-primary flex-1 disabled:opacity-60">
-            {busy ? 'Verifying…' : 'Confirm'}
-          </button>
+        <Field label="Password" error={err}>
+          {(p) => <PasswordInput {...p} data-autofocus autoComplete="current-password" value={pwd}
+            onChange={e => { setPwd(e.target.value); setErr('') }} />}
+        </Field>
+        <div className="flex gap-3 mt-6">
+          <Button type="button" variant="secondary" className="flex-1" onClick={onCancel}>Cancel</Button>
+          <Button type="submit" className="flex-1" loading={busy}>{confirmLabel}</Button>
         </div>
-      </div>
-    </div>
+      </form>
+    </Modal>
   )
 }

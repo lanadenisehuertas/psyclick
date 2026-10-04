@@ -6,7 +6,7 @@ This version uses ONLY local SQLite database.
 No network connections, no configuration files, no external dependencies.
 Perfect for air-gapped clinical environments and demo deployments.
 """
-import sqlite3, math, json, os, sys, time, hashlib, secrets
+import sqlite3, math, json, os, sys, time, hashlib, secrets, threading
 import logging
 from datetime import datetime, timedelta
 
@@ -174,6 +174,7 @@ def init_db():
         _add_col(conn, 'intake_sessions', 'clinician_id',             'INTEGER')
         _add_col(conn, 'intake_sessions', 'flight_times_json',        'TEXT')
         _add_col(conn, 'intake_sessions', 'synced_at',                'TEXT')
+        _add_col(conn, 'intake_sessions', 'phq_item9',                'INTEGER')
         conn.commit()
 
     if 'clinicians' in tables:
@@ -553,6 +554,10 @@ def save_full_intake(data):
         ) VALUES ({placeholders})
     """, safe)
 
+    item9 = (data.get("phq") or {}).get("item9")
+    if item9 is not None:
+        _exec(conn, "UPDATE intake_sessions SET phq_item9=? WHERE session_id=?", (int(item9), session_id))
+
     # Per-question snapshots
     for snap in data.get("visuals", {}).get("question_snapshots", []):
         try:
@@ -589,11 +594,30 @@ def save_full_intake(data):
 
 # ── Audit ─────────────────────────────────────────────────────────────────────
 
+_AUDIT_LOCK = threading.Lock()
+
+
 def log_audit(actor, action, detail=None, actor_id=None, outcome="success"):
-    """Append a hash-chained audit event without storing credentials or tokens."""
+    """Append a hash-chained audit event without storing credentials or tokens.
+
+    Reading the previous hash and inserting the new entry must be atomic:
+    two concurrent requests would otherwise both chain onto the same entry
+    and fork the chain. A process lock serialises threads; BEGIN IMMEDIATE
+    takes SQLite's write lock so separate processes are serialised too.
+    """
     try:
+        with _AUDIT_LOCK:
+            return _append_audit(actor, action, detail, actor_id, outcome)
+    except Exception as e:
+        logger.error(f"Failed to log audit event: actor={actor}, action={action}, detail={detail}, error={str(e)}")
+        return False
+
+
+def _append_audit(actor, action, detail, actor_id, outcome):
+    conn = _conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
         ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        conn = _conn()
         previous = _exec(conn,
             "SELECT entry_hash FROM audit_log ORDER BY log_id DESC LIMIT 1"
         ).fetchone()
@@ -609,11 +633,12 @@ def log_audit(actor, action, detail=None, actor_id=None, outcome="success"):
                  VALUES (?,?,?,?,?,?,?,?)""",
               (actor, actor_id, action, detail, outcome, prev_hash, entry_hash, ts))
         conn.commit()
-        conn.close()
         return True
-    except Exception as e:
-        logger.error(f"Failed to log audit event: actor={actor}, action={action}, detail={detail}, error={str(e)}")
-        return False
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def get_audit_logs(actor=None):

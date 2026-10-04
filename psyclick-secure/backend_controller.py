@@ -33,6 +33,7 @@ They are NOT recomputed from the typing-phase mouse data.
 
 import json
 import logging
+from datetime import datetime, timezone
 import os
 import sys
 from pathlib import Path
@@ -297,14 +298,16 @@ class PsyClickController:
         return feats is not None
 
     # ── PHQ-9 / GAD-7 (mouse valid — client clicking Likert buttons) ─────────
-    def save_phq(self, total_score):
+    def save_phq(self, total_score, item9=None):
         """
         PHQ-9 complete. Mouse was running during Likert selection — valid signal.
         Extract and cache; feed cursor features into EWMA baseline.
+        item9 (0-3) is the self-harm item, kept so the clinician is alerted.
         """
         raw   = self.mouse_logger.stop_logging()
         feats = fe.extract_mouse_features(raw)
         self.session_data["phq"]["score"] = total_score
+        self.session_data["phq"]["item9"] = item9
         if feats:
             self.session_data["phq"]["mouse"] = feats
             self._phq_mouse_feats            = feats
@@ -426,7 +429,17 @@ class PsyClickController:
             "path_entropy":      0.0,   # not meaningful during typing
             "pause_coords":      [],    # not meaningful during typing
         }
-        self._question_snapshots.append(snap)
+        # Revisiting an item (Previous / Next) must not count it twice. Keep the
+        # attempt with the most keystroke evidence; the latest answer length wins.
+        for i, prev in enumerate(self._question_snapshots):
+            if prev.get("item_id") == snap["item_id"]:
+                if snap.get("key_count", 0) < prev.get("key_count", 0):
+                    prev["response_len"] = snap["response_len"]
+                else:
+                    self._question_snapshots[i] = snap
+                break
+        else:
+            self._question_snapshots.append(snap)
 
         # Restart for next question
         self.key_logger.start_logging()
@@ -538,8 +551,9 @@ class PsyClickController:
             "pre_typing_pauses":   pre_typing_pauses,  # reading latency per question
         }
 
+        final["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         if self.normative_mode:
             db.save_normative_session(final)
         else:
-            db.save_full_intake(final)
+            final["session_id"] = db.save_full_intake(final)
         return final

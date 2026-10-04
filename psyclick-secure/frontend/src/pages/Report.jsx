@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, AlertTriangle, Info, Activity, Users, ListChecks } from 'lucide-react'
+import { ArrowLeft, Download, AlertTriangle, Info, Activity, Users, ListChecks, ShieldAlert, Plus } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import { motion, MotionConfig } from 'motion/react'
 import Sidebar from '../components/Sidebar.jsx'
@@ -125,6 +125,7 @@ function InfoTooltip({ glossaryKey, side = 'bottom' }) {
 const DOMAIN_NAMES  = { 1: 'Time & workload', 2: 'Relationships', 3: 'Performance', 4: 'Self-image' }
 const DOMAIN_COLORS = { 1: '#5BA4CF', 2: '#0ABFBC', 3: '#36C98E', 4: '#F27C7C' }
 const DOMAIN_BG     = { 1: '#EFF6FF', 2: '#E0FAFA', 3: '#ECFDF5', 4: '#FFF0F0' }
+const ITEM9_LABEL   = { 1: 'Several days', 2: 'More than half the days', 3: 'Nearly every day' }
 const LEVEL_NAMES   = { A: 'Mild prompts', B: 'Moderate prompts', C: 'Strong prompts' }
 const DOMAIN_TIPS   = {
   1: 'Burnout, perfectionism, task overload. Screen for occupational stress.',
@@ -859,6 +860,19 @@ export default function Report() {
     </div>
   )
 
+  if (!data && !sessionId && !ctxReport) return (
+    <div className="h-screen flex bg-bg">
+      <Sidebar />
+      <main className="flex-1 flex items-center justify-center p-8 app-canvas">
+        <div className="bg-white rounded-2xl border border-border p-10 max-w-md text-center">
+          <p className="text-xl font-bold text-tmain">No report is open</p>
+          <p className="text-tsub mt-2">Open a session from the client list to see its report.</p>
+          <button onClick={() => navigate('/clients')} className="btn-primary mt-6 h-11">Go to clients</button>
+        </div>
+      </main>
+    </div>
+  )
+
   if (!data) return (
     <div className="h-screen flex bg-bg">
       <Sidebar />
@@ -885,6 +899,7 @@ export default function Report() {
   const insufficient = analysis?.label === 'Insufficient Data'
 
   const phqScore = phq?.score ?? 0
+  const safety   = (phq?.item9 ?? 0) > 0
   const gadScore = gad?.score ?? 0
   const recLabel = analysis?.label || ''
 
@@ -919,6 +934,8 @@ export default function Report() {
   })()
 
   const recs = clinicalRecs(flag, recLabel, psi, pai, phqScore, gadScore, domainT2, levelT2, iP95)
+  if (safety) recs.unshift({ title: 'Suicide-risk assessment — this session',
+    desc: `PHQ-9 item 9 was answered "${ITEM9_LABEL[phq.item9]}". Use a structured tool such as the C-SSRS, document the outcome, and follow your safety-planning protocol before the client leaves.` })
 
   // Plain-language reading of the three behaviour scores
   const t2Max   = Math.max(sP99 * 1.5, t2 * 1.08)
@@ -956,7 +973,7 @@ export default function Report() {
     <MotionConfig reducedMotion="user">
     <div className="h-screen flex bg-bg">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto" aria-label="Clinical assessment report">
+      <main className="flex-1 overflow-y-auto app-canvas" aria-label="Clinical assessment report">
         <div className="max-w-[1200px] mx-auto px-8 py-7" style={{ zoom: fontScale }}>
 
           {/* Top bar */}
@@ -967,7 +984,13 @@ export default function Report() {
             >
               <ArrowLeft size={18} aria-hidden="true" /> {sessionId ? 'Back to client' : 'Back to dashboard'}
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {student_id && (
+                <button onClick={() => navigate(`/intake?client=${encodeURIComponent(student_id)}`)}
+                  className="h-10 px-4 rounded-xl border border-border bg-white text-sm font-semibold text-tmain hover:border-accent/50 inline-flex items-center gap-2 cursor-pointer">
+                  <Plus size={16} aria-hidden="true" /> New session for {student_id}
+                </button>
+              )}
               <div className="flex items-center gap-1 bg-white border border-border rounded-xl px-1.5 h-10 shadow-card" role="group" aria-label="Text size">
                 <button onClick={decreaseFont} disabled={scaleIdx === 0} aria-label="Smaller text"
                   className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-tsub hover:bg-bg hover:text-tmain transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">A−</button>
@@ -993,6 +1016,18 @@ export default function Report() {
           </header>
 
           <div className="space-y-9">
+            {safety && (
+              <div role="alert" className="rounded-2xl border-2 border-coral-ink bg-coral/10 p-5 flex gap-4 items-start">
+                <span className="w-12 h-12 rounded-xl bg-coral-ink text-white flex items-center justify-center flex-shrink-0"><ShieldAlert size={26} aria-hidden="true" /></span>
+                <div>
+                  <p className="text-lg font-bold text-coral-ink">Safety: thoughts of self-harm reported</p>
+                  <p className="text-tmain mt-1">
+                    On PHQ-9 question 9 the client answered <strong>“{ITEM9_LABEL[phq.item9]}”</strong> to “thoughts that you would be better off dead, or of hurting yourself”.
+                    Complete a structured suicide-risk assessment in this session, whatever the overall result below.
+                  </p>
+                </div>
+              </div>
+            )}
             <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label} />
 
             {/* Key results */}

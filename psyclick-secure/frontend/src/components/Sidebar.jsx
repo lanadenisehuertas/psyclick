@@ -1,38 +1,35 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Users, ClipboardList, LogOut, Cloud, CloudOff, RefreshCw, ShieldCheck } from 'lucide-react'
+import { LayoutDashboard, Users, ClipboardList, LogOut, Cloud, CloudOff, RefreshCw, ShieldCheck, Plus } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { api } from '../api/psyclick.js'
-import PasswordDialog from './PasswordDialog.jsx'
 import { useState, useEffect, useCallback } from 'react'
+
+const ROLE_LABEL = { admin: 'Administrator', clinician: 'Clinician', auditor: 'Auditor' }
 
 const NAV_SECTIONS = [
   {
-    label: 'Main Menu',
+    label: 'Clinic',
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'clinician'] },
+      { to: '/clients',   icon: Users,           label: 'Clients',   roles: ['admin', 'clinician'] },
     ],
   },
   {
-    label: 'Clients',
+    label: 'Administration',
     items: [
-      { to: '/clients', icon: Users,         label: 'Clients' },
-      { to: '/audit',   icon: ClipboardList, label: 'Audit', roles: ['admin', 'auditor'] },
-      { to: '/security', icon: ShieldCheck, label: 'Security Center', roles: ['admin'] },
+      { to: '/audit',    icon: ClipboardList, label: 'Audit log',       roles: ['admin', 'auditor'] },
+      { to: '/security', icon: ShieldCheck,   label: 'Security center', roles: ['admin'] },
     ],
   },
 ]
 
-// ── Sync status badge ─────────────────────────────────────────────────────────
+// ── Cloud sync status (only when Supabase sync is configured) ────────────────
 function SyncBadge() {
-  const [sync,     setSync]     = useState(null)
-  const [syncing,  setSyncing]  = useState(false)
-  const [tooltip,  setTooltip]  = useState(false)
+  const [sync,    setSync]    = useState(null)
+  const [syncing, setSyncing] = useState(false)
 
   const refresh = useCallback(async () => {
-    try {
-      const res = await api.syncStatus()
-      if (res) setSync(res)
-    } catch (_) { /* backend not ready yet */ }
+    try { const res = await api.syncStatus(); if (res) setSync(res) } catch (_) { /* backend not ready */ }
   }, [])
 
   useEffect(() => {
@@ -41,84 +38,38 @@ function SyncBadge() {
     return () => clearInterval(id)
   }, [refresh])
 
-  async function handleSyncNow(e) {
-    e.stopPropagation()
+  async function handleSyncNow() {
     setSyncing(true)
-    try {
-      const res = await api.syncNow()
-      if (res) setSync(res)
-    } catch (_) {}
+    try { const res = await api.syncNow(); if (res) setSync(res) } catch (_) {}
     setSyncing(false)
     setTimeout(refresh, 2000)
   }
 
-  // Not configured — show nothing
   if (!sync || !sync.enabled) return null
-
-  const pending   = sync.pending || 0
-  const connected = sync.connected
-
-  let dotColor, label
-  if (syncing || sync.syncing) {
-    dotColor = '#5BA4CF'; label = 'Syncing…'
-  } else if (!connected) {
-    dotColor = '#F5A623'; label = pending > 0 ? `${pending} pending — offline` : 'Offline'
-  } else if (pending > 0) {
-    dotColor = '#F5A623'; label = `${pending} record${pending !== 1 ? 's' : ''} pending`
-  } else {
-    dotColor = '#36C98E'; label = sync.last_sync ? `Synced ${sync.last_sync.slice(11, 16)}` : 'Synced'
-  }
-
-  const Icon = (!connected || pending > 0) ? CloudOff : Cloud
+  const pending = sync.pending || 0
+  const busy = syncing || sync.syncing
+  const label = busy ? 'Syncing…'
+    : !sync.connected ? (pending ? `${pending} waiting — offline` : 'Offline')
+    : pending ? `${pending} record${pending !== 1 ? 's' : ''} waiting`
+    : sync.last_sync ? `Synced ${sync.last_sync.slice(11, 16)}` : 'Synced'
+  const Icon = (!sync.connected || pending > 0) ? CloudOff : Cloud
 
   return (
-    <div
-      className="relative px-3 pb-3"
-      onMouseEnter={() => setTooltip(true)}
-      onMouseLeave={() => setTooltip(false)}
-    >
-      <button
-        onClick={handleSyncNow}
-        disabled={syncing || sync.syncing}
-        className="flex items-center gap-2 w-full px-3 py-2 rounded-xl
-                   bg-[#0E2D2D] hover:bg-[#163838] transition-all duration-150
-                   text-[11px] font-medium text-[#7ABFBF] disabled:opacity-60"
-        title="Click to sync now"
-      >
-        <span className="relative flex-shrink-0">
-          {(syncing || sync.syncing)
-            ? <RefreshCw size={13} className="animate-spin" style={{ color: dotColor }} />
-            : <Icon size={13} style={{ color: dotColor }} />
-          }
-          <span
-            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-sidebar"
-            style={{ background: dotColor }}
-          />
-        </span>
+    <div className="px-3 pb-2">
+      <button onClick={handleSyncNow} disabled={busy} title={sync.error || 'Sync now'}
+        className="flex items-center gap-2 w-full px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-[#A9CACA] disabled:opacity-60 cursor-pointer">
+        {busy ? <RefreshCw size={14} className="animate-spin" aria-hidden="true" /> : <Icon size={14} aria-hidden="true" />}
         <span className="truncate">{label}</span>
       </button>
-
-      {tooltip && sync.error && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 bg-[#1C1C1C] text-white
-                        text-[10px] rounded-lg px-2.5 py-2 shadow-modal z-50 leading-tight">
-          {sync.error}
-        </div>
-      )}
     </div>
   )
 }
 
-export default function Sidebar({ protected: isProtected = false }) {
+export default function Sidebar() {
   const { user, setUser } = useApp()
-  const navigate    = useNavigate()
-  const [showPwd, setShowPwd] = useState(false)
-  const [pendingFn, setPendingFn] = useState(null)
-
-  function guard(fn) {
-    if (!isProtected) { fn(); return }
-    setPendingFn(() => fn)
-    setShowPwd(true)
-  }
+  const navigate = useNavigate()
+  const role = user?.role || 'clinician'
+  const canAssess = role === 'admin' || role === 'clinician'
 
   async function handleLogout() {
     await api.logout()
@@ -126,83 +77,67 @@ export default function Sidebar({ protected: isProtected = false }) {
     navigate('/')
   }
 
+  const initials = (user?.name || 'U').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
+
   return (
-    <>
-      <aside className="w-52 flex-shrink-0 h-full flex flex-col bg-sidebar select-none">
-
-        {/* Logo */}
-        <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
-          <img
-            src={`${import.meta.env.BASE_URL}images/LOGOggg.png`}
-            alt="PsyClick"
-            className="w-8 h-8 object-contain flex-shrink-0"
-          />
-          <div>
-            <p className="text-white text-sm font-bold leading-tight">PsyClick</p>
-            <p className="text-[#9BBFBF] text-[11px] leading-tight font-medium">Secure Edition</p>
-          </div>
+    <aside className="w-60 flex-shrink-0 h-full flex flex-col bg-sidebar select-none" aria-label="Main navigation">
+      <div className="px-5 pt-6 pb-6 flex items-center gap-3">
+        <img src={`${import.meta.env.BASE_URL}images/LOGOggg.png`} alt="" className="w-9 h-9 object-contain flex-shrink-0" />
+        <div>
+          <p className="text-white text-base font-bold leading-tight">PsyClick</p>
+          <p className="text-[#9BBFBF] text-xs leading-tight font-medium">Secure Edition</p>
         </div>
+      </div>
 
-        {/* Nav sections */}
-        <nav className="flex-1 px-3 overflow-y-auto pb-3 space-y-4">
-          {NAV_SECTIONS.map(section => (
+      {canAssess && (
+        <div className="px-3 mb-5">
+          <button onClick={() => navigate('/intake')}
+            className="w-full h-11 rounded-xl bg-accent text-[#06302F] font-bold text-[15px] flex items-center justify-center gap-2 hover:bg-[#2FD3D0] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+            <Plus size={18} aria-hidden="true" /> New assessment
+          </button>
+        </div>
+      )}
+
+      <nav className="flex-1 px-3 overflow-y-auto pb-3 space-y-5">
+        {NAV_SECTIONS.map(section => {
+          const items = section.items.filter(item => item.roles.includes(role))
+          if (!items.length) return null
+          return (
             <div key={section.label}>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#3A6060] px-3 mb-1.5">
-                {section.label}
-              </p>
-              <div className="space-y-0.5">
-                {section.items.filter(item => !item.roles || item.roles.includes(user?.role)).map(({ to, icon: Icon, label }) => (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    onClick={e => {
-                      if (isProtected) {
-                        e.preventDefault()
-                        guard(() => navigate(to))
-                      }
-                    }}
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6E9696] px-3 mb-1.5">{section.label}</p>
+              <div className="space-y-1">
+                {items.map(({ to, icon: Icon, label }) => (
+                  <NavLink key={to} to={to}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium
-                       transition-all duration-150 cursor-pointer
-                       ${isActive
-                         ? 'bg-accent text-white shadow-sm'
-                         : 'text-[#7ABFBF] hover:bg-[#1A4040] hover:text-white'}`
-                    }
-                  >
-                    <Icon size={16} />
-                    {label}
+                      `flex items-center gap-3 px-3.5 h-11 rounded-xl text-[15px] font-medium transition-colors cursor-pointer
+                       focus-visible:outline focus-visible:outline-2 focus-visible:outline-white
+                       ${isActive ? 'bg-white/[0.10] text-white' : 'text-[#A9CACA] hover:bg-white/[0.06] hover:text-white'}`}>
+                    {({ isActive }) => (<>
+                      <span className={`w-1 h-5 rounded-full -ml-2 mr-0.5 ${isActive ? 'bg-accent' : 'bg-transparent'}`} aria-hidden="true" />
+                      <Icon size={18} aria-hidden="true" />
+                      {label}
+                    </>)}
                   </NavLink>
                 ))}
               </div>
             </div>
-          ))}
-        </nav>
+          )
+        })}
+      </nav>
 
-        {/* Divider */}
-        <div className="mx-4 h-px bg-[#1A4040] mb-3" />
+      <SyncBadge />
 
-        {/* Cloud sync status (only visible when Supabase is configured) */}
-        <SyncBadge />
-
-        {/* Logout */}
-        <div className="px-3 pb-6">
-          <button
-            onClick={() => guard(handleLogout)}
-            className="flex items-center gap-3 w-full px-3.5 py-2.5 rounded-xl text-sm font-medium
-                       text-[#FF7070] hover:bg-[#3D1010] transition-all duration-150"
-          >
-            <LogOut size={16} />
-            Logout
-          </button>
+      <div className="mx-3 mb-4 mt-1 rounded-2xl bg-white/[0.05] p-3 flex items-center gap-3">
+        <span className="w-9 h-9 rounded-full bg-accent/25 text-white text-sm font-bold flex items-center justify-center flex-shrink-0" aria-hidden="true">{initials}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-white truncate">{user?.name || 'Signed in'}</p>
+          <p className="text-xs text-[#9BBFBF]">{ROLE_LABEL[role] || role} · ID {user?.id}</p>
         </div>
-      </aside>
-
-      {showPwd && (
-        <PasswordDialog
-          onConfirm={() => { setShowPwd(false); pendingFn?.() }}
-          onCancel={() => setShowPwd(false)}
-        />
-      )}
-    </>
+        <button onClick={handleLogout} aria-label="Sign out" title="Sign out"
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-[#FF9A9A] hover:bg-white/[0.08] cursor-pointer">
+          <LogOut size={18} aria-hidden="true" />
+        </button>
+      </div>
+    </aside>
   )
 }

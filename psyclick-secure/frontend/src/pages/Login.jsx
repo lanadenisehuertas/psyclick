@@ -1,232 +1,252 @@
-import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Lock } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { motion, AnimatePresence } from 'motion/react'
+import { Lock, Activity, ClipboardCheck, ShieldCheck, Copy, Check, ArrowRight, KeyRound, UserPlus } from 'lucide-react'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
+import { Alert, Button, Field, PasswordInput, Spinner, inputCls, EASE } from '../components/ui.jsx'
+import { HOME_FOR_ROLE } from '../lib/roles.js'
+
+const BENEFITS = [
+  { icon: Activity,       title: 'Behaviour you can see', text: 'Typing rhythm and mouse movement, measured during a guided session.' },
+  { icon: ClipboardCheck, title: 'Validated questionnaires', text: 'PHQ-9 and GAD-7 scored and shown in one clear report.' },
+  { icon: ShieldCheck,    title: 'Private by design', text: 'Data stays on this computer, encrypted, with a full audit trail.' },
+]
+
+function passwordChecks(pwd) {
+  return [
+    { ok: pwd.length >= 12, label: 'At least 12 characters' },
+    { ok: /[A-Za-z]/.test(pwd), label: 'Contains a letter' },
+    { ok: /\d/.test(pwd), label: 'Contains a number' },
+  ]
+}
+
+function BrandPanel() {
+  return (
+    <div className="hidden lg:flex w-[46%] max-w-[640px] relative overflow-hidden flex-col justify-between p-12 text-white"
+      style={{ background: 'linear-gradient(150deg, #0D2D2D 0%, #0B4A49 55%, #0A7A78 100%)' }}>
+      {/* Calm "signal" lines: a nod to keystroke rhythm */}
+      <svg className="absolute inset-x-0 bottom-0 w-full h-64 opacity-30" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+        {[0, 1, 2].map(i => (
+          <motion.path key={i}
+            d={`M0 ${120 + i * 22} C 80 ${60 + i * 20}, 140 ${170 - i * 10}, 220 ${110 + i * 15} S 380 ${50 + i * 25}, 450 ${120 + i * 12} S 560 ${150 - i * 18}, 600 ${100 + i * 20}`}
+            fill="none" stroke={i === 1 ? '#7FE3E0' : '#0ABFBC'} strokeWidth={i === 1 ? 2.5 : 1.5}
+            initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2.2, delay: 0.2 * i, ease: EASE }} />
+        ))}
+      </svg>
+      <div className="relative">
+        <img src={`${import.meta.env.BASE_URL}images/LOGO%20WITH%20WORD%20white.png`} alt="PsyClick"
+          className="h-12 object-contain"
+          onError={(e) => { e.currentTarget.src = `${import.meta.env.BASE_URL}images/LOGOggg.png` }} />
+        <h1 className="mt-14 text-[40px] leading-[1.1] font-bold tracking-tight max-w-[14ch]">
+          A clearer picture, in one short session.
+        </h1>
+        <p className="mt-4 text-lg text-white/75 max-w-[42ch]">
+          Clinical decision support that pairs questionnaires with how a person types and moves.
+        </p>
+      </div>
+      <ul className="relative space-y-5 mt-10">
+        {BENEFITS.map((b, i) => (
+          <motion.li key={b.title} className="flex gap-4"
+            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.15 + i * 0.08, ease: EASE }}>
+            <span className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0"><b.icon size={20} aria-hidden="true" /></span>
+            <div>
+              <p className="font-semibold">{b.title}</p>
+              <p className="text-white/70 text-[15px]">{b.text}</p>
+            </div>
+          </motion.li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export default function Login() {
-  const [isRegister, setIsRegister] = useState(false)
-  const [id,   setId]   = useState('')
-  const [name, setName] = useState('')
-  const [pwd,  setPwd]  = useState('')
-  const [err,  setErr]  = useState('')
-  const [busy, setBusy] = useState(false)
-  const { setUser }     = useApp()
-  const navigate        = useNavigate()
-  const pwdRef          = useRef(null)
+  const navigate  = useNavigate()
+  const location  = useLocation()
+  const { setUser } = useApp()
 
-  async function handleLogin() {
+  const [mode, setMode]     = useState('loading')   // loading | offline | setup | signin | created
+  const [id, setId]         = useState('')
+  const [name, setName]     = useState('')
+  const [pwd, setPwd]       = useState('')
+  const [pwd2, setPwd2]     = useState('')
+  const [err, setErr]       = useState('')
+  const [fieldErr, setFieldErr] = useState({})
+  const [busy, setBusy]     = useState(false)
+  const [created, setCreated] = useState(null)
+  const [copied, setCopied] = useState(false)
+  const expired = location.state?.reason === 'expired'
+
+  async function checkSetup() {
+    setMode('loading')
+    const res = await api.setupStatus()
+    if (res?.has_accounts === undefined) { setErr(res?.error || ''); setMode('offline'); return }
     setErr('')
-    if (!id || !pwd) { setErr('Please enter your Clinician ID and Password.'); return }
+    setMode(res.has_accounts ? 'signin' : 'setup')
+  }
+  useEffect(() => { checkSetup() }, [])
+
+  async function handleLogin(e) {
+    e.preventDefault()
+    const fe = {}
+    if (!id.trim()) fe.id = 'Enter your Clinician ID.'
+    else if (!/^\d+$/.test(id.trim())) fe.id = 'Your Clinician ID is a number, for example 2026001.'
+    if (!pwd) fe.pwd = 'Enter your password.'
+    setFieldErr(fe); setErr('')
+    if (Object.keys(fe).length) return
     setBusy(true)
-    try {
-      const res = await api.login(id, pwd)
-      if (res.success) {
-        api.setSession(res)
-        setUser({ name: res.name, id: res.id, role: res.role || 'clinician' })
-        navigate('/dashboard')
-      }
-      else setErr(res.error || 'Sign in failed. Please check the ID, password, and database connection.')
-    } catch (e) {
-      setErr(e?.message || 'Sign in failed unexpectedly.')
-    } finally {
-      setBusy(false)
+    const res = await api.login(id.trim(), pwd)
+    setBusy(false)
+    if (res.success) {
+      api.setSession(res)
+      const role = res.role || 'clinician'
+      setUser({ name: res.name, id: res.id, role })
+      navigate(HOME_FOR_ROLE[role] || '/dashboard', { replace: true })
+    } else {
+      setErr(res.error || 'Sign-in failed. Check your ID and password.')
+      setPwd('')
     }
   }
 
-  async function handleRegister() {
-    setErr('')
-    if (!name || !pwd) { setErr('Please enter your name and password.'); return }
-    if (pwd.length < 12 || !/[A-Za-z]/.test(pwd) || !/\d/.test(pwd)) {
-      setErr('Password must be at least 12 characters and contain a letter and number.')
-      return
-    }
+  async function handleSetup(e) {
+    e.preventDefault()
+    const fe = {}
+    if (!name.trim()) fe.name = 'Enter your full name.'
+    if (!passwordChecks(pwd).every(c => c.ok)) fe.pwd = 'Choose a password that meets all three rules.'
+    else if (pwd !== pwd2) fe.pwd2 = 'The two passwords do not match.'
+    setFieldErr(fe); setErr('')
+    if (Object.keys(fe).length) return
     setBusy(true)
-    try {
-      const res = await api.register(name, pwd)
-      if (res.success) {
-        setErr(`Registration successful! Your Clinician ID is: ${res.clinician_id}`)
-        setIsRegister(false)
-        setName('')
-        setId(String(res.clinician_id))
-        setPwd('')
-      } else setErr(res.error || 'Registration failed. Please check the database connection.')
-    } catch (e) {
-      setErr(e?.message || 'Registration failed unexpectedly.')
-    } finally {
-      setBusy(false)
-    }
+    const res = await api.register(name.trim(), pwd)
+    setBusy(false)
+    if (res.success) {
+      setCreated({ id: res.clinician_id, name: res.name })
+      setId(String(res.clinician_id)); setPwd(''); setPwd2('')
+      setMode('created')
+    } else setErr(res.error || 'Could not create the account.')
   }
 
-  const features = [
-    'Biometric psychomotor analysis',
-    'Validated PHQ-9 & GAD-7 screening',
-    'Local-first storage with encrypted exports and backups',
-  ]
+  async function copyId() {
+    try { await navigator.clipboard.writeText(String(created.id)); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch (_) {}
+  }
+
+  const checks = passwordChecks(pwd)
 
   return (
-    <div className="h-screen flex overflow-hidden animate-fade-in">
-      {/* ── Left teal panel ── */}
-      <div className="w-[420px] flex-shrink-0 bg-accent flex flex-col items-center justify-center px-10 relative overflow-hidden animate-slide-right">
-        {/* Decorative floating orbs */}
-        <div className="absolute top-[-60px] right-[-60px] w-48 h-48 rounded-full bg-white/10 animate-float" style={{ animationDelay: '2s' }} />
-        <div className="absolute bottom-[80px] left-[-40px] w-32 h-32 rounded-full bg-white/[0.08] animate-float" style={{ animationDelay: '4s' }} />
-        <div className="absolute top-[40%] right-[-20px] w-20 h-20 rounded-full bg-adark/40 animate-float" style={{ animationDelay: '1s' }} />
+    <div className="h-screen flex overflow-hidden bg-bg">
+      <BrandPanel />
+      <main className="flex-1 overflow-y-auto app-canvas flex items-center justify-center px-6 py-10">
+        <div className="w-full max-w-[440px]">
+          <AnimatePresence mode="wait">
+            <motion.div key={mode} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25, ease: EASE }}>
 
-        <div className="text-center relative z-10">
-          <img
-            src={`${import.meta.env.BASE_URL}images/LOGO%20WITH%20WORD%20white.png`}
-            alt="PsyClick"
-            className="h-16 object-contain mx-auto mb-8 animate-fade-up-1"
-            onError={(e) => { e.currentTarget.src = `${import.meta.env.BASE_URL}images/LOGOggg.png` }}
-          />
-          <p className="text-white/80 text-base animate-fade-up-2">Clinical Decision Support System</p>
-          <div className="mt-10 space-y-3 text-left animate-fade-up-3">
-            {features.map((f, i) => (
-              <div
-                key={f}
-                className="flex items-center gap-3 text-white/75 text-sm transition-all duration-300 hover:text-white hover:translate-x-1"
-                style={{ transitionDelay: `${i * 40}ms` }}
-              >
-                <div className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center flex-shrink-0 animate-shimmer">
-                  <span className="text-xs">✓</span>
+              {mode === 'loading' && <Spinner label="Connecting to PsyClick…" />}
+
+              {mode === 'offline' && (
+                <div>
+                  <h2 className="text-3xl font-bold text-tmain">Can't reach PsyClick</h2>
+                  <p className="text-tsub mt-2">The local PsyClick service isn't responding. It usually starts with the app.</p>
+                  <Alert tone="error" className="mt-6" title="What to try">
+                    Wait a few seconds and retry. If it keeps failing, close PsyClick completely and open it again.
+                  </Alert>
+                  <Button className="w-full mt-6" size="lg" onClick={checkSetup}>Try again</Button>
                 </div>
-                {f}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-adark" />
-      </div>
+              )}
 
-      {/* ── Right form panel ── */}
-      <div className="flex-1 bg-bg flex items-center justify-center px-16">
-        <div className="w-full max-w-[400px] animate-slide-up">
-          <h2 className="text-3xl font-bold text-tmain mb-1">
-            {isRegister ? 'Create Account' : 'Welcome back'}
-          </h2>
-          <p className="text-tsub text-base mb-8">
-            {isRegister ? 'Register as a new clinician' : 'Sign in to your clinician account'}
-          </p>
-
-          <div className="bg-white rounded-card shadow-card p-8 border border-border transition-shadow duration-300 hover:shadow-hover">
-            {isRegister ? (
-              <form onSubmit={e => { e.preventDefault(); handleRegister() }}>
-                <div className="mb-5">
-                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="reg-name">Full Name</label>
-                  <input
-                    id="reg-name"
-                    className="input-field"
-                    placeholder="Dr. Example"
-                    autoComplete="name"
-                    value={name}
-                    onChange={e => { setName(e.target.value); setErr('') }}
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), pwdRef.current?.focus())}
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="reg-pwd">
-                    Password <span className="text-tsub font-normal">(min. 12 characters)</span>
-                  </label>
-                  <input
-                    id="reg-pwd"
-                    ref={pwdRef}
-                    className="input-field"
-                    type="password"
-                    placeholder="Create a secure password"
-                    autoComplete="new-password"
-                    value={pwd}
-                    onChange={e => { setPwd(e.target.value); setErr('') }}
-                  />
-                </div>
-
-                {err && (
-                  <p className={`text-sm mb-4 animate-fade-up-1 ${err.includes('successful') ? 'text-success-ink' : 'text-coral-ink'}`}>
-                    {err}
+              {mode === 'signin' && (
+                <form onSubmit={handleLogin} noValidate>
+                  <h2 className="text-3xl font-bold text-tmain">Welcome back</h2>
+                  <p className="text-tsub mt-1.5">Sign in with your Clinician ID and password.</p>
+                  {expired && !err && (
+                    <Alert tone="info" className="mt-6" title="You were signed out">
+                      For privacy, PsyClick signs you out after 15 minutes without activity.
+                    </Alert>
+                  )}
+                  {err && <Alert tone="error" className="mt-6">{err}</Alert>}
+                  <div className="mt-6 space-y-5">
+                    <Field label="Clinician ID" error={fieldErr.id} hint="The number you were given, e.g. 2026001">
+                      {(p) => <input {...p} className={inputCls} inputMode="numeric" autoComplete="username" autoFocus
+                        value={id} onChange={e => { setId(e.target.value); setFieldErr(f => ({ ...f, id: undefined })) }} />}
+                    </Field>
+                    <Field label="Password" error={fieldErr.pwd}>
+                      {(p) => <PasswordInput {...p} autoComplete="current-password" value={pwd}
+                        onChange={e => { setPwd(e.target.value); setFieldErr(f => ({ ...f, pwd: undefined })) }} />}
+                    </Field>
+                  </div>
+                  <Button type="submit" size="lg" className="w-full mt-7" loading={busy} iconRight={busy ? undefined : ArrowRight}>
+                    {busy ? 'Signing in…' : 'Sign in'}
+                  </Button>
+                  <div className="mt-6 rounded-xl bg-white border border-border p-4 text-sm text-tsub space-y-2">
+                    <p className="flex gap-2"><KeyRound size={16} className="text-accent-ink flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      Forgot your password or locked out? Your administrator can reset access in the Security center.</p>
+                    <p className="flex gap-2"><UserPlus size={16} className="text-accent-ink flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      New here? Ask your administrator to create your account.</p>
+                  </div>
+                  <p className="mt-6 text-xs text-tsub flex items-center gap-1.5 justify-center">
+                    <Lock size={13} aria-hidden="true" /> Data is encrypted and stored only on this computer.
                   </p>
-                )}
+                </form>
+              )}
 
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="btn-primary w-full text-base mb-5 transition-transform duration-150 hover:scale-[1.02] active:scale-[0.97]"
-                >
-                  {busy ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                      Registering…
-                    </span>
-                  ) : 'Register →'}
-                </button>
+              {mode === 'setup' && (
+                <form onSubmit={handleSetup} noValidate>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-ink">First-time setup</p>
+                  <h2 className="text-3xl font-bold text-tmain mt-1.5">Create the administrator</h2>
+                  <p className="text-tsub mt-1.5">This first account manages PsyClick and creates accounts for other clinicians.</p>
+                  {err && <Alert tone="error" className="mt-6">{err}</Alert>}
+                  <div className="mt-6 space-y-5">
+                    <Field label="Full name" error={fieldErr.name} required>
+                      {(p) => <input {...p} className={inputCls} autoComplete="name" autoFocus placeholder="e.g. Dr. Maria Santos"
+                        value={name} onChange={e => { setName(e.target.value); setFieldErr(f => ({ ...f, name: undefined })) }} />}
+                    </Field>
+                    <Field label="Password" error={fieldErr.pwd} required>
+                      {(p) => <PasswordInput {...p} autoComplete="new-password" value={pwd}
+                        onChange={e => { setPwd(e.target.value); setFieldErr(f => ({ ...f, pwd: undefined })) }} />}
+                    </Field>
+                    <ul className="grid grid-cols-1 gap-1.5 -mt-2" aria-label="Password rules">
+                      {checks.map(c => (
+                        <li key={c.label} className={`text-sm flex items-center gap-2 ${c.ok ? 'text-success-ink' : 'text-tsub'}`}>
+                          <span className={`w-4 h-4 rounded-full flex items-center justify-center ${c.ok ? 'bg-success text-white' : 'border border-[#B7CCCC]'}`} aria-hidden="true">
+                            {c.ok && <Check size={11} strokeWidth={3} />}
+                          </span>
+                          {c.label}<span className="sr-only">{c.ok ? ' — done' : ' — not yet'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Field label="Repeat password" error={fieldErr.pwd2} required>
+                      {(p) => <PasswordInput {...p} autoComplete="new-password" value={pwd2}
+                        onChange={e => { setPwd2(e.target.value); setFieldErr(f => ({ ...f, pwd2: undefined })) }} />}
+                    </Field>
+                  </div>
+                  <Button type="submit" size="lg" className="w-full mt-7" loading={busy}>Create administrator</Button>
+                </form>
+              )}
 
-                <button
-                  type="button"
-                  onClick={() => { setIsRegister(false); setErr(''); setName(''); setPwd(''); }}
-                  className="w-full text-center text-tsub text-sm hover:text-accent-ink transition-colors"
-                >
-                  Already have an account? Sign in
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={e => { e.preventDefault(); handleLogin() }}>
-                <div className="mb-5">
-                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="login-id">Clinician ID</label>
-                  <input
-                    id="login-id"
-                    className="input-field"
-                    placeholder="Enter your clinician ID"
-                    autoComplete="username"
-                    value={id}
-                    onChange={e => { setId(e.target.value); setErr('') }}
-                  />
+              {mode === 'created' && created && (
+                <div className="text-center">
+                  <motion.span className="mx-auto w-16 h-16 rounded-full bg-success text-white flex items-center justify-center"
+                    initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 18 }}>
+                    <Check size={32} strokeWidth={3} aria-hidden="true" />
+                  </motion.span>
+                  <h2 className="text-3xl font-bold text-tmain mt-5">You're all set, {created.name.split(' ')[0]}</h2>
+                  <p className="text-tsub mt-2">You will sign in with this Clinician ID. Write it down somewhere safe.</p>
+                  <div className="mt-6 rounded-2xl bg-white border-2 border-dashed border-accent/50 p-6">
+                    <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Your Clinician ID</p>
+                    <p className="text-5xl font-bold text-tmain tracking-wider mt-2 tabular-nums">{created.id}</p>
+                    <Button variant="secondary" size="sm" className="mt-4" icon={copied ? Check : Copy} onClick={copyId}>
+                      {copied ? 'Copied' : 'Copy ID'}
+                    </Button>
+                  </div>
+                  <Button size="lg" className="w-full mt-7" iconRight={ArrowRight} onClick={() => { setErr(''); setMode('signin') }}>
+                    Continue to sign in
+                  </Button>
                 </div>
-                <div className="mb-4">
-                  <label className="text-sm font-semibold text-tmain mb-2 block" htmlFor="login-pwd">Password</label>
-                  <input
-                    id="login-pwd"
-                    className="input-field"
-                    type="password"
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                    value={pwd}
-                    onChange={e => { setPwd(e.target.value); setErr('') }}
-                  />
-                </div>
-
-                {err && (
-                  <p className="text-coral-ink text-sm mb-4 animate-fade-up-1">{err}</p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="btn-primary w-full text-base mb-5 transition-transform duration-150 hover:scale-[1.02] active:scale-[0.97]"
-                >
-                  {busy ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                      Signing in…
-                    </span>
-                  ) : 'Sign In →'}
-                </button>
-
-                <div className="flex items-center gap-2 bg-accent/10 rounded-xl px-4 py-3 mb-4 transition-colors duration-200 hover:bg-accent/15">
-                  <Lock size={14} className="text-accent-ink flex-shrink-0" />
-                  <span className="text-accent-ink text-xs">All data encrypted and stored locally</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => { setIsRegister(true); setErr(''); setId(''); setPwd(''); }}
-                  className="w-full text-center text-tsub text-sm hover:text-accent-ink transition-colors"
-                >
-                  Don't have an account? Register
-                </button>
-              </form>
-            )}
-          </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

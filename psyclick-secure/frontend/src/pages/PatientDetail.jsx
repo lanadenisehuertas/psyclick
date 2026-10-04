@@ -1,294 +1,177 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CalendarDays, Trash2, Activity, Brain, AlertTriangle, CheckCircle } from 'lucide-react'
-import Sidebar from '../components/Sidebar.jsx'
-import { FLAG_META, StatusBadge, formatTimestamp } from '../lib/status.jsx'
-import PasswordDialog from '../components/PasswordDialog.jsx'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Legend } from 'recharts'
+import { ArrowLeft, Trash2, Plus, ArrowRight, ShieldAlert, TrendingUp, FileText } from 'lucide-react'
 import { api } from '../api/psyclick.js'
-
-const FLAG_STYLE = Object.fromEntries(['GREEN', 'AMBER', 'RED'].map(k => [k, FLAG_META[k]]))
-// Healthy reference (p75 / p95) for colouring PSI and PAI
-const HEALTHY_REF = { psi: { p75: 9.32, p95: 29.63 }, pai: { p75: 15.55, p95: 80.26 } }
-const refTone = (kind, v) => v > HEALTHY_REF[kind].p95 ? 'text-coral-ink' : v > HEALTHY_REF[kind].p75 ? 'text-amber-ink' : 'text-tmain'
+import { PageShell, Card, Button, Alert, Spinner, EmptyState, ConfirmDialog, Field, inputCls, useToast } from '../components/ui.jsx'
+import PasswordDialog from '../components/PasswordDialog.jsx'
+import { StatusBadge, flagMeta, formatTimestamp, parseTimestamp } from '../lib/status.jsx'
 
 function phqLabel(s) {
   if (s == null) return '—'
-  if (s <= 4)  return 'Minimal'
-  if (s <= 9)  return 'Mild'
-  if (s <= 14) return 'Moderate'
-  if (s <= 19) return 'Mod-Severe'
-  return 'Severe'
+  return s <= 4 ? 'Minimal' : s <= 9 ? 'Mild' : s <= 14 ? 'Moderate' : s <= 19 ? 'Moderately severe' : 'Severe'
 }
 function gadLabel(s) {
   if (s == null) return '—'
-  if (s <= 4)  return 'Minimal'
-  if (s <= 9)  return 'Mild'
-  if (s <= 14) return 'Moderate'
-  return 'Severe'
+  return s <= 4 ? 'Minimal' : s <= 9 ? 'Mild' : s <= 14 ? 'Moderate' : 'Severe'
+}
+function change(curr, prev) {
+  if (prev == null) return null
+  return curr === prev ? 'Same as the previous session'
+    : curr > prev ? `Up ${curr - prev} from the previous session` : `Down ${prev - curr} from the previous session`
 }
 
 export default function ClientDetail() {
   const { clientId } = useParams()
-  const navigate      = useNavigate()
-  const [sessions,   setSessions]   = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [deleting,   setDeleting]   = useState(false)
-  const [confirmDel, setConfirmDel] = useState(false)
-  const [showPwd,    setShowPwd]    = useState(false)
+  const navigate = useNavigate()
+  const toast = useToast()
+  const [sessions, setSessions]   = useState(null)
+  const [err, setErr]             = useState('')
+  const [askPwd, setAskPwd]       = useState(false)
+  const [askDelete, setAskDelete] = useState(false)
+  const [typed, setTyped]         = useState('')
+  const [deleting, setDeleting]   = useState(false)
 
   useEffect(() => {
     if (!clientId) return
-    api.clientSessions(clientId)
-      .then(data => setSessions(Array.isArray(data) ? data : []))
-      .catch(() => setSessions([]))
-      .finally(() => setLoading(false))
+    api.clientSessions(clientId).then(data => {
+      if (Array.isArray(data)) setSessions(data)
+      else { setSessions([]); setErr(data?.error || 'Could not load this client.') }
+    })
   }, [clientId])
 
   async function handleDelete() {
     setDeleting(true)
     const res = await api.deleteClient(clientId)
     setDeleting(false)
-    if (res.success) navigate('/clients')
-    else alert(res.error || 'Failed to delete record.')
+    if (res.success) {
+      toast(`${clientId} and ${res.deleted} session${res.deleted !== 1 ? 's' : ''} were deleted.`)
+      navigate('/clients')
+    } else toast(res.error || 'The record could not be deleted.', 'error')
   }
 
-  // Derived summary stats
-  const latestFlag  = sessions[0]?.flag || null
-  const latestPHQ   = sessions[0]?.phq  ?? null
-  const latestGAD   = sessions[0]?.gad  ?? null
-  const latestLabel = sessions[0]?.label || ''
-  const flagCounts  = sessions.reduce((acc, s) => {
-    if (s.flag) acc[s.flag] = (acc[s.flag] || 0) + 1
-    return acc
-  }, {})
-  const fs = latestFlag ? FLAG_STYLE[latestFlag] : null
-  const FlagIcon = fs?.icon || CheckCircle
+  const list = sessions || []
+  const latest = list[0]
+  const prev = list[1]
+  const anySafety = list.some(s => s.safety)
+  const confirmMatches = typed.trim().toUpperCase() === (clientId || '').toUpperCase()
+  const trend = [...list].reverse().map((s, i) => ({
+    name: parseTimestamp(s.timestamp) ? formatTimestamp(s.timestamp, { month: 'short', day: 'numeric' }) : `#${i + 1}`,
+    phq: s.phq, gad: s.gad,
+  }))
+
+  const back = (
+    <button onClick={() => navigate('/clients')}
+      className="inline-flex items-center gap-2 text-tsub hover:text-tmain font-medium mb-4 h-9 -ml-1 px-1 rounded-lg cursor-pointer">
+      <ArrowLeft size={18} aria-hidden="true" /> All clients
+    </button>
+  )
 
   return (
-    <div className="h-screen flex bg-bg">
-      <Sidebar />
-      <main className="flex-1 flex flex-col overflow-hidden">
-
-        {/* Header */}
-        <header className="px-8 pt-7 pb-4 flex-shrink-0 border-b border-border/50">
-          <button
-            onClick={() => navigate('/clients')}
-            className="flex items-center gap-2 text-tsub hover:text-tmain text-sm mb-5 transition-colors"
-          >
-            <ArrowLeft size={16} /> Back to Client Database
-          </button>
-          <div className="flex items-center gap-4">
-            <div className={`w-13 h-13 rounded-full flex items-center justify-center text-lg font-bold
-              ${latestFlag === 'RED' ? 'bg-coral/15 text-coral-ink' : latestFlag === 'AMBER' ? 'bg-amber/15 text-amber-ink' : 'bg-accent/15 text-accent-ink'}`}
-              style={{ width: 52, height: 52 }}>
-              {clientId?.[0]?.toUpperCase() || 'C'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold text-tmain truncate">{clientId}</h1>
-              <p className="text-tsub text-sm mt-0.5">
-                {loading ? 'Loading…' : `${sessions.length} session${sessions.length !== 1 ? 's' : ''} on record`}
-                {latestLabel ? <span className="ml-3 text-tsub">· {latestLabel}</span> : null}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowPwd(true)}
-              className="flex items-center gap-2 text-sm font-medium text-coral-ink border border-coral/30 bg-coral/10
-                         hover:bg-coral/20 rounded-xl px-4 h-9 transition-all duration-150 flex-shrink-0"
-            >
-              <Trash2 size={14} /> Delete Record
-            </button>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
-
-          {/* Summary stat row */}
-          {!loading && sessions.length > 0 && (
-            <div className="grid grid-cols-4 gap-4">
-              {/* Overall flag */}
-              <div className={`card p-5 flex flex-col gap-2 ${latestFlag === 'RED' ? 'border-coral/40' : latestFlag === 'AMBER' ? 'border-amber/40' : 'border-success/40'}`}>
-                <div className="flex items-center gap-2">
-                  <FlagIcon size={16} className={fs ? fs.chip.split(' ')[1] : 'text-tsub'} />
-                  <p className="text-xs font-semibold text-tsub uppercase tracking-wide">Latest Status</p>
-                </div>
-                <p className={`text-base font-bold ${fs ? fs.chip.split(' ')[1] : 'text-tsub'}`}>
-                  {fs?.label || '—'}
-                </p>
-                <div className="flex gap-2 flex-wrap mt-1">
-                  {Object.entries(flagCounts).map(([f, n]) => (
-                    <span key={f} className={`text-xs px-2 py-0.5 rounded-full font-medium ${FLAG_STYLE[f]?.chip || 'bg-border text-tsub'}`}>
-                      {n}× {FLAG_STYLE[f]?.label || f}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* PHQ-9 */}
-              <div className="card p-5 flex flex-col gap-2">
-                <p className="text-xs font-semibold text-tsub uppercase tracking-wide">PHQ-9 (Latest)</p>
-                <p className={`text-3xl font-bold ${latestPHQ >= 15 ? 'text-coral-ink' : latestPHQ >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                  {latestPHQ ?? '—'}
-                  {latestPHQ != null && <span className="text-sm font-normal text-tsub ml-1">/ 27</span>}
-                </p>
-                <p className={`text-xs font-medium ${latestPHQ >= 15 ? 'text-coral-ink' : latestPHQ >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                  {phqLabel(latestPHQ)}
-                </p>
-              </div>
-
-              {/* GAD-7 */}
-              <div className="card p-5 flex flex-col gap-2">
-                <p className="text-xs font-semibold text-tsub uppercase tracking-wide">GAD-7 (Latest)</p>
-                <p className={`text-3xl font-bold ${latestGAD >= 15 ? 'text-coral-ink' : latestGAD >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                  {latestGAD ?? '—'}
-                  {latestGAD != null && <span className="text-sm font-normal text-tsub ml-1">/ 21</span>}
-                </p>
-                <p className={`text-xs font-medium ${latestGAD >= 15 ? 'text-coral-ink' : latestGAD >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                  {gadLabel(latestGAD)}
-                </p>
-              </div>
-
-              {/* Biometric trend */}
-              <div className="card p-5 flex flex-col gap-2">
-                <p className="text-xs font-semibold text-tsub uppercase tracking-wide">Biometric (Latest)</p>
-                <div className="flex gap-4 mt-1">
-                  <div>
-                    <p className="text-xs text-tsub">PSI</p>
-                    <p className={`text-xl font-bold ${(sessions[0]?.psi ?? 0) >= 2 ? 'text-coral-ink' : (sessions[0]?.psi ?? 0) >= 0.5 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                      {sessions[0]?.psi != null ? Number(sessions[0].psi).toFixed(2) : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-tsub">PAI</p>
-                    <p className={`text-xl font-bold ${(sessions[0]?.pai ?? 0) >= 2 ? 'text-coral-ink' : (sessions[0]?.pai ?? 0) >= 0.5 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                      {sessions[0]?.pai != null ? Number(sessions[0].pai).toFixed(2) : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-tsub">T²</p>
-                    <p className="text-xl font-bold text-tmain">
-                      {sessions[0]?.t2 != null ? Number(sessions[0].t2).toFixed(2) : '—'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+    <PageShell
+      back={back}
+      eyebrow="Client"
+      title={clientId}
+      subtitle={sessions === null ? 'Loading…' : `${list.length} session${list.length !== 1 ? 's' : ''} on record${list.length ? ` · first seen ${formatTimestamp(list[list.length - 1].timestamp, { dateStyle: 'medium' })}` : ''}`}
+      actions={<>
+        <Button icon={Plus} onClick={() => navigate(`/intake?client=${encodeURIComponent(clientId)}`)}>New session for {clientId}</Button>
+        <Button variant="danger" icon={Trash2} onClick={() => setAskPwd(true)} disabled={!list.length}>Delete record</Button>
+      </>}
+    >
+      {sessions === null ? <Spinner label="Loading sessions…" /> : err ? <Alert tone="error">{err}</Alert> : list.length === 0 ? (
+        <Card><EmptyState icon={FileText} title="No sessions for this client">Start an assessment to create their first session.</EmptyState></Card>
+      ) : (
+        <div className="space-y-6">
+          {anySafety && (
+            <Alert tone="error" title="This client answered PHQ-9 question 9 (thoughts of self-harm) above 0">
+              Review the sessions marked with the shield icon and follow your safety protocol.
+            </Alert>
           )}
 
-          {/* Sessions table */}
-          <div className="card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <h2 className="font-bold text-tmain">Session History</h2>
-              {!loading && sessions.length > 0 && (
-                <span className="text-xs text-tsub">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
-              )}
-            </div>
+          <div className="grid lg:grid-cols-3 gap-4">
+            <Card className={`p-6 border-2 ${flagMeta(latest.flag, latest.label).soft}`}>
+              <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Latest result</p>
+              <div className="mt-3"><StatusBadge flag={latest.flag} label={latest.label} size="lg" /></div>
+              <p className="mt-3 text-tmain font-semibold">{flagMeta(latest.flag, latest.label).headline}</p>
+              <p className="text-sm text-tsub mt-1">{formatTimestamp(latest.timestamp, { dateStyle: 'full', timeStyle: 'short' })}</p>
+              <Button variant="secondary" size="sm" className="mt-4" iconRight={ArrowRight}
+                onClick={() => navigate(`/clients/session/${latest.session_id}`)}>Open latest report</Button>
+            </Card>
+            <Card className="p-6">
+              <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Depression · PHQ-9</p>
+              <p className="mt-2 text-4xl font-bold text-tmain tabular-nums">{latest.phq}<span className="text-lg text-tsub font-medium"> / 27</span></p>
+              <p className="mt-1 font-semibold text-tmain">{phqLabel(latest.phq)}</p>
+              {prev && <p className="text-sm text-tsub mt-1">{change(latest.phq, prev.phq)}</p>}
+            </Card>
+            <Card className="p-6">
+              <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Anxiety · GAD-7</p>
+              <p className="mt-2 text-4xl font-bold text-tmain tabular-nums">{latest.gad}<span className="text-lg text-tsub font-medium"> / 21</span></p>
+              <p className="mt-1 font-semibold text-tmain">{gadLabel(latest.gad)}</p>
+              {prev && <p className="text-sm text-tsub mt-1">{change(latest.gad, prev.gad)}</p>}
+            </Card>
+          </div>
 
-            {loading ? (
-              <div className="py-16 text-center">
-                <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                <p className="text-tsub text-sm">Loading sessions…</p>
-              </div>
-            ) : sessions.length === 0 ? (
-              <div className="py-16 text-center">
-                <CalendarDays size={36} className="text-border mx-auto mb-3" />
-                <p className="text-tsub text-sm">No sessions found for this client.</p>
-              </div>
+          <Card className="p-6">
+            <h2 className="text-lg font-bold text-tmain flex items-center gap-2"><TrendingUp size={20} className="text-accent-ink" aria-hidden="true" /> Questionnaire scores over time</h2>
+            {trend.length < 2 ? (
+              <p className="text-tsub mt-2">A trend appears after the second session.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-[#F7FAFA] text-tsub text-xs font-semibold uppercase tracking-wide">
-                      {['#', 'Date', 'PHQ-9', 'GAD-7', 'T²', 'PSI', 'PAI', 'Summary', 'Status', ''].map(h => (
-                        <th key={h} className="px-5 py-3 text-left whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.map((s, i) => {
-                      const fs2 = s.flag ? FLAG_STYLE[s.flag] : null
-                      return (
-                        <tr
-                          key={s.session_id}
-                          onClick={() => navigate(`/clients/session/${s.session_id}`)}
-                          className={`border-t border-border/50 hover:bg-accent/5 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-[#FAFCFC]' : ''}`}
-                        >
-                          <td className="px-5 py-3 font-medium text-tsub text-xs">#{s.session_id}</td>
-                          <td className="px-5 py-3 text-tsub whitespace-nowrap">{formatTimestamp(s.timestamp)}</td>
-                          <td className={`px-5 py-3 font-bold ${(s.phq ?? 0) >= 15 ? 'text-coral-ink' : (s.phq ?? 0) >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                            {s.phq ?? '—'}
-                          </td>
-                          <td className={`px-5 py-3 font-bold ${(s.gad ?? 0) >= 15 ? 'text-coral-ink' : (s.gad ?? 0) >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
-                            {s.gad ?? '—'}
-                          </td>
-                          <td className="px-5 py-3 font-mono text-xs text-tmain">{s.t2 != null ? Number(s.t2).toFixed(2) : '—'}</td>
-                          <td className={`px-5 py-3 font-mono text-xs ${refTone('psi', s.psi ?? 0)}`}>
-                            {s.psi != null ? Number(s.psi).toFixed(2) : '—'}
-                          </td>
-                          <td className={`px-5 py-3 font-mono text-xs ${refTone('pai', s.pai ?? 0)}`}>
-                            {s.pai != null ? Number(s.pai).toFixed(2) : '—'}
-                          </td>
-                          <td className="px-5 py-3 text-tsub text-xs max-w-[180px] truncate">{s.label || '—'}</td>
-                          <td className="px-5 py-3">
-                            {s.flag ? (
-                              <StatusBadge flag={s.flag} label={s.label} />
-                            ) : (
-                              <span className="text-tsub text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3">
-                            <button className="text-xs text-accent-ink font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors whitespace-nowrap">
-                              View Report →
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div className="mt-4 h-[260px]" role="img" aria-label={`PHQ-9 and GAD-7 across ${trend.length} sessions`}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
+                    <CartesianGrid stroke="#E8F0F0" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#557272' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 27]} tick={{ fontSize: 12, fill: '#557272' }} axisLine={false} tickLine={false} />
+                    <ReferenceLine y={10} stroke="#9A5B00" strokeDasharray="5 4"
+                      label={{ value: 'Moderate (10)', position: 'insideTopLeft', fontSize: 11, fill: '#9A5B00' }} />
+                    <Tooltip contentStyle={{ fontSize: 13, borderRadius: 12, border: '1px solid #E4F0F0' }} />
+                    <Legend wrapperStyle={{ fontSize: 13 }} />
+                    <Line type="monotone" dataKey="phq" name="PHQ-9" stroke="#087F7D" strokeWidth={2.5} dot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="gad" name="GAD-7" stroke="#2F6690" strokeWidth={2.5} dot={{ r: 4 }} strokeDasharray="6 3" />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             )}
-          </div>
-        </div>
-      </main>
+          </Card>
 
-      {/* Password verification before delete confirmation */}
-      {showPwd && (
-        <PasswordDialog
-          onConfirm={() => { setShowPwd(false); setConfirmDel(true) }}
-          onCancel={() => setShowPwd(false)}
-        />
-      )}
-
-      {/* Delete confirmation modal */}
-      {confirmDel && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-card shadow-modal p-8 w-full max-w-md animate-slide-up">
-            <div className="w-12 h-12 rounded-full bg-coral/15 flex items-center justify-center mx-auto mb-4">
-              <Trash2 size={22} className="text-coral-ink" />
+          <Card className="overflow-hidden">
+            <div className="px-6 py-5 border-b border-border">
+              <h2 className="text-lg font-bold text-tmain">Session history</h2>
+              <p className="text-sm text-tsub">Newest first. Open any session for its full report.</p>
             </div>
-            <h2 className="text-xl font-bold text-tmain text-center mb-2">Delete Client Record?</h2>
-            <p className="text-tsub text-sm text-center mb-6 leading-relaxed">
-              This will permanently delete <span className="font-semibold text-tmain">{clientId}</span> and all
-              their sessions ({sessions.length} record{sessions.length !== 1 ? 's' : ''}). This cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmDel(false)}
-                className="flex-1 h-11 rounded-xl border border-border text-tmain text-sm font-medium hover:bg-bg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { setConfirmDel(false); handleDelete() }}
-                disabled={deleting}
-                className="flex-1 h-11 rounded-xl bg-coral text-white text-sm font-semibold hover:bg-red-500 transition-colors disabled:opacity-50"
-              >
-                {deleting ? 'Deleting…' : 'Yes, Delete'}
-              </button>
-            </div>
-          </div>
+            <ul className="divide-y divide-border">
+              {list.map((s, i) => (
+                <li key={s.session_id}>
+                  <button onClick={() => navigate(`/clients/session/${s.session_id}`)}
+                    className="w-full px-6 py-4 flex flex-wrap items-center gap-4 text-left hover:bg-[#F7FBFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
+                    <span className="w-24 text-sm font-semibold text-tsub">Session {list.length - i}</span>
+                    <span className="flex-1 min-w-[180px] text-tmain">{formatTimestamp(s.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    <span className="text-sm text-tsub tabular-nums">PHQ-9 <strong className="text-tmain">{s.phq}</strong> · GAD-7 <strong className="text-tmain">{s.gad}</strong></span>
+                    {s.safety && <ShieldAlert size={18} className="text-coral-ink" aria-label="Self-harm answer" />}
+                    <StatusBadge flag={s.flag} label={s.label} />
+                    <ArrowRight size={18} className="text-accent-ink" aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Card>
         </div>
       )}
-    </div>
+
+      <PasswordDialog open={askPwd} onCancel={() => setAskPwd(false)}
+        title="Confirm it's you" description="Deleting records needs your password." confirmLabel="Continue"
+        onConfirm={() => { setAskPwd(false); setTyped(''); setAskDelete(true) }} />
+      <ConfirmDialog open={askDelete} danger busy={deleting}
+        title={`Permanently delete ${clientId}?`}
+        description={`This removes ${list.length} session${list.length !== 1 ? 's' : ''} and cannot be undone. The deletion is written to the audit log.`}
+        confirmLabel="Delete permanently" confirmDisabled={!confirmMatches}
+        onCancel={() => setAskDelete(false)}
+        onConfirm={() => { if (confirmMatches) handleDelete() }}>
+        <Field label={`Type ${clientId} to confirm`} hint="This protects against deleting the wrong client."
+          error={typed && !confirmMatches ? `That doesn't match ${clientId}.` : undefined}>
+          {(p) => <input {...p} className={inputCls} value={typed} onChange={e => setTyped(e.target.value)} autoComplete="off" data-autofocus />}
+        </Field>
+      </ConfirmDialog>
+    </PageShell>
   )
 }

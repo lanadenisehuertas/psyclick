@@ -61,6 +61,20 @@ class SecurityControlTests(unittest.TestCase):
         db.record_consent("C-001", clinician_id, "withdrawn", "1.0")
         self.assertFalse(db.has_active_consent("C-001", clinician_id))
 
+    def test_concurrent_audit_writes_keep_the_chain_intact(self):
+        import threading
+        barrier = threading.Barrier(8)
+        def burst(n):
+            barrier.wait()
+            for i in range(5):
+                db.log_audit("patient", "Concurrent step", f"thread {n} #{i}")
+        threads = [threading.Thread(target=burst, args=(n,)) for n in range(8)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        valid, checked, first_bad = db.verify_audit_chain()
+        self.assertTrue(valid, f"chain forked at log {first_bad}")
+        self.assertGreaterEqual(checked, 40)
+
     def test_audit_chain_detects_tampering(self):
         clinician_id = self._register()
         db.log_audit("admin", "Created test event", "synthetic", actor_id=clinician_id)

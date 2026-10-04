@@ -24,6 +24,14 @@ async function request(path, options = {}) {
     } catch (_) {
       data = { success: false, error: text || 'Server returned an unreadable response.' }
     }
+    // An expired or revoked login: clear it and let the app send the user to sign-in.
+    // Password checks (login / re-verification) answer 401 for a wrong password, so skip them.
+    if (res.status === 401 && sessionStorage.getItem('psyclick_token')
+        && !['/login', '/register', '/verify-clinician'].includes(path)) {
+      sessionStorage.removeItem('psyclick_token')
+      sessionStorage.removeItem('psyclick_user')
+      window.dispatchEvent(new CustomEvent('psyclick:session-expired'))
+    }
     if (!res.ok) {
       return {
         success: false,
@@ -95,7 +103,7 @@ export const api = {
 
   // Assessment
   phqStart:         ()                    => post('/assessment/phq/start',    {}),
-  phqSave:          (score)               => post('/assessment/phq/save',     { score }),
+  phqSave:          (score, items)        => post('/assessment/phq/save',     { score, items }),
   gadStart:         ()                    => post('/assessment/gad/start',    {}),
   gadSave:          (score)               => post('/assessment/gad/save',     { score }),
   emotionalStart:   ()                    => post('/assessment/emotional/start', {}),
@@ -134,5 +142,6 @@ export const api = {
   syncNow:          ()                    => post('/sync/now', {}),
 
   ping:             ()                    => get('/ping'),
+  setupStatus:      ()                    => get('/setup-status'),
   dbHealth:         ()                    => get('/db-health'),
 }

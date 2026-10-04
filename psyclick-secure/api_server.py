@@ -133,7 +133,7 @@ def handle_unexpected_error(e):
 def handle_database_unavailable(e):
     return _db_unavailable_response(e)
 
-PUBLIC_ENDPOINTS = {"login", "register", "ping"}
+PUBLIC_ENDPOINTS = {"login", "register", "ping", "setup_status"}
 
 
 def _bearer_token():
@@ -279,13 +279,19 @@ def stats():
             c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE timestamp>={ph}{cid_and}", (week_ago, cid)); week = c.fetchone()[0]
             c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag={ph}{cid_and}", ('GREEN', cid));        normal = c.fetchone()[0]
             c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag IN ({ph},{ph}){cid_and}", ('AMBER','RED',cid)); review = c.fetchone()[0]
+            c.execute(f"SELECT COUNT(DISTINCT student_id) FROM intake_sessions{cid_filter}", (cid,));     clients = c.fetchone()[0]
+            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE phq_item9 > 0{cid_and}", (cid,));     safety  = c.fetchone()[0]
         else:
             c.execute("SELECT COUNT(*) FROM intake_sessions");                                         total  = c.fetchone()[0]
             c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE timestamp >= {ph}", (week_ago,));   week   = c.fetchone()[0]
             c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag={ph}", ('GREEN',));            normal = c.fetchone()[0]
             c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag IN ({ph},{ph})", ('AMBER','RED',)); review = c.fetchone()[0]
+            c.execute("SELECT COUNT(DISTINCT student_id) FROM intake_sessions");                       clients = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM intake_sessions WHERE phq_item9 > 0");                     safety  = c.fetchone()[0]
         conn.close()
-        return jsonify({"total": total, "week": week, "normal": normal, "review": review})
+        # total/week/normal/review count sessions; clients counts distinct people
+        return jsonify({"total": total, "week": week, "normal": normal, "review": review,
+                        "clients": clients, "safety": safety})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -297,18 +303,19 @@ def recent_sessions():
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
         if cid:
             c.execute(f"""SELECT session_id,student_id,timestamp,flag,
-                                phq_score,gad_score,psi,pai,fuzzy_label
+                                phq_score,gad_score,psi,pai,fuzzy_label,phq_item9
                          FROM intake_sessions WHERE clinician_id={ph}
-                         ORDER BY timestamp DESC LIMIT 12""", (cid,))
+                         ORDER BY timestamp DESC, session_id DESC LIMIT 12""", (cid,))
         else:
             c.execute("""SELECT session_id,student_id,timestamp,flag,
-                                phq_score,gad_score,psi,pai,fuzzy_label
-                         FROM intake_sessions ORDER BY timestamp DESC LIMIT 12""")
+                                phq_score,gad_score,psi,pai,fuzzy_label,phq_item9
+                         FROM intake_sessions ORDER BY timestamp DESC, session_id DESC LIMIT 12""")
         rows = c.fetchall(); conn.close()
         return jsonify([{
             "session_id": r[0], "patient_id": r[1], "timestamp": str(r[2])[:16],
             "flag": r[3], "phq": r[4] or 0, "gad": r[5] or 0,
             "psi": r[6] or 0, "pai": r[7] or 0, "label": r[8] or "",
+            "safety": bool(r[9]),
         } for r in rows])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -320,22 +327,21 @@ def patients():
         conn = _conn(); c = conn.cursor()
         ph = _ph()
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
-        if cid:
-            c.execute(f"""SELECT student_id,COUNT(*) as n,MAX(timestamp),
-                                MAX(CASE flag WHEN 'RED' THEN 3 WHEN 'AMBER' THEN 2
-                                             WHEN 'GREEN' THEN 1 ELSE 0 END)
-                         FROM intake_sessions WHERE clinician_id={ph}
-                         GROUP BY student_id ORDER BY MAX(timestamp) DESC""", (cid,))
-        else:
-            c.execute("""SELECT student_id,COUNT(*) as n,MAX(timestamp),
-                                MAX(CASE flag WHEN 'RED' THEN 3 WHEN 'AMBER' THEN 2
-                                             WHEN 'GREEN' THEN 1 ELSE 0 END)
-                         FROM intake_sessions GROUP BY student_id ORDER BY MAX(timestamp) DESC""")
+        # Status shown for a client is their LATEST session, not their worst ever
+        scope = f" AND s2.clinician_id={ph}" if cid else ""
+        where = f" WHERE s.clinician_id={ph}" if cid else ""
+        c.execute(f"""SELECT s.student_id, COUNT(*), MAX(s.timestamp),
+                             (SELECT s2.flag FROM intake_sessions s2
+                               WHERE s2.student_id = s.student_id{scope}
+                               ORDER BY s2.timestamp DESC, s2.session_id DESC LIMIT 1),
+                             MAX(CASE WHEN s.phq_item9 > 0 THEN 1 ELSE 0 END)
+                      FROM intake_sessions s{where}
+                      GROUP BY s.student_id ORDER BY MAX(s.timestamp) DESC""",
+                  ((cid, cid) if cid else ()))
         rows = c.fetchall(); conn.close()
-        flag_map = {3:"RED",2:"AMBER",1:"GREEN",0:None}
         return jsonify([{
             "id": r[0], "sessions": r[1], "last_seen": str(r[2])[:16],
-            "flag": flag_map.get(r[3]),
+            "flag": r[3], "safety": bool(r[4]),
         } for r in rows])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -347,15 +353,15 @@ def patient_sessions(patient_id):
         conn = _conn(); c = conn.cursor()
         clinician_id = _scoped_clinician_id()
         c.execute(f"""SELECT session_id,timestamp,phq_score,gad_score,flag,
-                              fuzzy_label,t2_score,psi,pai
+                              fuzzy_label,t2_score,psi,pai,phq_item9
                       FROM intake_sessions WHERE student_id={ph} AND clinician_id={ph}
-                      ORDER BY timestamp DESC""", (patient_id, clinician_id))
+                      ORDER BY timestamp DESC, session_id DESC""", (patient_id, clinician_id))
         rows = c.fetchall(); conn.close()
         return jsonify([{
             "session_id": r[0], "timestamp": str(r[1])[:16],
             "phq": r[2] or 0, "gad": r[3] or 0, "flag": r[4],
             "label": r[5] or "", "t2": r[6] or 0,
-            "psi": r[7] or 0, "pai": r[8] or 0,
+            "psi": r[7] or 0, "pai": r[8] or 0, "safety": bool(r[9]),
         } for r in rows])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -369,16 +375,19 @@ def session_detail(session_id):
         c.execute(f"""SELECT student_id,timestamp,phq_score,gad_score,
                               t2_score,t2_threshold,psi,pai,
                               fuzzy_label,fuzzy_confidence,flag,rationale,
-                              domain_t2_json,question_snapshots_json,flight_times_json
+                              domain_t2_json,question_snapshots_json,flight_times_json,phq_item9
                       FROM intake_sessions WHERE session_id={ph} AND clinician_id={ph}""",
                   (session_id, clinician_id))
         row = c.fetchone(); conn.close()
         if not row: return jsonify({"error":"Session not found"}), 404
-        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j = row
+        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9 = row
         snaps = json.loads(snap_j or "[]")
-        # Compute level_t2 from stored snapshots (not persisted separately)
+        # Compute level_t2 from stored snapshots (not persisted separately);
+        # items with no typing were not scored and are left out
         level_groups = {}
         for snap in snaps:
+            if snap.get("flag") == "NO_DATA":
+                continue
             lv = snap.get("level", "A")
             level_groups.setdefault(lv, []).append(snap.get("t2_score") or 0)
         level_t2 = {lv: sum(vals)/len(vals) for lv, vals in level_groups.items() if vals}
@@ -388,8 +397,8 @@ def session_detail(session_id):
         if not flights_array:
             flights_array = [snap.get("flight_time") or 0 for snap in snaps if snap.get("flight_time")]
         return jsonify({
-            "student_id": sid, "timestamp": str(ts),
-            "phq": {"score": phq or 0}, "gad": {"score": gad or 0},
+            "session_id": session_id, "student_id": sid, "timestamp": str(ts),
+            "phq": {"score": phq or 0, "item9": item9}, "gad": {"score": gad or 0},
             "analysis": {"flag": flag, "t2_score": t2, "t2_threshold": thr,
                          "psi": psi, "pai": pai, "label": label,
                          "confidence": conf, "rationale": rat},
@@ -500,7 +509,15 @@ def phq_save():
     score = _questionnaire_score(27)
     if score is None:
         return jsonify({"success": False, "error": "PHQ-9 total must be an integer from 0 to 27."}), 400
-    require_controller().save_phq(score)
+    items = (request.get_json() or {}).get("items")
+    item9 = None
+    if items is not None:
+        if (not isinstance(items, list) or len(items) != 9
+                or any(isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 3 for v in items)
+                or sum(items) != score):
+            return jsonify({"success": False, "error": "PHQ-9 answers must be nine values from 0 to 3 that add up to the total."}), 400
+        item9 = items[8]
+    require_controller().save_phq(score, item9)
     return jsonify({"success": True})
 
 # ─── GAD-7 ─────────────────────────────────────────────────────────────────────
@@ -842,6 +859,15 @@ def admin_security_status():
 
 
 # ─── Health check ──────────────────────────────────────────────────────────────
+@app.route("/api/setup-status")
+def setup_status():
+    """Public: whether any account exists yet (first run shows administrator setup)."""
+    try:
+        conn = _conn(); count = _exec(conn, "SELECT COUNT(*) FROM clinicians").fetchone()[0]; conn.close()
+        return jsonify({"has_accounts": count > 0})
+    except DatabaseUnavailableError as e:
+        return _db_unavailable_response(e)
+
 @app.route("/api/ping")
 def ping():
     return jsonify({"ok": True, "ready": _back_ready, "startup_errors": STARTUP_ERRORS, "db": get_db_status()})
