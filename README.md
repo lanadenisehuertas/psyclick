@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://psyclick-app.vercel.app/">
-    <img src="./images/LOGO%20WITH%20WORD.png" alt="PsyClick" width="520" />
+    <img src="./psyclick-secure/images/LOGO%20WITH%20WORD.png" alt="PsyClick" width="520" />
   </a>
 
   <p><strong>A calmer, clinician-guided approach to psychomotor screening.</strong></p>
@@ -60,7 +60,7 @@ The analysis pipeline evaluates eight behavioral features, including flight time
 
 - **Calm by design** — the mint, aqua, and white interface keeps dense clinical information approachable.
 - **Transparent analysis** — reports expose questionnaire scores, anomaly measures, and feature contributions instead of a black-box conclusion.
-- **Resilient storage** — the clinical build supports local SQLite operation, with cloud-backed workflows available where configured.
+- **Resilient storage** — the application supports local SQLite operation, with cloud-backed workflows available where configured.
 - **Role-aware workflows** — separate patient assessment and clinician review experiences keep each task focused.
 - **Offline capable** — the Windows desktop application can operate without a persistent internet connection.
 
@@ -85,40 +85,35 @@ The analysis pipeline evaluates eight behavioral features, including flight time
 - Python 3.13+
 - Node.js 20+ and npm
 
-### Clinical edition
+### PsyClick Secure
 
 ```powershell
 git clone https://github.com/lanadenisehuertas/psyclick.git
-cd psyclick\psyclick-clinical
+cd psyclick\psyclick-secure
 
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
-
-cd frontend
-npm install
-npm run build
-cd ..
-
 python api_server.py
 ```
 
-For desktop development, open a second terminal in `psyclick-clinical/frontend` and run:
+In a second terminal, start the desktop interface:
 
 ```powershell
-npm run electron:dev
+cd psyclick\psyclick-securerontend
+npm install
+npm run dev
 ```
 
-The hardened experimental variant and its security regression tests live in [`psyclick-secure`](./psyclick-secure/README.md).
+`start_secure.bat` launches both. See [`psyclick-secure/README.md`](./psyclick-secure/README.md) for the security model and tests.
 
 ## Repository map
 
 ```text
 psyclick/
-├── psyclick-clinical/      # Current clinical desktop application and API
+├── psyclick-secure/        # The PsyClick application
 │   ├── frontend/           # React, Vite, and Electron interface
-│   └── tests/              # Clinical and security-focused tests
-├── psyclick-secure/        # Hardened experimental build
-├── images/                 # Product branding used by the applications
+│   ├── tests/              # Security regression tests
+│   └── *.py                # Flask API, anomaly engine, storage, security
 └── psyclick_system_manifest.md
 ```
 
