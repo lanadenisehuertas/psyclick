@@ -71,3 +71,7 @@ frontend/.chrome-profile-pdf2/
 .agents/
 .claude/
 .vscode/
+
+# PsyClick Secure build output and local data
+**/frontend/dist/
+**/.secure-data/

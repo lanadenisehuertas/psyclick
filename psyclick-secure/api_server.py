@@ -487,9 +487,20 @@ def phq_start():
     log_audit("patient", "Entered PHQ-9", controller.session_data["student_id"])
     return jsonify({"success": True})
 
+def _questionnaire_score(max_score):
+    """Validated integer total for a questionnaire (PHQ-9: 0-27, GAD-7: 0-21)."""
+    raw = (request.get_json() or {}).get("score")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw != int(raw):
+        return None
+    score = int(raw)
+    return score if 0 <= score <= max_score else None
+
 @app.route("/api/assessment/phq/save", methods=["POST"])
 def phq_save():
-    require_controller().save_phq((request.get_json() or {}).get("score", 0))
+    score = _questionnaire_score(27)
+    if score is None:
+        return jsonify({"success": False, "error": "PHQ-9 total must be an integer from 0 to 27."}), 400
+    require_controller().save_phq(score)
     return jsonify({"success": True})
 
 # ─── GAD-7 ─────────────────────────────────────────────────────────────────────
@@ -504,7 +515,10 @@ def gad_start():
 
 @app.route("/api/assessment/gad/save", methods=["POST"])
 def gad_save():
-    require_controller().save_gad((request.get_json() or {}).get("score", 0))
+    score = _questionnaire_score(21)
+    if score is None:
+        return jsonify({"success": False, "error": "GAD-7 total must be an integer from 0 to 21."}), 400
+    require_controller().save_gad(score)
     return jsonify({"success": True})
 
 # ─── Emotional Task ────────────────────────────────────────────────────────────
@@ -839,7 +853,10 @@ def db_health():
         c.execute("SELECT 1")
         c.fetchone()
         conn.close()
-        payload = {"ok": True, "backend": mode, "info": info, "status": get_db_status()}
+        payload = {"ok": True, "backend": mode, "info": info, "status": get_db_status(),
+                   # Population reference used for hybrid (ipsative + normative) T²
+                   "normative_baseline_loaded": bool(
+                       back is not None and back.engine.norm_baseline.is_initialized)}
         if mode == "sqlite":
             payload["warning"] = (
                 "Data is stored only on this PC. For Supabase, set database_url in "

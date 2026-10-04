@@ -42,6 +42,13 @@ class DatabaseUnavailableError(RuntimeError):
 def _resolve_defaults():
     global DB_NAME
 
+    # Explicit override (used by the test suite to isolate its data).
+    override = os.environ.get("PSYCLICK_DB_PATH")
+    if override:
+        os.makedirs(os.path.dirname(os.path.abspath(override)), exist_ok=True)
+        DB_NAME = override
+        return
+
     # Determine base directory
     if getattr(sys, 'frozen', False):
         base = SECURE_HOME

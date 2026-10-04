@@ -32,6 +32,7 @@ They are NOT recomputed from the typing-phase mouse data.
 """
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -39,6 +40,8 @@ import database_manager as db
 import dynamics_logger  as dl
 import feature_extractor as fe
 from anomaly_engine import AnomalyEngine
+
+_log = logging.getLogger(__name__)
 
 
 def _ae_scalar(ae, key):
@@ -145,34 +148,41 @@ class PsyClickController:
         """
         Load normative baseline (110-session population stats) for hybrid scoring.
 
-        Searches for normative_baseline.json in:
-          1. Current directory
-          2. Parent directory (psyclick-1/)
-          3. Next to this module / the packaged executable
+        Searches for normative_baseline.json next to this module first (the
+        copy shipped with the code / bundled into the packaged API), then next
+        to the executable, then the working directory.
 
         Returns None if not found (engine will use ipsative-only fallback).
         """
         module_dir = Path(__file__).resolve().parent
+        exe_dir = Path(sys.executable).resolve().parent
         search_paths = [
+            module_dir / "normative_baseline.json",
+            exe_dir / "normative_baseline.json",
+            exe_dir.parent / "normative_baseline.json",
             Path("normative_baseline.json"),
             Path("..") / "normative_baseline.json",
-            module_dir / "normative_baseline.json",
-            module_dir.parent / "normative_baseline.json",
-            Path(sys.executable).resolve().parent / "normative_baseline.json",
         ]
 
         for path in search_paths:
-            if path.exists():
-                try:
-                    with open(path, encoding="utf-8-sig") as f:
-                        baseline = json.load(f)
-                    print(f"[✓] Loaded normative baseline from {path}")
-                    return baseline
-                except Exception as e:
-                    print(f"[!] Failed to load {path}: {e}")
-                    continue
+            if not path.exists():
+                continue
+            try:
+                with open(path, encoding="utf-8-sig") as f:
+                    baseline = json.load(f)
+                mu = baseline["mu_pop"]
+                S = baseline["S_pop"]
+                if len(mu) != 8 or len(S) != 8 or any(len(row) != 8 for row in S):
+                    raise ValueError("expected an 8-feature mean vector and 8x8 covariance")
+            except Exception as e:
+                _log.warning("Ignoring normative baseline %s: %s", path, e)
+                continue
+            # Logged outside the try: a console that cannot encode the message
+            # must never cause a valid baseline to be discarded.
+            _log.info("Loaded normative baseline from %s", path)
+            return baseline
 
-        print("[!] Normative baseline not found. Using ipsative-only scoring (fallback).")
+        _log.warning("Normative baseline not found; using ipsative-only scoring.")
         return None
 
     def start_key_capture(self, calibration_mode=False):
@@ -342,6 +352,10 @@ class PsyClickController:
         key_raw   = self.key_logger.stop_logging()
         mouse_raw = self.mouse_logger.stop_logging()
 
+        # Emotional-response items are scored against the Task 3 calibration
+        # (higher healthy T² under emotional load) rather than the base task.
+        self.engine.set_task("task_3")
+
         # ── Keyboard features (primary) ───────────────────────────────────────
         key_feats = fe.extract_features(key_raw) or {}
 
@@ -370,7 +384,10 @@ class PsyClickController:
         # Calibration (kbase, mbase, PHQ, GAD) built the baseline; updating
         # here would pull μ toward the assessment data, collapsing diff → 0
 
-        analysis = self.engine.analyse(combined) if combined else {}
+        # No keystrokes for this item (skipped / pasted): there is nothing to
+        # score. Analysing the all-zero keyboard vector would fabricate a
+        # large T² and contaminate the domain/level averages.
+        analysis = self.engine.analyse(combined) if key_feats else {}
 
         snap = {
             "item_id":           question_meta.get("item_id", "?"),
@@ -387,7 +404,7 @@ class PsyClickController:
             "t2_score":          _ae_scalar(analysis, "t2_score"),
             "psi":               _ae_scalar(analysis, "psi"),
             "pai":               _ae_scalar(analysis, "pai"),
-            "flag":              (analysis or {}).get("flag", "GREEN"),
+            "flag":              (analysis or {}).get("flag", "GREEN") if key_feats else "NO_DATA",
             "confidence":        float((analysis or {}).get("confidence", 0.0)),
 
             # Keyboard biomarkers (primary — client typing)
@@ -422,15 +439,17 @@ class PsyClickController:
         try:    self.mouse_logger.stop_logging()   # discard — typing window
         except: pass
 
-        all_flights = []
-        for snap in self._question_snapshots:
-            all_flights.extend(snap.get("raw_flights", []))
-        last_key_feats = fe.extract_features(last_key_raw) or {}
-        if last_key_feats.get("raw_flight_times"):
-            all_flights.extend(last_key_feats["raw_flight_times"])
-
-        valid_snaps = [s for s in self._question_snapshots if s.get("response_len", 0) >= 20]
+        typed_snaps = [s for s in self._question_snapshots if s.get("key_count", 0) > 0]
+        # Prefer substantive answers (>= 20 chars); if every answer was short,
+        # still use whatever keystroke timing exists rather than none at all.
+        valid_snaps = [s for s in typed_snaps if s.get("response_len", 0) >= 20] or typed_snaps
         n_valid = len(valid_snaps)
+
+        # Flights from the same responses that feed the aggregate, so the
+        # pause-frequency numerator and denominator describe the same typing.
+        all_flights = []
+        for snap in valid_snaps:
+            all_flights.extend(snap.get("raw_flights", []))
         phq_m = self._phq_mouse_feats
         gad_m = self._gad_mouse_feats
 
@@ -452,26 +471,34 @@ class PsyClickController:
                                     if all_flights else 0.0),
             }
         else:
-            kb  = self.session_data["kbase"]
-            agg = {
-                "flight_time":    kb.get("mean_flight", 0),
-                "dwell_time":     0.0, "typing_velocity": 0.0, "error_rate": 0.0,
-                "path_entropy":   phq_m.get("path_entropy", 0),
-                "cursor_velocity":phq_m.get("cursor_velocity", 0),
-                "jerk":           phq_m.get("jerk", 0),
-                "pause_frequency":0.0,
-            }
+            agg = None
 
         # Engagement is judged on the assessment typing as well as calibration;
         # without this the keystroke tally never grows past calibration.
         self.engine.baseline.keystroke_count += sum(s.get("key_count", 0) for s in valid_snaps)
 
         # Assessment phase — analyse against frozen calibration baseline only.
-        analysis = self.engine.analyse(agg) or {}
+        self.engine.set_task("task_3")
+        analysis = self.engine.analyse(agg) if agg else None
+        if not analysis:
+            # No typed responses (or no calibration baseline): scoring zeros
+            # against the baseline would report a spurious disturbance. Flag
+            # for clinician review without asserting a psychomotor pattern.
+            agg = agg or {k: 0.0 for k in ("flight_time", "dwell_time", "typing_velocity",
+                                           "error_rate", "path_entropy", "cursor_velocity",
+                                           "jerk", "pause_frequency")}
+            analysis = {
+                "t2_score": 0.0, "t2_threshold": 0.0, "psi": 0.0, "pai": 0.0,
+                "flag": "AMBER", "label": "Insufficient Data", "confidence": 0.0,
+                "rationale": ("Not enough keyboard data was captured (calibration or emotional-task "
+                              "responses), so psychomotor behaviour could not be assessed. Repeat the "
+                              "session or rely on the questionnaire scores and clinical observation."),
+            }
 
         # Domain-segmented T²
         domain_t2 = {}; domain_cnt = {}
-        for snap in self._question_snapshots:
+        scored_snaps = [s for s in self._question_snapshots if s.get("flag") != "NO_DATA"]
+        for snap in scored_snaps:
             gid = snap["group_id"]
             domain_t2[gid]  = domain_t2.get(gid, 0.0) + snap["t2_score"]
             domain_cnt[gid] = domain_cnt.get(gid, 0) + 1
@@ -480,7 +507,7 @@ class PsyClickController:
 
         # Level-resolved T²
         level_t2 = {}; level_cnt = {}
-        for snap in self._question_snapshots:
+        for snap in scored_snaps:
             lv = snap["level"]
             level_t2[lv]  = level_t2.get(lv, 0.0) + snap["t2_score"]
             level_cnt[lv] = level_cnt.get(lv, 0) + 1

@@ -9,9 +9,9 @@
     "preview": "vite preview",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "start": "concurrently -k \"python ../api_server.py\" \"vite\" \"wait-on tcp:5173 tcp:5101 && cross-env NODE_ENV=development electron .\"",
-    "dist": "npm run build && electron-builder --config.directories.output=dist-electron-clinical",
-    "dist:portable": "npm run build && electron-builder --win portable --config.directories.output=dist-electron-clinical",
-    "dist:installer": "npm run build && electron-builder --win nsis --config.directories.output=dist-electron-clinical"
+    "dist": "npm run build && electron-builder --config.directories.output=dist-electron",
+    "dist:portable": "npm run build && electron-builder --win portable --config.directories.output=dist-electron",
+    "dist:installer": "npm run build && electron-builder --win nsis --config.directories.output=dist-electron"
   },
   "dependencies": {
     "clsx": "^2.1.0",
@@ -38,7 +38,7 @@
     "appId": "com.psyclick.clinical",
     "productName": "PsyClick Secure",
     "directories": {
-      "output": "dist-electron-clinical"
+      "output": "dist-electron"
     },
     "files": [
       "dist/**/*",

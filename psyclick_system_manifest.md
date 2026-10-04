@@ -53,7 +53,7 @@ This document is the **Comprehensive System Manifest** for PsyClick. You can fee
     1.  **Flight Time**: Mean latency between consecutive key presses (s).
     2.  **Dwell Time**: Mean key-hold duration (s).
     3.  **Typing Velocity**: Keystrokes per second.
-    4.  **Error Rate**: Proportion of backspace events.
+    4.  **Error Rate**: Proportion of key presses that are backspace presses (key-down events only).
     5.  **Cursor Velocity**: Mean tangential velocity (px/s).
     6.  **Jerk**: 3rd derivative of position (absolute mean of acceleration diffs, px/s³).
     7.  **Path Entropy**: Shannon entropy of discretized trajectory angles.

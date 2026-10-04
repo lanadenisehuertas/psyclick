@@ -6,6 +6,10 @@ if not exist .venv\Scripts\python.exe (
   echo Create a virtual environment and install requirements.txt first.
   exit /b 1
 )
+rem Electron bundles config.json; create an empty (offline-only) one if absent.
+if not exist config.json (
+  > config.json echo {"database_url": "", "supabase_url": "", "supabase_key": ""}
+)
 rem Build backend from the spec into dist-python\psyclick_api so the path and name
 rem match what Electron loads (resources\psyclick_api\psyclick_api.exe).
 .venv\Scripts\python.exe -m PyInstaller psyclick_api.spec --noconfirm --clean --distpath dist-python

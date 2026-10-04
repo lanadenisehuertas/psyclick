@@ -38,6 +38,17 @@ Use the secure launcher from the project root for the combined workflow:
 
 ## Verification
 
-The security regression tests are in `tests/test_security_controls.py`. They cover hashed credentials, password policy, session revocation, consent fail-closed behavior, audit-chain tamper detection, and encrypted backup restore validation. Windows DPAPI tests require Windows.
+Run the full suite from this folder:
+
+```powershell
+$env:PYTHONPATH = "."
+python -m unittest discover -s tests
+```
+
+- `tests/test_algorithms.py` checks the analysis math: feature extraction against known inputs, the normative baseline matrix, Hotelling T² and its contribution decomposition, the EWMA recursion, fuzzy membership and flag rules, and the normative-stats recomputation.
+- `tests/test_integration.py` runs complete assessment sessions through the real API with scripted keyboard/mouse input, including skipped items, very short answers and sessions with no typing.
+- `tests/test_security_controls.py` covers hashed credentials, password policy, session revocation, consent fail-closed behavior, audit-chain tamper detection, and encrypted backup restore validation. Windows DPAPI tests require Windows.
+
+`GET /api/db-health` (authenticated) reports `normative_baseline_loaded`; it must be `true` in a packaged build.
 
 This build remains a non-diagnostic research/decision-support system. Production clinical use still requires institutional approval, dynamic penetration testing, a clean installation test, restore-drill evidence, and privacy/clinical-owner sign-off.

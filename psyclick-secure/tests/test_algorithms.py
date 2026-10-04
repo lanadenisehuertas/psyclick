@@ -1,11 +1,15 @@
 """Numerical regression tests for the PsyClick analysis pipeline."""
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
+
+_TMP = tempfile.TemporaryDirectory(prefix="psyclick_alg_", ignore_cleanup_errors=True)
+os.environ.setdefault("PSYCLICK_DB_PATH", str(Path(_TMP.name) / "alg.db"))
 
 import anomaly_engine as ae
 import database_manager as db
@@ -180,11 +184,13 @@ class EngagementTests(unittest.TestCase):
 
 class NormativeStatsTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="psyclick_norm_test_")
+        self.temp = tempfile.TemporaryDirectory(prefix="psyclick_norm_test_", ignore_cleanup_errors=True)
+        self._prev_db = db.DB_NAME
         db.DB_NAME = str(Path(self.temp.name) / "norm.db")
         db.init_db()
 
     def tearDown(self):
+        db.DB_NAME = self._prev_db
         self.temp.cleanup()
 
     def test_seed_population_is_present(self):

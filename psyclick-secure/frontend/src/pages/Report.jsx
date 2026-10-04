@@ -1233,8 +1233,9 @@ export default function Report() {
                       {snapshots.map((snap, i) => {
                         const lv     = snap.level || 'A'
                         const lc     = { A: 'text-success', B: 'text-amber', C: 'text-coral' }[lv] || 'text-tsub'
-                        const fc     = snap.flag === 'RED' ? 'text-coral' : snap.flag === 'AMBER' ? 'text-amber' : 'text-success'
-                        const fcBg   = snap.flag === 'RED' ? 'bg-coral/15' : snap.flag === 'AMBER' ? 'bg-amber/15' : 'bg-success/15'
+                        const noData = snap.flag === 'NO_DATA'
+                        const fc     = snap.flag === 'RED' ? 'text-coral' : snap.flag === 'AMBER' ? 'text-amber' : noData ? 'text-tsub' : 'text-success'
+                        const fcBg   = snap.flag === 'RED' ? 'bg-coral/15' : snap.flag === 'AMBER' ? 'bg-amber/15' : noData ? 'bg-border/40' : 'bg-success/15'
                         const psi_v  = Number(snap.psi || 0)
                         const pai_v  = Number(snap.pai || 0)
                         const topHW  = (snap.hover_words || [])[0]
@@ -1249,6 +1250,8 @@ export default function Report() {
                             : 'Significant deviation — mixed psychomotor signal'
                         } else if (snap.flag === 'AMBER') {
                           interp = `Moderate elevation on ${lv === 'C' ? 'highest-load' : lv === 'B' ? 'moderate-load' : 'low-load'} item`
+                        } else if (noData) {
+                          interp = 'No typing captured — item not scored'
                         } else {
                           interp = 'Within normal psychomotor range'
                         }
@@ -1268,7 +1271,7 @@ export default function Report() {
                             </td>
                             <td className="px-4 py-2.5">
                               <span className={`px-2 py-0.5 rounded-full font-bold ${fcBg} ${fc}`}>
-                                {snap.flag || 'GREEN'}
+                                {noData ? 'NO DATA' : (snap.flag || 'GREEN')}
                               </span>
                             </td>
                             <td className={`px-4 py-2.5 max-w-[200px] ${snap.flag === 'RED' ? 'text-coral' : snap.flag === 'AMBER' ? 'text-amber' : 'text-tsub'}`}>
