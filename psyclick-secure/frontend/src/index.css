@@ -8,9 +8,23 @@
   /* Light UI everywhere: stops Windows dark mode from darkening form controls */
   :root { color-scheme: light; }
   textarea, input, select { background-color: #fff; }
+  h1, h2, h3 { font-family: 'Schibsted Grotesk Variable', 'DM Sans Variable', sans-serif; letter-spacing: -0.01em; }
+
+  /* PDF / print: the report exactly as on screen, without app chrome */
+  @media print {
+    @page { size: A4; margin: 10mm; }
+    html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; }
+    .h-screen { height: auto !important; display: block !important; }
+    main { overflow: visible !important; }
+    aside[aria-label="Main navigation"], [data-print-hide] { display: none !important; }
+    .report-root { width: 1040px !important; max-width: none !important; zoom: 0.68; padding: 0 !important; }
+    .app-canvas { background: #fff !important; }
+    .print-avoid { break-inside: avoid; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  }
   body {
     font-family: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
-    background: #F0F4F8;
+    background: #F5F7F5;
     -webkit-font-smoothing: antialiased;
     color: #0D2D2D;
     font-size: 17px;
@@ -113,19 +127,8 @@
     @apply inline-flex items-center justify-center w-7 h-7 rounded-full bg-accent-ink text-white text-sm font-bold;
   }
   /* Quiet clinical canvas: soft light from the top-left, no distraction */
-  .app-canvas {
-    background:
-      radial-gradient(60rem 30rem at -10% -10%, rgba(10, 191, 188, 0.08), transparent 60%),
-      radial-gradient(50rem 26rem at 110% 0%, rgba(91, 164, 207, 0.08), transparent 60%),
-      #F3F7F9;
-  }
-  .assessment-bg {
-    background:
-      radial-gradient(circle at 8% 12%, rgba(10, 191, 188, 0.16), transparent 28rem),
-      radial-gradient(circle at 92% 18%, rgba(91, 164, 207, 0.16), transparent 30rem),
-      radial-gradient(circle at 50% 105%, rgba(54, 201, 142, 0.12), transparent 28rem),
-      #F0F4F8;
-  }
+  .app-canvas { background: #F5F7F5; }
+  .assessment-bg { background: #F5F7F5; }
 
   .task-shell {
     @apply flex min-h-screen flex-col items-center px-6 py-10 animate-fade-in;

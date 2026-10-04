@@ -3,30 +3,34 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
-      fontFamily: { sans: ['"DM Sans"', 'sans-serif'] },
+      fontFamily: {
+        sans:    ['"DM Sans Variable"', '"DM Sans"', 'system-ui', 'sans-serif'],
+        display: ['"Schibsted Grotesk Variable"', '"DM Sans Variable"', 'sans-serif'],
+        mono:    ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+      },
       colors: {
-        bg:      '#F0F4F8',
+        bg:      '#F5F7F5',
         card:    '#FFFFFF',
         accent:  '#0ABFBC',
         adark:   '#089F9D',
-        tmain:   '#0D2D2D',
-        tsub:    '#557272',   // 5.2:1 on white (WCAG AA)
-        border:  '#E4F0F0',
+        tmain:   '#14211F',
+        tsub:    '#4E6662',   // 5.9:1 on white (WCAG AA)
+        border:  '#DCE5E1',
         coral:   '#F27C7C',
         success: '#36C98E',
         amber:   '#F5A623',
         blue:    '#5BA4CF',
-        sidebar: '#0D2D2D',
+        sidebar: '#14211F',
         // Text-safe (>= 4.5:1 on white) variants of the status colours
         'coral-ink':   '#B83A38',
         'amber-ink':   '#9A5B00',
         'success-ink': '#127552',
-        'accent-ink':  '#087F7D',
+        'accent-ink':  '#0C7C78',
       },
       borderRadius: { card: '20px', pill: '999px' },
       boxShadow: {
-        card:  '0 2px 12px 0 rgba(10,191,188,0.07)',
-        hover: '0 6px 24px 0 rgba(10,191,188,0.16)',
+        card:  '0 1px 2px 0 rgba(20,33,31,0.04)',
+        hover: '0 6px 18px -6px rgba(20,33,31,0.18)',
         modal: '0 20px 60px 0 rgba(13,45,45,0.18)',
       },
       transitionDuration: { DEFAULT: '200ms' },

@@ -20,17 +20,17 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: EASE }}
-      className={`rounded-[20px] border p-6 ${m.soft}`}
+      className={`rounded-2xl border p-6 print-avoid ${m.soft}`}
     >
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-widest text-tsub mb-3">Overall result</p>
+          <p className="text-sm font-medium text-tsub mb-3">Overall result</p>
           <div className="flex items-start gap-4">
-            <span className={`flex-shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center ${m.solid} text-white`}>
+            <span className={`flex-shrink-0 w-14 h-14 rounded-full flex items-center justify-center ${m.solid} text-white`}>
               <Icon size={30} aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h2 id="result-heading" className={`text-2xl font-bold leading-tight ${m.ink}`}>{m.label}</h2>
+              <h2 id="result-heading" className={`font-display text-[28px] font-semibold leading-tight ${m.ink}`}>{m.label}</h2>
               <p className="text-lg font-semibold text-tmain mt-0.5">{m.headline}</p>
               <p className="text-[15px] text-tsub mt-1.5 leading-relaxed max-w-[62ch]">{m.meaning}</p>
               {pattern && pattern !== 'Normal' && pattern !== 'Insufficient Data' && (
@@ -63,9 +63,9 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
           </ol>
         </div>
 
-        <div className="lg:w-[340px] flex-shrink-0 rounded-2xl bg-white border border-border p-5 flex flex-col gap-4">
+        <div className="lg:w-[340px] flex-shrink-0 rounded-xl bg-white/80 border border-[#DCE5E1] p-5 flex flex-col gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-tsub mb-1.5">What to do next</p>
+            <p className="text-sm font-semibold text-[#14211F] mb-1.5">What to do next</p>
             <p className="text-[15px] text-tmain leading-relaxed flex gap-2">
               <ArrowRight size={18} className={`flex-shrink-0 mt-0.5 ${m.ink}`} aria-hidden="true" />
               {m.next}
@@ -73,7 +73,7 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
           </div>
           {sure && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-tsub mb-1">How clear the pattern is</p>
+              <p className="text-sm font-semibold text-[#14211F] mb-1">How clear the pattern is</p>
               <p className="text-[15px] text-tmain"><span className="font-bold">{sure}</span> <span className="text-tsub">({Math.round(confidence * 100)}%)</span></p>
             </div>
           )}
@@ -113,11 +113,12 @@ export function Section({ title, subtitle, children, aside }) {
 }
 
 // ── Collapsible section for specialist detail ────────────────────────────────
-export function Collapsible({ title, summary, icon: Icon, defaultOpen = false, children }) {
-  const [open, setOpen] = useState(defaultOpen)
+export function Collapsible({ title, summary, icon: Icon, defaultOpen = false, forceOpen = false, children }) {
+  const [openState, setOpen] = useState(defaultOpen)
+  const open = forceOpen || openState
   const id = useId()
   return (
-    <div className="card overflow-hidden">
+    <div className="bg-white rounded-2xl border border-[#DCE5E1] overflow-hidden print-avoid">
       <button
         type="button"
         aria-expanded={open}
@@ -126,15 +127,15 @@ export function Collapsible({ title, summary, icon: Icon, defaultOpen = false, c
         className="w-full flex items-center gap-4 px-6 py-4 text-left cursor-pointer hover:bg-[#F7FAFA] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink"
       >
         {Icon && (
-          <span className="w-10 h-10 rounded-xl bg-accent/10 text-accent-ink flex items-center justify-center flex-shrink-0">
+          <span className="w-10 h-10 rounded-full border border-[#DCE5E1] text-[#0C7C78] flex items-center justify-center flex-shrink-0">
             <Icon size={20} aria-hidden="true" />
           </span>
         )}
         <span className="flex-1 min-w-0">
-          <span className="block font-semibold text-tmain">{title}</span>
+          <span className="block font-display font-semibold text-[#14211F]">{title}</span>
           {summary && <span className="block text-sm text-tsub mt-0.5">{summary}</span>}
         </span>
-        <span className="text-sm font-medium text-accent-ink whitespace-nowrap">{open ? 'Hide' : 'Show'}</span>
+        <span className="text-sm font-medium text-accent-ink whitespace-nowrap" data-print-hide>{open ? 'Hide' : 'Show'}</span>
         <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }} className="text-tsub">
           <ChevronDown size={20} aria-hidden="true" />
         </motion.span>
@@ -219,14 +220,14 @@ export function ResultCard({ title, technical, value, valueSuffix, verdict, verd
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay, ease: EASE }}
-      className="card p-5 flex flex-col"
+      className="bg-white rounded-2xl border border-[#DCE5E1] p-5 flex flex-col print-avoid"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-semibold text-tmain text-[15px] flex items-center">{title}{info}</h3>
+          <h3 className="font-display font-semibold text-[#14211F] text-[16px] flex items-center">{title}{info}</h3>
           {technical && <p className="text-xs text-tsub mt-0.5">{technical}</p>}
         </div>
-        <p className="text-2xl font-bold text-tmain tabular-nums whitespace-nowrap">
+        <p className="font-mono text-2xl font-semibold text-[#14211F] tabular-nums whitespace-nowrap">
           {value}{valueSuffix && <span className="text-sm font-medium text-tsub ml-1">{valueSuffix}</span>}
         </p>
       </div>

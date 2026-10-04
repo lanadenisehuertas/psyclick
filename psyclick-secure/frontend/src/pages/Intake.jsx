@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { ShieldCheck, RefreshCw, UserPlus, UserRound, Keyboard, MousePointerClick, ListChecks, PenLine, Search, ArrowRight, Check } from 'lucide-react'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
-import { PageShell, Card, Button, Field, Alert, Segmented, ConfirmDialog, inputCls, IconTile, EASE } from '../components/ui.jsx'
+import { PageShell, Card, Button, Field, Alert, Segmented, ConfirmDialog, inputCls, EASE } from '../components/ui.jsx'
 import { StatusBadge, formatTimestamp } from '../lib/status.jsx'
 
 const PARTS = [
@@ -84,7 +84,7 @@ export default function Intake() {
           {/* 1 — Who */}
           <Card className="p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-bold text-tmain flex items-center gap-2"><span className="step-dot">1</span> Who is being assessed?</h2>
+              <h2 className="font-display text-lg font-semibold text-tmain flex items-center gap-2"><span className="step-dot">1</span> Who is being assessed?</h2>
               <Segmented ariaLabel="Client type" value={kind} onChange={v => { setKind(v); setErr('') }}
                 options={[{ value: 'new', label: 'New client', icon: UserPlus }, { value: 'returning', label: 'Returning client', icon: UserRound, count: clients.length }]} />
             </div>
@@ -137,7 +137,7 @@ export default function Intake() {
 
           {/* 2 — Consent */}
           <Card className="p-6">
-            <h2 className="text-lg font-bold text-tmain flex items-center gap-2"><span className="step-dot">2</span> Consent</h2>
+            <h2 className="font-display text-lg font-semibold text-tmain flex items-center gap-2"><span className="step-dot">2</span> Consent</h2>
             <p className="text-tsub mt-1.5">Read this to the client, or let them read it, before starting.</p>
             <div className="mt-4 rounded-xl bg-[#F5FAFA] border border-border p-4">
               <p className="font-semibold text-tmain flex items-center gap-2"><ShieldCheck size={18} className="text-accent-ink" aria-hidden="true" /> What PsyClick records</p>
@@ -172,12 +172,12 @@ export default function Intake() {
         <motion.aside initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35, ease: EASE }}
           className="lg:sticky lg:top-6">
           <Card className="p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-tsub">What the client will do</p>
-            <p className="text-2xl font-bold text-tmain mt-1">About 15 minutes</p>
+            <p className="text-sm text-tsub">What the client will do</p>
+            <p className="font-display text-2xl font-semibold text-tmain mt-0.5">About 15 minutes</p>
             <ol className="mt-5 space-y-4">
               {PARTS.map((p, i) => (
                 <li key={p.title} className="flex gap-3">
-                  <IconTile icon={p.icon} tone={['teal', 'blue', 'green', 'amber'][i]} />
+                  <span className="font-mono text-lg font-semibold text-accent-ink w-6 flex-shrink-0" aria-hidden="true">{i + 1}</span>
                   <div className="flex-1">
                     <p className="font-semibold text-tmain flex justify-between gap-2">{p.title}<span className="text-sm font-medium text-tsub">{p.time}</span></p>
                     <p className="text-sm text-tsub">{p.text}</p>

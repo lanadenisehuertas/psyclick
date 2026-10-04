@@ -71,7 +71,7 @@ export default function AssessmentShell({ step, children, width = 'max-w-3xl', l
 
   return (
     <div className="h-screen overflow-y-auto assessment-bg">
-      <header className="sticky top-0 z-30 backdrop-blur-md bg-[#F3F7F9]/80 border-b border-border/70">
+      <header className="sticky top-0 z-30 bg-[#F5F7F5]/95 border-b border-border">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <img src={`${import.meta.env.BASE_URL}images/LOGOggg.png`} alt="" className="w-8 h-8 object-contain" />
@@ -117,8 +117,8 @@ export default function AssessmentShell({ step, children, width = 'max-w-3xl', l
 export function StepHeading({ kicker, title, children }) {
   return (
     <div className="text-center mb-8">
-      {kicker && <p className="text-sm font-semibold uppercase tracking-[0.16em] text-accent-ink mb-2">{kicker}</p>}
-      <h1 className="text-[34px] leading-tight font-bold text-tmain">{title}</h1>
+      {kicker && <p className="font-mono text-sm text-tsub mb-2">{kicker}</p>}
+      <h1 className="font-display text-[36px] leading-tight font-semibold text-tmain">{title}</h1>
       {children && <p className="text-lg text-tsub mt-2 max-w-[56ch] mx-auto leading-relaxed">{children}</p>}
     </div>
   )

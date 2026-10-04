@@ -118,7 +118,7 @@ export default function SecurityCenter() {
       <div className="grid xl:grid-cols-[1fr_340px] gap-5 mt-6 items-start">
         <Card className="overflow-hidden">
           <div className="px-6 py-5 border-b border-border">
-            <h2 className="text-lg font-bold text-tmain">Accounts</h2>
+            <h2 className="font-display text-lg font-semibold text-tmain">Accounts</h2>
             <p className="text-sm text-tsub">Changes take effect immediately and are written to the audit log.</p>
           </div>
           {users === null ? <div className="p-6 space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-14" />)}</div> : (
@@ -163,7 +163,7 @@ export default function SecurityCenter() {
         <aside className="space-y-5">
           <Card className="p-6">
             <IconTile icon={ArchiveRestore} tone="teal" />
-            <h2 className="text-lg font-bold text-tmain mt-4">Encrypted backup</h2>
+            <h2 className="font-display text-lg font-semibold text-tmain mt-4">Encrypted backup</h2>
             <p className="text-sm text-tsub mt-1">Makes an encrypted copy of all data, then proves it can be restored.</p>
             {backupMsg && <Alert tone={backupMsg.tone} className="mt-4">{backupMsg.text}</Alert>}
             <Button className="w-full mt-5" icon={ShieldCheck} loading={busy && backupMsg?.tone === 'info'} disabled={busy} onClick={createAndVerifyBackup}>

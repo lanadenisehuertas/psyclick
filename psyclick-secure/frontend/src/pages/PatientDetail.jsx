@@ -112,7 +112,7 @@ export default function ClientDetail() {
           </div>
 
           <Card className="p-6">
-            <h2 className="text-lg font-bold text-tmain flex items-center gap-2"><TrendingUp size={20} className="text-accent-ink" aria-hidden="true" /> Questionnaire scores over time</h2>
+            <h2 className="font-display text-lg font-semibold text-tmain flex items-center gap-2"><TrendingUp size={20} className="text-accent-ink" aria-hidden="true" /> Questionnaire scores over time</h2>
             {trend.length < 2 ? (
               <p className="text-tsub mt-2">A trend appears after the second session.</p>
             ) : (
@@ -136,7 +136,7 @@ export default function ClientDetail() {
 
           <Card className="overflow-hidden">
             <div className="px-6 py-5 border-b border-border">
-              <h2 className="text-lg font-bold text-tmain">Session history</h2>
+              <h2 className="font-display text-lg font-semibold text-tmain">Session history</h2>
               <p className="text-sm text-tsub">Newest first. Open any session for its full report.</p>
             </div>
             <ul className="divide-y divide-border">

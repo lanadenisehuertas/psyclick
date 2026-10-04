@@ -91,7 +91,7 @@ export default function Clients() {
                   <div className="flex items-center gap-3">
                     <span className="w-11 h-11 rounded-full bg-accent/10 text-accent-ink font-bold flex items-center justify-center" aria-hidden="true">{c.id.slice(-2)}</span>
                     <div>
-                      <p className="text-lg font-bold text-tmain">{c.id}</p>
+                      <p className="font-mono text-lg font-semibold text-tmain">{c.id}</p>
                       <p className="text-sm text-tsub">Latest result</p>
                     </div>
                   </div>

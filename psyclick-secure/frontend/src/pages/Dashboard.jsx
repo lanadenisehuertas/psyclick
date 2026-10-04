@@ -14,17 +14,16 @@ function greeting() {
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
 }
 
-function StatCard({ icon, tone, label, value, detail, onClick, delay }) {
+function StatCard({ label, value, detail, onClick, delay, alert }) {
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay, ease: EASE }}>
-      <ActionCard onClick={onClick} className="w-full p-5 h-full" ariaLabel={`${label}: ${value ?? '—'}. ${detail}`}>
-        <div className="flex items-center justify-between">
-          <IconTile icon={icon} tone={tone} />
-          <ArrowRight size={18} className="text-tsub" aria-hidden="true" />
-        </div>
-        <p className="mt-4 text-[32px] font-bold text-tmain leading-none tabular-nums">{value ?? '—'}</p>
-        <p className="mt-2 font-semibold text-tmain">{label}</p>
-        <p className="text-sm text-tsub">{detail}</p>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay, ease: EASE }}>
+      <ActionCard onClick={onClick} className="w-full p-5 h-full group flex flex-col justify-start" ariaLabel={`${label}: ${value ?? '—'}. ${detail}`}>
+        <p className="text-sm font-medium text-tsub flex items-center justify-between">
+          {label}
+          <ArrowRight size={16} className="opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" aria-hidden="true" />
+        </p>
+        <p className={`mt-3 font-mono text-[38px] font-semibold leading-none tabular-nums ${alert && value > 0 ? 'text-coral-ink' : 'text-tmain'}`}>{value ?? '—'}</p>
+        <p className="mt-3 text-sm text-tsub">{detail}</p>
       </ActionCard>
     </motion.div>
   )
@@ -91,36 +90,27 @@ export default function Dashboard() {
       subtitle="Here is what needs your attention today."
     >
       {/* Primary action */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: EASE }}>
-        <ActionCard onClick={() => navigate('/intake')} ariaLabel="Start a new assessment"
-          className="w-full overflow-hidden !border-0 !shadow-none p-0 mb-6">
-          <div className="relative rounded-2xl p-7 flex items-center gap-6 text-white"
-            style={{ background: 'linear-gradient(120deg, #0B4A49 0%, #087F7D 60%, #0ABFBC 120%)' }}>
-            <svg className="absolute right-0 top-0 h-full w-1/2 opacity-25" viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M0 80 C 40 30, 70 100, 110 60 S 180 20, 220 70 S 270 90, 300 40" stroke="#B9F2F0" strokeWidth="2" fill="none" />
-              <path d="M0 100 C 50 60, 90 110, 140 80 S 210 50, 300 85" stroke="#B9F2F0" strokeWidth="1.2" fill="none" />
-            </svg>
-            <span className="relative w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0"><Plus size={28} aria-hidden="true" /></span>
-            <div className="relative flex-1">
-              <p className="text-2xl font-bold">Start a new assessment</p>
-              <p className="text-white/80 mt-0.5">About 15 minutes · consent, warm-ups, questionnaires and short written answers.</p>
-            </div>
-            <span className="relative hidden md:inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-white text-[#0B4A49] font-bold">
-              Begin <ArrowRight size={18} aria-hidden="true" />
-            </span>
-          </div>
-        </ActionCard>
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: EASE }}
+        className="mb-6 rounded-2xl border border-border bg-white px-6 py-5 flex flex-wrap items-center gap-5">
+        <svg width="132" height="40" viewBox="0 0 132 40" aria-hidden="true" className="flex-shrink-0">
+          <path d="M0 26 H18 L24 10 L31 34 L38 18 L46 24 H62 L68 6 L76 36 L83 20 L90 26 H132" fill="none" stroke="#0C7C78" strokeWidth="2" strokeLinejoin="round" />
+        </svg>
+        <div className="flex-1 min-w-[240px]">
+          <p className="font-display text-xl font-semibold text-tmain">Start a new assessment</p>
+          <p className="text-tsub">About 15 minutes: consent, two warm-ups, two questionnaires and twelve short written answers.</p>
+        </div>
+        <Button size="lg" iconRight={ArrowRight} onClick={() => navigate('/intake')}>Begin</Button>
       </motion.div>
 
       {/* Key numbers — each one opens the matching list */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard icon={Users} tone="teal" label="Clients" value={stats?.clients ?? stats?.total}
+        <StatCard label="Clients" value={stats?.clients ?? stats?.total}
           detail={`${stats?.total ?? 0} sessions in total`} onClick={() => navigate('/clients')} delay={0.05} />
-        <StatCard icon={CalendarDays} tone="blue" label="Sessions this week" value={stats?.week}
+        <StatCard label="Sessions this week" value={stats?.week}
           detail="In the last 7 days" onClick={() => navigate('/clients')} delay={0.1} />
-        <StatCard icon={AlertTriangle} tone="amber" label="Need follow-up" value={stats?.review}
+        <StatCard label="Need follow-up" value={stats?.review}
           detail="Sessions marked Follow up or Review now" onClick={() => setFilter('ATTENTION')} delay={0.15} />
-        <StatCard icon={ShieldAlert} tone="coral" label="Self-harm answers" value={stats?.safety ?? 0}
+        <StatCard alert label="Self-harm answers" value={stats?.safety ?? 0}
           detail="PHQ-9 question 9 answered above 0" onClick={() => navigate('/clients', { state: { filterFlag: 'SAFETY' } })} delay={0.2} />
       </div>
 
@@ -129,7 +119,7 @@ export default function Dashboard() {
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-bold text-tmain">Needs your attention</h2>
+              <h2 className="font-display text-lg font-semibold text-tmain">Needs your attention</h2>
               <p className="text-sm text-tsub">Self-harm answers first, then Review now and Follow up.</p>
             </div>
           </div>
@@ -163,7 +153,7 @@ export default function Dashboard() {
 
         {/* Activity */}
         <Card className="p-6">
-          <h2 className="text-lg font-bold text-tmain">This week</h2>
+          <h2 className="font-display text-lg font-semibold text-tmain">This week</h2>
           <p className="text-sm text-tsub">Sessions per day, today highlighted.</p>
           <div className="mt-4 h-[200px]" role="img" aria-label={`Sessions per day: ${week.map(w => `${w.day} ${w.count}`).join(', ')}`}>
             <ResponsiveContainer width="100%" height="100%">
@@ -186,7 +176,7 @@ export default function Dashboard() {
       <Card className="mt-6 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-5 border-b border-border">
           <div>
-            <h2 className="text-lg font-bold text-tmain">Recent sessions</h2>
+            <h2 className="font-display text-lg font-semibold text-tmain">Recent sessions</h2>
             <p className="text-sm text-tsub">Your 12 most recent assessments. Open one to see the full report.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

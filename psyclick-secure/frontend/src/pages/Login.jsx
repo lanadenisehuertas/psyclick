@@ -24,9 +24,9 @@ function passwordChecks(pwd) {
 function BrandPanel() {
   return (
     <div className="hidden lg:flex w-[46%] max-w-[640px] relative overflow-hidden flex-col justify-between p-12 text-white"
-      style={{ background: 'linear-gradient(150deg, #0D2D2D 0%, #0B4A49 55%, #0A7A78 100%)' }}>
+      style={{ background: '#14211F' }}>
       {/* Calm "signal" lines: a nod to keystroke rhythm */}
-      <svg className="absolute inset-x-0 bottom-0 w-full h-64 opacity-30" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+      <svg className="absolute inset-x-0 top-[40%] w-full h-40 opacity-40" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
         {[0, 1, 2].map(i => (
           <motion.path key={i}
             d={`M0 ${120 + i * 22} C 80 ${60 + i * 20}, 140 ${170 - i * 10}, 220 ${110 + i * 15} S 380 ${50 + i * 25}, 450 ${120 + i * 12} S 560 ${150 - i * 18}, 600 ${100 + i * 20}`}
@@ -38,7 +38,7 @@ function BrandPanel() {
         <img src={`${import.meta.env.BASE_URL}images/LOGO%20WITH%20WORD%20white.png`} alt="PsyClick"
           className="h-12 object-contain"
           onError={(e) => { e.currentTarget.src = `${import.meta.env.BASE_URL}images/LOGOggg.png` }} />
-        <h1 className="mt-14 text-[40px] leading-[1.1] font-bold tracking-tight max-w-[14ch]">
+        <h1 className="mt-14 font-display text-[42px] leading-[1.08] font-semibold max-w-[15ch]">
           A clearer picture, in one short session.
         </h1>
         <p className="mt-4 text-lg text-white/75 max-w-[42ch]">
@@ -49,7 +49,7 @@ function BrandPanel() {
         {BENEFITS.map((b, i) => (
           <motion.li key={b.title} className="flex gap-4"
             initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.15 + i * 0.08, ease: EASE }}>
-            <span className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0"><b.icon size={20} aria-hidden="true" /></span>
+            <span className="w-11 h-11 rounded-full border border-white/20 text-[#7FE3D8] flex items-center justify-center flex-shrink-0"><b.icon size={20} aria-hidden="true" /></span>
             <div>
               <p className="font-semibold">{b.title}</p>
               <p className="text-white/70 text-[15px]">{b.text}</p>
@@ -145,7 +145,7 @@ export default function Login() {
 
               {mode === 'offline' && (
                 <div>
-                  <h2 className="text-3xl font-bold text-tmain">Can't reach PsyClick</h2>
+                  <h2 className="font-display text-[32px] font-semibold text-tmain">Can't reach PsyClick</h2>
                   <p className="text-tsub mt-2">The local PsyClick service isn't responding. It usually starts with the app.</p>
                   <Alert tone="error" className="mt-6" title="What to try">
                     Wait a few seconds and retry. If it keeps failing, close PsyClick completely and open it again.
@@ -156,7 +156,7 @@ export default function Login() {
 
               {mode === 'signin' && (
                 <form onSubmit={handleLogin} noValidate>
-                  <h2 className="text-3xl font-bold text-tmain">Welcome back</h2>
+                  <h2 className="font-display text-[32px] font-semibold text-tmain">Welcome back</h2>
                   <p className="text-tsub mt-1.5">Sign in with your Clinician ID and password.</p>
                   {expired && !err && (
                     <Alert tone="info" className="mt-6" title="You were signed out">
@@ -191,7 +191,7 @@ export default function Login() {
 
               {mode === 'setup' && (
                 <form onSubmit={handleSetup} noValidate>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-ink">First-time setup</p>
+                  <p className="font-mono text-[13px] text-tsub">First-time setup</p>
                   <h2 className="text-3xl font-bold text-tmain mt-1.5">Create the administrator</h2>
                   <p className="text-tsub mt-1.5">This first account manages PsyClick and creates accounts for other clinicians.</p>
                   {err && <Alert tone="error" className="mt-6">{err}</Alert>}

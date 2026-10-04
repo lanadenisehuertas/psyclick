@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Keyboard, MousePointerClick, ListChecks, PenLine, ArrowRight, Coffee, Smile, Clock } from 'lucide-react'
 import AssessmentShell, { StepHeading } from '../components/AssessmentShell.jsx'
 import { useApp } from '../context/AppContext.jsx'
-import { Button, IconTile, EASE } from '../components/ui.jsx'
+import { Button, EASE } from '../components/ui.jsx'
 
 const PARTS = [
   { icon: Keyboard,          tone: 'teal',  title: 'Type a short paragraph', text: 'A quick warm-up so we learn your normal typing.' },
@@ -31,11 +31,11 @@ export default function AssessmentWelcome() {
         {PARTS.map((p, i) => (
           <motion.li key={p.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.08 * i, ease: EASE }}
-            className="bg-white rounded-2xl border border-border shadow-card p-5 flex gap-4">
-            <IconTile icon={p.icon} tone={p.tone} size="lg" />
+            className="bg-white rounded-2xl border border-border p-5 flex gap-4">
+            <span className="font-mono text-[28px] leading-none font-semibold text-accent-ink w-9 flex-shrink-0" aria-hidden="true">{i + 1}</span>
             <div>
-              <p className="text-sm font-semibold text-tsub">Part {i + 1}</p>
-              <p className="text-lg font-bold text-tmain leading-snug">{p.title}</p>
+              <p className="text-sm text-tsub flex items-center gap-1.5"><p.icon size={15} aria-hidden="true" /> Part {i + 1}</p>
+              <p className="font-display text-lg font-semibold text-tmain leading-snug">{p.title}</p>
               <p className="text-tsub mt-0.5">{p.text}</p>
             </div>
           </motion.li>

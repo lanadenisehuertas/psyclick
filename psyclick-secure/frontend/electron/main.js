@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron')
 const { spawn } = require('child_process')
 const path  = require('path')
 const http  = require('http')
@@ -151,6 +151,30 @@ function createWindow() {
 
 // ── IPC — open file in browser (for exports) ──────────────────────────────────
 ipcMain.on('open-external', (_e, url) => shell.openExternal(url))
+
+// ── IPC — save the open report as a PDF where the clinician chooses ──────────
+ipcMain.handle('save-report-pdf', async (event, { defaultName } = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const safeName = String(defaultName || 'PsyClick report.pdf').replace(/[<>:"/\\|?*]+/g, '-')
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Save report as PDF',
+    defaultPath: path.join(app.getPath('documents'), safeName),
+    filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+  })
+  if (canceled || !filePath) return { canceled: true }
+  try {
+    const pdf = await event.sender.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: { marginType: 'custom', top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
+    })
+    await fs.promises.writeFile(filePath, pdf)
+    return { filePath }
+  } catch (e) {
+    return { error: `The PDF could not be saved: ${e.message}` }
+  }
+})
+ipcMain.on('show-in-folder', (_e, filePath) => shell.showItemInFolder(filePath))
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {

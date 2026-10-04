@@ -16,8 +16,8 @@ export function PageShell({ title, subtitle, actions, eyebrow, back, children, w
           {back}
           <header className="flex flex-wrap items-end justify-between gap-4 mb-7">
             <div className="min-w-0">
-              {eyebrow && <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-ink mb-1.5">{eyebrow}</p>}
-              <h1 className="text-[28px] leading-tight font-bold text-tmain">{title}</h1>
+              {eyebrow && <p className="font-mono text-[13px] text-tsub mb-1">{eyebrow}</p>}
+              <h1 className="font-display text-[30px] leading-tight font-semibold text-tmain">{title}</h1>
               {subtitle && <p className="text-tsub mt-1 max-w-[70ch]">{subtitle}</p>}
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -62,7 +62,7 @@ export function Button({ variant = 'primary', size = 'md', loading = false, icon
 
 // ── Cards ────────────────────────────────────────────────────────────────────
 export function Card({ className = '', children, ...rest }) {
-  return <div {...rest} className={`bg-white rounded-2xl border border-border shadow-card ${className}`}>{children}</div>
+  return <div {...rest} className={`bg-white rounded-2xl border border-border ${className}`}>{children}</div>
 }
 
 // A whole card that is one action: a real button, with hover lift and focus ring.
@@ -76,7 +76,7 @@ export function ActionCard({ onClick, className = '', children, ariaLabel, disab
       whileHover={disabled ? undefined : { y: -3 }}
       whileTap={disabled ? undefined : { scale: 0.985 }}
       transition={{ duration: 0.18, ease: EASE }}
-      className={`text-left rounded-2xl border border-border bg-white shadow-card hover:shadow-hover hover:border-accent/40
+      className={`text-left rounded-2xl border border-border bg-white hover:shadow-hover hover:border-tmain/30
         transition-[box-shadow,border-color] duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60
         focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-ink ${className}`}
     >
@@ -86,12 +86,12 @@ export function ActionCard({ onClick, className = '', children, ariaLabel, disab
 }
 
 export function IconTile({ icon: Icon, tone = 'teal', size = 'md' }) {
+  // Outlined, quiet marks; colour only where it carries meaning (amber/coral)
   const tones = {
-    teal: 'bg-accent/10 text-accent-ink', blue: 'bg-[#5BA4CF]/15 text-[#2F6690]',
-    green: 'bg-success/15 text-success-ink', amber: 'bg-amber/20 text-amber-ink',
-    coral: 'bg-coral/15 text-coral-ink', slate: 'bg-[#0D2D2D]/[0.06] text-tmain',
+    teal: 'text-accent-ink', blue: 'text-[#2F6690]', green: 'text-success-ink',
+    amber: 'text-amber-ink', coral: 'text-coral-ink', slate: 'text-tmain',
   }
-  const s = size === 'lg' ? 'w-12 h-12 rounded-2xl' : size === 'sm' ? 'w-8 h-8 rounded-lg' : 'w-10 h-10 rounded-xl'
+  const s = (size === 'lg' ? 'w-12 h-12' : size === 'sm' ? 'w-8 h-8' : 'w-10 h-10') + ' rounded-full border border-border bg-white'
   return (
     <span className={`inline-flex items-center justify-center flex-shrink-0 ${s} ${tones[tone]}`} aria-hidden="true">
       <Icon size={size === 'lg' ? 24 : size === 'sm' ? 16 : 20} />
@@ -240,7 +240,7 @@ export function EmptyState({ icon: Icon, title, children, action }) {
   return (
     <div className="flex flex-col items-center text-center px-6 py-14">
       {Icon && <IconTile icon={Icon} tone="teal" size="lg" />}
-      <p className="mt-4 text-lg font-semibold text-tmain">{title}</p>
+      <p className="mt-4 font-display text-lg font-semibold text-tmain">{title}</p>
       {children && <p className="mt-1 text-tsub max-w-[48ch]">{children}</p>}
       {action && <div className="mt-5">{action}</div>}
     </div>
