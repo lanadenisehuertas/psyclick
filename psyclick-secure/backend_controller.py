@@ -352,9 +352,9 @@ class PsyClickController:
         key_raw   = self.key_logger.stop_logging()
         mouse_raw = self.mouse_logger.stop_logging()
 
-        # Emotional-response items are scored against the Task 3 calibration
-        # (higher healthy T² under emotional load) rather than the base task.
-        self.engine.set_task("task_3")
+        # A single item is scored against the healthy item-level cut-offs
+        # (one short response is far noisier than the session aggregate).
+        self.engine.set_task("task_3_item")
 
         # ── Keyboard features (primary) ───────────────────────────────────────
         key_feats = fe.extract_features(key_raw) or {}

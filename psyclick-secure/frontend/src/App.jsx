@@ -45,7 +45,7 @@ export default function App() {
           <Route path="/clients/session/:sessionId"    element={<Guard><Report /></Guard>} />
           <Route path="/audit"                         element={<Guard><Audit /></Guard>} />
           <Route path="/security"                      element={<Guard><RoleGuard roles={['admin']}><SecurityCenter /></RoleGuard></Guard>} />
-          {/* Normative tester portal removed — baseline pre-computed from 100-participant study population */}
+          {/* Normative tester portal removed — baseline built from the healthy normative tester population */}
           <Route path="/normative/*"                   element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </HashRouter>

@@ -126,7 +126,7 @@ export const api = {
     method: 'PATCH', body: JSON.stringify({ role, status }),
   }),
 
-  // Normative baseline — read-only, pre-computed from 100-participant study population
+  // Normative baseline — read-only, built from the healthy normative tester population
   normativeStats:   ()                    => get('/normative/stats'),
   normativeCompare: (sessionId)           => get(`/normative/compare/${sessionId}`),
 

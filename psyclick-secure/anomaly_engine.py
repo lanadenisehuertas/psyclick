@@ -33,8 +33,7 @@ Public API
 ----------
     engine = AnomalyEngine(
         normative_baseline=norm_stats,
-        task_calibration=calib_dict,
-        bootstrap_thresholds=thresh_dict  # NEW: non-parametric
+        bootstrap_thresholds=thresh_dict  # optional; defaults to normative_reference.json
     )
 
     engine.set_task("task_3")
@@ -78,63 +77,61 @@ import numpy as np
 from scipy.stats import f as f_dist, chi2 as chi2_dist
 
 # ──────────────────────────────────────────────────────────────────────────────
-# TASK CALIBRATION DATA
+# NORMATIVE CUT-OFFS (data-driven)
 # ──────────────────────────────────────────────────────────────────────────────
+# Flag cut-offs are the 95th / 99th percentiles of the ipsative T² in the
+# healthy normative tester population (Harrell-Davis estimates), produced by
+# scripts/build_normative_reference.py into normative_reference.json.
+#   "session"    — the session-level aggregate T² (final report flag)
+#   "task_3_item"— a single emotional-task item, which is far noisier
+# The fallback values below equal the shipped reference file.
 
-TASK_CALIBRATION = {
-    "task_1b": {
-        "name": "Sustained Typing",
-        "description": "Type provided text for 2 minutes",
-        "healthy_mean_t2": 8.2,
-        "healthy_sd_t2": 2.4,
-        "healthy_p95_t2": 14.1,
-        "healthy_flag_rate": 0.03,
-        "adjustment_factor": 0.717,
-    },
-    "task_2": {
-        "name": "Typing with Pauses",
-        "description": "Answer short questions about reading passage",
-        "healthy_mean_t2": 11.5,
-        "healthy_sd_t2": 3.1,
-        "healthy_p95_t2": 19.3,
-        "healthy_flag_rate": 0.18,
-        "adjustment_factor": 1.0,
-    },
-    "task_3": {
-        "name": "Emotional Response",
-        "description": "Respond to emotionally evocative prompts",
-        "healthy_mean_t2": 15.8,
-        "healthy_sd_t2": 4.2,
-        "healthy_p95_t2": 24.6,
-        "healthy_flag_rate": 0.31,
-        "adjustment_factor": 1.374,
-    },
+import json as _json
+import os as _os
+
+_REFERENCE_FALLBACK = {
+    "session": {"p95": 77.7918, "p99": 114.1180},
+    "item":    {"p95": 526.4389, "p99": 932.8937},
+    "psi_p95": 29.6306,
+    "psi_p99": 38.9768,
+    "pai_p99": 116.0425,
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# BOOTSTRAP THRESHOLDS (Priority 3: Non-Parametric)
-# ──────────────────────────────────────────────────────────────────────────────
-# These are computed from actual 110-session population data (not F-distribution)
-# More robust for right-skewed, non-normal data
+
+def _load_reference():
+    path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "normative_reference.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            ref = _json.load(f)
+        t = ref["thresholds"]
+        return {
+            "session": {"p95": float(t["session"]["p95"]), "p99": float(t["session"]["p99"])},
+            "item":    {"p95": float(t["item"]["p95"]), "p99": float(t["item"]["p99"])},
+            "psi_p95": float(ref["metrics"]["psi"]["quantiles_hd"]["p95"]),
+            "psi_p99": float(t["psi_p99"]),
+            "pai_p99": float(t["pai_p99"]),
+        }
+    except Exception:
+        return _REFERENCE_FALLBACK
+
+
+NORMATIVE_REFERENCE = _load_reference()
 
 BOOTSTRAP_THRESHOLDS = {
-    "base": {
-        "p95": 18.5,  # 95th percentile of T² in healthy population
-        "p99": 24.2,  # 99th percentile of T² in healthy population
-    },
-    "task_1b": {
-        "p95": 13.2,  # Task 1b is simpler
-        "p99": 17.1,
-    },
-    "task_2": {
-        "p95": 18.5,  # Task 2 is baseline
-        "p99": 24.2,
-    },
-    "task_3": {
-        "p95": 25.4,  # Task 3 has higher load
-        "p99": 33.2,
-    },
+    "base":        dict(NORMATIVE_REFERENCE["session"]),
+    "task_3":      dict(NORMATIVE_REFERENCE["session"]),
+    "task_3_item": dict(NORMATIVE_REFERENCE["item"]),
 }
+
+TASK_NAMES = {
+    "task_3":      "Emotional Response",
+    "task_3_item": "Emotional Response (single item)",
+}
+
+# PSI / PAI log-scale normalisation: scale = p99 / 2, so a healthy p99 maps
+# to 1 - e^-2 ≈ 0.86 on the membership axis.
+PSI_SCALE = NORMATIVE_REFERENCE["psi_p99"] / 2.0
+PAI_SCALE = NORMATIVE_REFERENCE["pai_p99"] / 2.0
 
 # ──────────────────────────────────────────────────────────────────────────────
 # FEATURE ORDER (must match feature_extractor output)
@@ -293,7 +290,7 @@ def _t2_threshold_bootstrap(task_id=None, bootstrap_thresholds=None, percentile=
 
     task_key = task_id if task_id else "base"
     if task_key in bootstrap_thresholds:
-        return bootstrap_thresholds[task_key].get(percentile, 18.5)
+        return bootstrap_thresholds[task_key].get(percentile, bootstrap_thresholds["base"][percentile])
 
     return bootstrap_thresholds["base"][percentile]
 
@@ -427,7 +424,7 @@ def _trapmf(x, a, b, c, d):
     return (d - x) / (d - c)
 
 
-def fuzzy_classify(t2_hybrid, threshold_adjusted, threshold_base, psi_components, pai,
+def fuzzy_classify(t2_score, threshold_adjusted, threshold_base, psi_components, pai,
                    norm_stats=None, task_context=None, engagement_level="FULL",
                    bootstrap_thresholds=None):
     """
@@ -442,9 +439,9 @@ def fuzzy_classify(t2_hybrid, threshold_adjusted, threshold_base, psi_components
     psi_total = psi_components.get("total", 0.0) if isinstance(psi_components, dict) else psi_components
 
     # Normalize using log scale (Priority 4: no ceiling effect)
-    t2_n   = _normalise_logscale(t2_hybrid / (threshold_adjusted + 1e-9), lo=0.0, scale=1.0)
-    psi_n  = _normalise_logscale(psi_total, lo=0.0, scale=20.0)  # Scale=20 → p99≈39
-    pai_n  = _normalise_logscale(pai, lo=0.0, scale=50.0)        # Scale=50 → p99≈107
+    t2_n   = _normalise_logscale(t2_score / (threshold_adjusted + 1e-9), lo=0.0, scale=1.0)
+    psi_n  = _normalise_logscale(psi_total, lo=0.0, scale=PSI_SCALE)
+    pai_n  = _normalise_logscale(pai, lo=0.0, scale=PAI_SCALE)
 
     # Clamp to [0, 1] for membership functions
     t2_n = min(1.0, t2_n)
@@ -503,11 +500,11 @@ def fuzzy_classify(t2_hybrid, threshold_adjusted, threshold_base, psi_components
     bootstrap_p99 = bootstrap_thresholds.get(task_key, bootstrap_thresholds["base"])["p99"]
 
     # Flag decision using bootstrap thresholds (Priority 3)
-    if t2_hybrid <= bootstrap_p95:
+    if t2_score <= bootstrap_p95:
         flag = "GREEN"
-    elif t2_hybrid > bootstrap_p99 and severe_strength > 0 and severe_strength >= borderline_strength:
+    elif t2_score > bootstrap_p99 and severe_strength > 0 and severe_strength >= borderline_strength:
         flag = "RED"
-    elif t2_hybrid > bootstrap_p95 and (borderline_strength > 0 or severe_strength > 0):
+    elif t2_score > bootstrap_p95 and (borderline_strength > 0 or severe_strength > 0):
         flag = "AMBER"
     else:
         flag = "AMBER"
@@ -517,12 +514,13 @@ def fuzzy_classify(t2_hybrid, threshold_adjusted, threshold_base, psi_components
     engagement_quality_flag = "NORMAL"
     if engagement_level == "LOW":
         engagement_quality_flag = "ENGAGEMENT_LIMITED"
-        # Don't downgrade flag to GREEN if engagement is low
-        if flag == "GREEN" and psi_total > 5.0:
+        # Low engagement must not hide marked slowing: escalate a GREEN when
+        # PSI exceeds the healthy 95th percentile.
+        if flag == "GREEN" and psi_total > NORMATIVE_REFERENCE["psi_p95"]:
             flag = "AMBER"
 
     rationale = _build_rationale(
-        flag, dominant_label, t2_hybrid, threshold_adjusted, threshold_base,
+        flag, dominant_label, t2_score, threshold_adjusted, threshold_base,
         psi_total, pai, confidence, task_context, engagement_level,
         bootstrap_p95, bootstrap_p99
     )
@@ -585,8 +583,7 @@ class AnomalyEngine:
     - Tiered engagement assessment (Priority 6)
     """
 
-    def __init__(self, normative_baseline=None, task_calibration=None,
-                 bootstrap_thresholds=None):
+    def __init__(self, normative_baseline=None, bootstrap_thresholds=None):
         self.baseline = EWMABaseline()
 
         if isinstance(normative_baseline, dict):
@@ -596,13 +593,12 @@ class AnomalyEngine:
         else:
             self.norm_baseline = NormativeBaseline()
 
-        self.task_calibration = task_calibration or TASK_CALIBRATION
         self.bootstrap_thresholds = bootstrap_thresholds or BOOTSTRAP_THRESHOLDS
         self.current_task = None
 
     def set_task(self, task_id):
         """Set task context for threshold adjustment."""
-        if task_id in self.task_calibration:
+        if task_id in self.bootstrap_thresholds:
             self.current_task = task_id
         else:
             self.current_task = None
@@ -638,12 +634,13 @@ class AnomalyEngine:
             vec, self.baseline, self.norm_baseline
         )
 
-        # Get task-adjusted threshold
-        t2_threshold_adjusted = (
-            t2_threshold_base * self.task_calibration[self.current_task]["adjustment_factor"]
-            if self.current_task and self.current_task in self.task_calibration
-            else t2_threshold_base
-        )
+        # Decision statistic: the ipsative T² (deviation from this person's own
+        # calibration baseline). It is what the normative cut-offs were
+        # estimated on; the normative/hybrid scores are reported for context.
+        t2_decision = t2_ipsative
+        task_key = self.current_task if self.current_task else "base"
+        cutoffs = self.bootstrap_thresholds.get(task_key, self.bootstrap_thresholds["base"])
+        t2_threshold_adjusted = cutoffs["p95"]
 
         # NEW (Priority 5): Revised PSI/PAI with components
         C, psi_total, pai, psi_components = compute_contributions_revised(
@@ -667,25 +664,24 @@ class AnomalyEngine:
 
         # Fuzzy classification with bootstrap thresholds (Priority 3)
         fuzzy = fuzzy_classify(
-            t2_hybrid, t2_threshold_adjusted, t2_threshold_base,
+            t2_decision, t2_threshold_adjusted, t2_threshold_base,
             {"total": psi_total, **psi_components}, pai,
             norm_stats=norm_stats, task_context=self.current_task,
             engagement_level=engagement_level,
             bootstrap_thresholds=self.bootstrap_thresholds
         )
 
-        # Get bootstrap thresholds for result
-        task_key = self.current_task if self.current_task else "base"
-        bootstrap_data = self.bootstrap_thresholds.get(task_key, self.bootstrap_thresholds["base"])
+        bootstrap_data = cutoffs
 
         return {
+            "t2_score": round(t2_decision, 4),
             "t2_scores": {
                 "ipsative": round(t2_ipsative, 4),
                 "normative": round(t2_normative, 4),
                 "hybrid": round(t2_hybrid, 4),
             },
             "t2_thresholds": {
-                "base": round(t2_threshold_base, 4),
+                "parametric": round(t2_threshold_base, 4),
                 "adjusted": round(t2_threshold_adjusted, 4),
                 "bootstrap_p95": round(bootstrap_data["p95"], 4),
                 "bootstrap_p99": round(bootstrap_data["p99"], 4),
@@ -706,11 +702,7 @@ class AnomalyEngine:
                 "quality_flag": psi_quality_flag,
             },
             "task_id": self.current_task,
-            "task_name": (
-                self.task_calibration[self.current_task]["name"]
-                if self.current_task and self.current_task in self.task_calibration
-                else "Unknown"
-            ),
+            "task_name": TASK_NAMES.get(self.current_task, "Unknown"),
             **fuzzy,
         }
 

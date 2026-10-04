@@ -163,6 +163,9 @@ class EndToEndTests(unittest.TestCase):
         cmp = self.get(f"/api/normative/compare/{sid}").get_json()
         self.assertTrue(cmp["available"])
         self.assertIn("t2_score", cmp["metrics"])
+        m = cmp["metrics"]["t2_score"]
+        self.assertEqual(m["count"], 83)
+        self.assertTrue(0.0 <= m["pct"] <= 100.0)
 
     def test_06_normative_baseline_is_loaded_by_the_engine(self):
         self.assertTrue(api_server.back.engine.norm_baseline.is_initialized)

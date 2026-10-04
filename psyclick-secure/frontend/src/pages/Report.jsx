@@ -12,19 +12,19 @@ const GLOSSARY = {
   T2: {
     title: "Hotelling T² Score",
     what: "How much the patient's typing + mouse behavior shifted from their own baseline today.",
-    flag: "Above threshold = significant deviation vs. this patient's own calibration (ipsative). Note: even healthy people regularly exceed the within-session threshold due to the novelty effect of emotional prompts — use the Population Comparison z-score for inter-individual context.",
-    how: "Multivariate distance formula (T² = n·Δx·S⁻¹·Δx). Threshold = chi-squared critical at p=0.05.",
+    flag: "Threshold = the 95th percentile of this score among 83 healthy normative testers, so about 1 in 20 healthy people exceed it. Above the 99th percentile with a severe fuzzy pattern = RED.",
+    how: "Multivariate distance from the patient's own calibration baseline: T² = Δxᵀ·S⁻¹·Δx (ipsative). Cut-offs are Harrell-Davis estimates from the healthy tester population.",
   },
   PSI: {
     title: "Psychomotor Slowing Index (PSI)",
     what: "Composite index of motor slowing — elevated flight time, dwell time, and pause frequency relative to the client's own EWMA calibration baseline. Operationalizes psychomotor retardation (depression-linked inhibition).",
-    flag: "Ipsative thresholds (vs. own baseline): PSI > 0.5 mild · > 2.0 moderate · > 4.0 severe. When Population Comparison data is available, prefer the normative z-score: PSI accumulates naturally even in healthy people across 11 prompts, so z > +1.5 is the meaningful clinical signal. Pools feature contributions from flight time, dwell time, and pause frequency (Thesis §1.2).",
+    flag: "Read against healthy testers: above the 85th percentile = moderate, above the 95th = marked slowing. PSI accumulates even in healthy people across the prompts, so raw size alone is not a signal. Pools feature contributions from flight time, dwell time, and pause frequency (Thesis §1.2).",
     how: "Cᵢ = (xᵢ − μᵢ) × [S⁻¹ · (x − μ)]ᵢ summed over PSI features (flight_time, dwell_time, pause_frequency) where diff > 0 (Mason & Young, 2002).",
   },
   PAI: {
     title: "Psychomotor Agitation Index (PAI)",
     what: "Composite index of motor agitation — elevated path entropy, cursor jerk, error rate, and cursor velocity relative to the client's own EWMA calibration baseline. Operationalizes psychomotor agitation (anxiety-linked erratic movement).",
-    flag: "Ipsative thresholds (vs. own baseline): PAI > 0.5 mild · > 2.0 moderate · > 4.0 severe. When Population Comparison data is available, prefer the normative z-score: PAI accumulates naturally even in healthy people across 11 prompts, so z > +1.5 is the meaningful clinical signal. Pools feature contributions from path entropy, jerk, error rate, cursor velocity, and typing velocity (Thesis §1.2).",
+    flag: "Read against healthy testers: above the 85th percentile = moderate, above the 95th = marked agitation. PAI accumulates even in healthy people across the prompts, so raw size alone is not a signal. Pools feature contributions from path entropy, jerk, error rate, cursor velocity, and typing velocity (Thesis §1.2).",
     how: "Cᵢ = (xᵢ − μᵢ) × [S⁻¹ · (x − μ)]ᵢ summed over PAI features (path_entropy, jerk, error_rate, cursor_velocity, typing_velocity). All contributions summed regardless of direction.",
   },
   DomainT2: {
@@ -150,41 +150,31 @@ function gadLabel(s) {
 function t2Interp(t2, thr) {
   if (!thr || thr === Infinity) return 'Insufficient baseline data.'
   const r = t2 / thr
-  if (r <= 1.0) return `Within normal range vs. own baseline (${r.toFixed(2)}× threshold).`
-  if (r <= 1.5) return `Moderately elevated vs. own baseline (${r.toFixed(2)}× threshold). See Population Comparison for context.`
-  return `Significantly elevated vs. own baseline (${r.toFixed(2)}× threshold). See Population Comparison z-score for clinical context.`
+  if (r <= 1.0) return `Within the healthy range (${r.toFixed(2)}× the healthy 95th-percentile threshold).`
+  if (r <= 1.5) return `Above the healthy 95th percentile (${r.toFixed(2)}× threshold). Moderate shift from own baseline.`
+  return `Well above the healthy 95th percentile (${r.toFixed(2)}× threshold). Marked shift from own baseline.`
 }
-// psiInterp / paiInterp accept an optional normZ (z-score vs normative population).
-// When normZ is provided, interpretation is driven by population standing rather than
-// ipsative absolute thresholds — because PSI/PAI naturally accumulate even in healthy
-// people across an 11-prompt session, so absolute values alone are not reliable indicators.
-function psiInterp(v, normZ) {
-  if (normZ !== undefined) {
-    if (Math.abs(normZ) < 0.5)  return `Within typical range of the normative population (z=${normZ > 0 ? '+' : ''}${normZ.toFixed(2)}). Ipsative value ${v.toFixed(2)} is normal relative to healthy baseline.`
-    if (normZ >= 1.5)  return `Significantly above normative mean (z=+${normZ.toFixed(2)}). Marked psychomotor slowing relative to healthy population — clinically significant.`
-    if (normZ >= 1.0)  return `Moderately above normative mean (z=+${normZ.toFixed(2)}). Some slowing relative to healthy population. Monitor closely.`
-    if (normZ <= -1.0) return `Below normative mean (z=${normZ.toFixed(2)}). Faster than average healthy population — no slowing concern.`
-    return `Within normal population range (z=${normZ > 0 ? '+' : ''}${normZ.toFixed(2)}). No clinically significant slowing relative to healthy baseline.`
+// psiInterp / paiInterp read the value against the healthy normative testers
+// (empirical percentile). PSI/PAI are strongly right-skewed, so percentiles are
+// used rather than z-scores. Fallback reference values: healthy p75 / p95.
+const HEALTHY_REF = { psi: { p75: 9.32, p95: 29.63 }, pai: { p75: 15.55, p95: 80.26 } }
+
+function _indexInterp(kind, v, pct) {
+  const noun = kind === 'psi' ? 'psychomotor slowing' : 'psychomotor agitation'
+  if (pct !== undefined) {
+    if (pct >= 95) return `Above ${pct.toFixed(0)}% of healthy testers — marked ${noun} for this population.`
+    if (pct >= 85) return `Higher than ${pct.toFixed(0)}% of healthy testers — moderate ${noun}. Monitor.`
+    return `Within the healthy range (${pct.toFixed(0)}th percentile). No clinically notable ${noun}.`
   }
-  // Fallback: ipsative absolute thresholds (no normative data available)
-  if (v < 0.5) return 'Within ipsative range. No psychomotor slowing vs. own baseline.'
-  if (v < 2.0) return 'Mildly elevated vs. own baseline. Some psychomotor slowing observed.'
-  if (v < 4.0) return 'Moderately elevated vs. own baseline. Clear slowing pattern — consistent with depressive inhibition.'
-  return 'Elevated vs. own baseline. Marked slowing detected. Load Population Comparison for normative context.'
+  const ref = HEALTHY_REF[kind]
+  if (v > ref.p95) return `Above the healthy 95th percentile (${ref.p95}) — marked ${noun}.`
+  if (v > ref.p75) return `Above the healthy 75th percentile (${ref.p75}). Some ${noun}.`
+  return `Within the healthy range. No clinically notable ${noun}.`
 }
-function paiInterp(v, normZ) {
-  if (normZ !== undefined) {
-    if (Math.abs(normZ) < 0.5)  return `Within typical range of the normative population (z=${normZ > 0 ? '+' : ''}${normZ.toFixed(2)}). Ipsative value ${v.toFixed(2)} is normal relative to healthy baseline.`
-    if (normZ >= 1.5)  return `Significantly above normative mean (z=+${normZ.toFixed(2)}). Highly irregular motor pattern relative to healthy population — clinically significant agitation.`
-    if (normZ >= 1.0)  return `Moderately above normative mean (z=+${normZ.toFixed(2)}). Elevated cursor irregularity relative to healthy population.`
-    if (normZ <= -1.0) return `Below normative mean (z=${normZ.toFixed(2)}). More regular than average healthy population — no agitation concern.`
-    return `Within normal population range (z=${normZ > 0 ? '+' : ''}${normZ.toFixed(2)}). No clinically significant agitation relative to healthy baseline.`
-  }
-  // Fallback: ipsative absolute thresholds (no normative data available)
-  if (v < 0.5) return 'Within ipsative range. No agitation vs. own baseline.'
-  if (v < 2.0) return 'Mildly elevated vs. own baseline. Slight cursor irregularity.'
-  if (v < 4.0) return 'Moderately elevated vs. own baseline. Erratic movements consistent with anxiety-driven hyperarousal.'
-  return 'Elevated vs. own baseline. Irregular motor pattern detected. Load Population Comparison for normative context.'
+function psiInterp(v, pct) { return _indexInterp('psi', v, pct) }
+function paiInterp(v, pct) { return _indexInterp('pai', v, pct) }
+function pctColor(pct) {
+  return pct >= 95 ? 'text-coral' : pct >= 85 ? 'text-amber' : 'text-success'
 }
 
 // ── Clinical recommendations (ported from Python _clinical_recs) ─────────────
@@ -653,20 +643,13 @@ function NormativeComparison({ metrics, loading }) {
   const SHOW = ['t2_score', 'psi', 'pai', 'phq_score', 'gad_score']
   const entries = hasData ? SHOW.map(k => metrics[k]).filter(Boolean) : []
 
-  function zColor(z) {
-    if (z >= 1.5)  return 'text-coral'
-    if (z >= 1.0)  return 'text-amber'
-    if (z <= -1.0) return 'text-accent'
-    return 'text-success'
-  }
-  function zInterpret(z, label) {
-    const abs = Math.abs(z)
-    if (abs < 0.5) return 'Within typical range of the normative population.'
-    if (z >= 1.5)  return `Significantly above normative mean — elevated ${label} relative to healthy baseline.`
-    if (z >= 1.0)  return `Moderately above normative mean. Some elevation compared to healthy population.`
-    if (z <= -1.5) return `Significantly below normative mean.`
-    if (z <= -1.0) return `Slightly below normative mean.`
-    return 'Within normal range of the normative population.'
+  // Colour and wording follow the empirical percentile among healthy testers
+  // (the metrics are skewed, so z-scores are shown for reference only).
+  function zColor(_z, pct) { return pctColor(pct) }
+  function zInterpret(_z, label, pct) {
+    if (pct >= 95) return `Higher than ${pct.toFixed(0)}% of healthy testers — elevated ${label}.`
+    if (pct >= 85) return `Higher than ${pct.toFixed(0)}% of healthy testers — moderately elevated.`
+    return 'Within the range of the healthy normative population.'
   }
 
   return (
@@ -724,11 +707,11 @@ function NormativeComparison({ metrics, loading }) {
                   </div>
                   <div>
                     <p className="text-xs text-tsub">Z-score</p>
-                    <p className={`font-bold text-sm ${zColor(m.z)}`}>{m.z > 0 ? '+' : ''}{m.z}</p>
+                    <p className={`font-bold text-sm ${zColor(m.z, m.pct)}`}>{m.z > 0 ? '+' : ''}{m.z}</p>
                   </div>
                   <div>
                     <p className="text-xs text-tsub">Percentile</p>
-                    <p className={`font-bold text-sm ${zColor(m.z)}`}>{m.pct.toFixed(0)}th</p>
+                    <p className={`font-bold text-sm ${zColor(m.z, m.pct)}`}>{m.pct.toFixed(0)}th</p>
                   </div>
                 </div>
               </div>
@@ -737,13 +720,13 @@ function NormativeComparison({ metrics, loading }) {
                 {/* Normal Range Zone (16% to 84%) */}
                 <div className="absolute top-0 h-full bg-success/20" style={{ left: '16%', width: '68%' }} />
                 <div
-                  className={`h-full rounded-full ${m.z >= 1.5 ? 'bg-coral' : m.z >= 1.0 ? 'bg-amber' : m.z <= -1.0 ? 'bg-accent' : 'bg-success'}`}
+                  className={`h-full rounded-full ${m.pct >= 95 ? 'bg-coral' : m.pct >= 85 ? 'bg-amber' : 'bg-success'}`}
                   style={{ width: `${pctBar}%` }}
                 />
                 {/* Midpoint marker */}
                 <div className="absolute top-0 left-1/2 w-px h-full bg-white/70 -translate-x-1/2" />
               </div>
-              <p className="text-xs text-tsub mt-1.5 leading-relaxed">{zInterpret(m.z, m.label)}</p>
+              <p className="text-xs text-tsub mt-1.5 leading-relaxed">{zInterpret(m.z, m.label, m.pct)}</p>
             </div>
           )
         })}
@@ -751,7 +734,7 @@ function NormativeComparison({ metrics, loading }) {
       <p className="text-xs text-tsub mt-3 border-t border-border/50 pt-3">
         <strong>Dual-Analytical Approach:</strong> The T² anomaly score above uses ipsative analysis —
         comparing this client's assessment-phase behavior to their own within-session EWMA calibration baseline.
-        This table uses normative analysis — comparing against the 100-participant study population model,
+        This table uses normative analysis — percentiles among 83 healthy normative testers (one session each, PHQ-9 and GAD-7 below 10),
         enabling both intra-individual and inter-individual psychomotor interpretation (Thesis §1.3).
       </p>
     </div>
@@ -984,23 +967,17 @@ export default function Report() {
             <MetricCard
               label="Psychomotor Slowing Index (PSI)"
               value={psi.toFixed(3)}
-              color={(() => {
-                const nz = normComp?.psi?.z
-                if (nz !== undefined) return nz > 2 ? 'text-coral' : nz > 1 ? 'text-amber' : nz < -1 ? 'text-accent' : 'text-success'
-                return psi >= 2 ? 'text-coral' : psi >= 0.5 ? 'text-amber' : 'text-success'
-              })()}
-              interp={psiInterp(psi, normComp?.psi?.z)}
+              color={normComp?.psi?.pct !== undefined ? pctColor(normComp.psi.pct)
+                : psi > HEALTHY_REF.psi.p95 ? 'text-coral' : psi > HEALTHY_REF.psi.p75 ? 'text-amber' : 'text-success'}
+              interp={psiInterp(psi, normComp?.psi?.pct)}
               glossaryKey="PSI"
             />
             <MetricCard
               label="Psychomotor Agitation Index (PAI)"
               value={pai.toFixed(3)}
-              color={(() => {
-                const nz = normComp?.pai?.z
-                if (nz !== undefined) return nz > 2 ? 'text-coral' : nz > 1 ? 'text-amber' : nz < -1 ? 'text-accent' : 'text-success'
-                return pai >= 2 ? 'text-coral' : pai >= 0.5 ? 'text-amber' : 'text-success'
-              })()}
-              interp={paiInterp(pai, normComp?.pai?.z)}
+              color={normComp?.pai?.pct !== undefined ? pctColor(normComp.pai.pct)
+                : pai > HEALTHY_REF.pai.p95 ? 'text-coral' : pai > HEALTHY_REF.pai.p75 ? 'text-amber' : 'text-success'}
+              interp={paiInterp(pai, normComp?.pai?.pct)}
               glossaryKey="PAI"
             />
           </div>

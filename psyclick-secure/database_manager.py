@@ -390,42 +390,50 @@ def init_db():
     _seed_normative_stats()
 
 
+def _load_normative_reference():
+    """Healthy-tester reference built by scripts/build_normative_reference.py."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "normative_reference.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.warning(f"[DB] Normative reference unavailable: {exc}")
+        return None
+
+
+_LEGACY_SEED_COUNT = 102   # count stamped by the superseded hard-coded seed
+
+
 def _seed_normative_stats():
     """
-    Pre-seed normative_stats from the 102-session healthy-tester population
-    (110 collected; 3 cold-start artifacts excluded by T²/threshold ratio >10×).
+    Seed normative_stats from normative_reference.json (healthy tester
+    population: one valid session per tester, PHQ-9 and GAD-7 < 10; see the
+    build script for the method).
 
-    Cross-validated against BAT calibration values:
-      PSI  p99 = 39.1050  ✓
-      PAI  p99 = 107.8280 ✓
-      T²-ratio p99 = 6.9975 ✓
-
-    Only runs when normative_stats is empty — never overwrites existing data.
+    Runs when the table is empty, and replaces the superseded hard-coded
+    102-session seed. Statistics recomputed locally from collected normative
+    sessions are never overwritten.
     """
-    # Derived from CURRENT DATABASE MERGED.csv, T-format tester rows only,
-    # excluding IDs 1-3 (T-001/T-002/T-003 first sessions — EWMA cold-start).
-    SEED = {
-        't2_score':         {'mean': 20.792655, 'sd': 26.479331, 'count': 102},
-        'psi':              {'mean':  6.500542, 'sd':  9.169439, 'count': 102},
-        'pai':              {'mean': 14.801972, 'sd': 24.432572, 'count': 102},
-        'phq_score':        {'mean':  4.676471, 'sd':  1.791961, 'count': 102},
-        'gad_score':        {'mean':  4.156863, 'sd':  2.151422, 'count': 102},
-        'flight_time_mean': {'mean':  0.163393, 'sd':  0.064421, 'count': 102},
-    }
+    ref = _load_normative_reference()
+    if not ref:
+        return
     try:
         conn = _conn()
-        existing = _exec(conn, "SELECT COUNT(*) FROM normative_stats").fetchone()[0]
-        if existing > 0:
+        rows = _exec(conn, "SELECT count FROM normative_stats").fetchall()
+        legacy = bool(rows) and all(r[0] == _LEGACY_SEED_COUNT for r in rows)
+        if rows and not legacy:
             conn.close()
-            return  # already populated — don't overwrite
-        for metric, s in SEED.items():
+            return  # populated from real data — don't overwrite
+        if legacy:
+            _exec(conn, "DELETE FROM normative_stats")
+        for metric, m in ref["metrics"].items():
             _exec(conn, """
                 INSERT OR REPLACE INTO normative_stats (metric, norm_mean, norm_sd, count)
                 VALUES (?, ?, ?, ?)
-            """, (metric, s['mean'], s['sd'], s['count']))
+            """, (metric, m["mean"], m["sd"], m["n"]))
         conn.commit()
         conn.close()
-        logger.info('[DB] Seeded normative_stats from 102-session population baseline.')
+        logger.info(f'[DB] Seeded normative_stats from {ref["counts"]["healthy_reference_testers"]} healthy testers.')
     except Exception as exc:
         logger.warning(f'[DB] Could not seed normative_stats: {exc}')
 
@@ -840,11 +848,22 @@ def get_normative_compare(session_id):
             "gad_score": row[4] or 0,
         }
 
+        ref = _load_normative_reference() or {}
+        ref_values = {m: v.get("values") for m, v in ref.get("metrics", {}).items()}
+
         result = {}
         for metric, pval in patient_vals.items():
             if metric in norm and norm[metric]["sd"] > 0:
                 z   = (pval - norm[metric]["mean"]) / norm[metric]["sd"]
-                pct = float(scipy_norm.cdf(z) * 100)
+                values = ref_values.get(metric)
+                if values:
+                    # Empirical mid-rank percentile: these metrics are strongly
+                    # right-skewed, so a normal-curve percentile would mislead.
+                    below = sum(1 for v in values if v < pval)
+                    equal = sum(1 for v in values if v == pval)
+                    pct = 100.0 * (below + 0.5 * equal) / len(values)
+                else:
+                    pct = float(scipy_norm.cdf(z) * 100)
                 result[metric] = {
                     "label":      labels[metric],
                     "patient":    pval,

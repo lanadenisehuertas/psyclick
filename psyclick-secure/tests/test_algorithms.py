@@ -150,17 +150,25 @@ class EWMATests(unittest.TestCase):
 
 
 class FuzzyAndFlagTests(unittest.TestCase):
-    def _flag(self, t2, psi=0.0, pai=0.0, task=None):
-        return ae.fuzzy_classify(t2, 15.5, 15.5, {"total": psi}, pai, task_context=task)
+    P95 = ae.BOOTSTRAP_THRESHOLDS["task_3"]["p95"]
+    P99 = ae.BOOTSTRAP_THRESHOLDS["task_3"]["p99"]
+
+    def _flag(self, t2, psi=0.0, pai=0.0, task="task_3"):
+        return ae.fuzzy_classify(t2, self.P95, self.P95, {"total": psi}, pai, task_context=task)
 
     def test_below_p95_is_green(self):
-        self.assertEqual(self._flag(5.0)["flag"], "GREEN")
+        self.assertEqual(self._flag(self.P95 * 0.9)["flag"], "GREEN")
 
     def test_above_p99_with_high_indices_is_red(self):
-        self.assertEqual(self._flag(80.0, psi=60.0, pai=150.0)["flag"], "RED")
+        self.assertEqual(self._flag(self.P99 * 2, psi=80.0, pai=250.0)["flag"], "RED")
 
     def test_between_p95_and_p99_is_amber(self):
-        self.assertEqual(self._flag(21.0, psi=20.0, pai=50.0)["flag"], "AMBER")
+        self.assertEqual(self._flag((self.P95 + self.P99) / 2, psi=20.0, pai=50.0)["flag"], "AMBER")
+
+    def test_item_cutoffs_are_looser_than_session_cutoffs(self):
+        item = ae.BOOTSTRAP_THRESHOLDS["task_3_item"]
+        self.assertGreater(item["p95"], self.P95)
+        self.assertEqual(self._flag(self.P95 * 1.2, task="task_3_item")["flag"], "GREEN")
 
     def test_log_normalisation_bounds_and_order(self):
         self.assertEqual(ae._normalise_logscale(0.0, 0.0, 20.0), 0.0)
@@ -172,6 +180,42 @@ class FuzzyAndFlagTests(unittest.TestCase):
         for x in np.linspace(0, 1, 101):
             for v in (ae._trapmf(x, -0.01, 0, 0.3, 0.55), ae._trimf(x, 0.3, 0.55, 0.8)):
                 self.assertTrue(0.0 <= v <= 1.0)
+
+
+class NormativeReferenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ref = json.loads((ROOT / "normative_reference.json").read_text(encoding="utf-8"))
+
+    def test_engine_uses_reference_cutoffs(self):
+        t = self.ref["thresholds"]
+        self.assertAlmostEqual(ae.BOOTSTRAP_THRESHOLDS["task_3"]["p95"], t["session"]["p95"])
+        self.assertAlmostEqual(ae.BOOTSTRAP_THRESHOLDS["task_3_item"]["p99"], t["item"]["p99"])
+        self.assertAlmostEqual(ae.PSI_SCALE, t["psi_p99"] / 2)
+
+    def test_fallback_matches_shipped_reference(self):
+        t = self.ref["thresholds"]
+        fb = ae._REFERENCE_FALLBACK
+        self.assertAlmostEqual(fb["session"]["p95"], t["session"]["p95"], places=3)
+        self.assertAlmostEqual(fb["session"]["p99"], t["session"]["p99"], places=3)
+        self.assertAlmostEqual(fb["item"]["p95"], t["item"]["p95"], places=3)
+        self.assertAlmostEqual(fb["psi_p99"], t["psi_p99"], places=3)
+
+    def test_reference_population_is_consistent(self):
+        c = self.ref["counts"]
+        self.assertEqual(c["healthy_reference_testers"], 83)
+        for m in self.ref["metrics"].values():
+            v = np.array(m["values"])
+            self.assertEqual(len(v), m["n"])
+            self.assertAlmostEqual(v.mean(), m["mean"], places=9)
+            self.assertAlmostEqual(v.std(ddof=1), m["sd"], places=9)
+        self.assertTrue(all(x < 10 for x in self.ref["metrics"]["phq_score"]["values"]))
+        self.assertTrue(all(x < 10 for x in self.ref["metrics"]["gad_score"]["values"]))
+
+    def test_cutoffs_are_ordered(self):
+        t = self.ref["thresholds"]["session"]
+        self.assertLess(t["p95_ci95"][0], t["p95"])
+        self.assertLess(t["p95"], t["p99"])
 
 
 class EngagementTests(unittest.TestCase):
@@ -196,7 +240,17 @@ class NormativeStatsTests(unittest.TestCase):
     def test_seed_population_is_present(self):
         stats = db.get_normative_stats()["stats"]
         self.assertEqual(set(stats), {"t2_score", "psi", "pai", "phq_score", "gad_score", "flight_time_mean"})
-        self.assertTrue(all(s["count"] == 102 for s in stats.values()))
+        self.assertTrue(all(s["count"] == 83 for s in stats.values()))
+
+    def test_legacy_seed_is_replaced(self):
+        conn = sqlite3.connect(db.DB_NAME)
+        conn.execute("DELETE FROM normative_stats")
+        conn.execute("INSERT INTO normative_stats (metric, norm_mean, norm_sd, count) VALUES ('t2_score', 20.79, 26.48, 102)")
+        conn.commit(); conn.close()
+        db._seed_normative_stats()
+        stats = db.get_normative_stats()["stats"]
+        self.assertEqual(stats["t2_score"]["count"], 83)
+        self.assertEqual(len(stats), 6)
 
     def test_recompute_excludes_cold_start_artifacts(self):
         conn = sqlite3.connect(db.DB_NAME)

@@ -30,6 +30,7 @@ a = Analysis(
         (os.path.join(SPEC_DIR, 'images', 'WORD.png'), 'images'),
         (os.path.join(SPEC_DIR, 'images', 'WORD_.png'), 'images'),
         (os.path.join(SPEC_DIR, 'normative_baseline.json'), '.'),
+        (os.path.join(SPEC_DIR, 'normative_reference.json'), '.'),
         (os.path.join(SPEC_DIR, 'database_manager.py'), '.'),
         (os.path.join(SPEC_DIR, 'backend_controller.py'), '.'),
         (os.path.join(SPEC_DIR, 'dynamics_logger.py'), '.'),
