@@ -139,7 +139,7 @@ export default function Sidebar({ protected: isProtected = false }) {
           />
           <div>
             <p className="text-white text-sm font-bold leading-tight">PsyClick</p>
-            <p className="text-[#4A7070] text-[10px] leading-tight font-medium">Clinical Edition</p>
+            <p className="text-[#9BBFBF] text-[11px] leading-tight font-medium">Secure Edition</p>
           </div>
         </div>
 

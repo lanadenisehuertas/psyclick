@@ -126,7 +126,7 @@ export default function MouseCalibration() {
             {done && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/65 backdrop-blur-sm">
                 <div className="rounded-[24px] bg-white p-8 text-center shadow-modal">
-                  <p className="mb-1 text-4xl font-bold text-success">All done!</p>
+                  <p className="mb-1 text-4xl font-bold text-success-ink">All done!</p>
                   <p className="text-lg text-tsub">Click task complete.</p>
                 </div>
               </div>

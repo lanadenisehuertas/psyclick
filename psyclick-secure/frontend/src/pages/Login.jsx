@@ -141,7 +141,7 @@ export default function Login() {
                 </div>
 
                 {err && (
-                  <p className={`text-sm mb-4 animate-fade-up-1 ${err.includes('successful') ? 'text-success' : 'text-coral'}`}>
+                  <p className={`text-sm mb-4 animate-fade-up-1 ${err.includes('successful') ? 'text-success-ink' : 'text-coral-ink'}`}>
                     {err}
                   </p>
                 )}
@@ -162,7 +162,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => { setIsRegister(false); setErr(''); setName(''); setPwd(''); }}
-                  className="w-full text-center text-tsub text-sm hover:text-accent transition-colors"
+                  className="w-full text-center text-tsub text-sm hover:text-accent-ink transition-colors"
                 >
                   Already have an account? Sign in
                 </button>
@@ -194,7 +194,7 @@ export default function Login() {
                 </div>
 
                 {err && (
-                  <p className="text-coral text-sm mb-4 animate-fade-up-1">{err}</p>
+                  <p className="text-coral-ink text-sm mb-4 animate-fade-up-1">{err}</p>
                 )}
 
                 <button
@@ -211,14 +211,14 @@ export default function Login() {
                 </button>
 
                 <div className="flex items-center gap-2 bg-accent/10 rounded-xl px-4 py-3 mb-4 transition-colors duration-200 hover:bg-accent/15">
-                  <Lock size={14} className="text-accent flex-shrink-0" />
-                  <span className="text-accent text-xs">All data encrypted and stored locally</span>
+                  <Lock size={14} className="text-accent-ink flex-shrink-0" />
+                  <span className="text-accent-ink text-xs">All data encrypted and stored locally</span>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => { setIsRegister(true); setErr(''); setId(''); setPwd(''); }}
-                  className="w-full text-center text-tsub text-sm hover:text-accent transition-colors"
+                  className="w-full text-center text-tsub text-sm hover:text-accent-ink transition-colors"
                 >
                   Don't have an account? Register
                 </button>

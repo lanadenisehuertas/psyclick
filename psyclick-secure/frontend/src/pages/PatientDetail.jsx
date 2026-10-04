@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, Trash2, Activity, Brain, AlertTriangle, CheckCircle } from 'lucide-react'
 import Sidebar from '../components/Sidebar.jsx'
+import { FLAG_META, StatusBadge, formatTimestamp } from '../lib/status.jsx'
 import PasswordDialog from '../components/PasswordDialog.jsx'
 import { api } from '../api/psyclick.js'
 
-const FLAG_STYLE = {
-  GREEN: { chip: 'bg-success/15 text-success', icon: CheckCircle,  label: 'No Concerns'    },
-  AMBER: { chip: 'bg-amber/15 text-amber',      icon: AlertTriangle, label: 'Moderate Risk'  },
-  RED:   { chip: 'bg-coral/15 text-coral',       icon: AlertTriangle, label: 'Needs Review'  },
-}
+const FLAG_STYLE = Object.fromEntries(['GREEN', 'AMBER', 'RED'].map(k => [k, FLAG_META[k]]))
+// Healthy reference (p75 / p95) for colouring PSI and PAI
+const HEALTHY_REF = { psi: { p75: 9.32, p95: 29.63 }, pai: { p75: 15.55, p95: 80.26 } }
+const refTone = (kind, v) => v > HEALTHY_REF[kind].p95 ? 'text-coral-ink' : v > HEALTHY_REF[kind].p75 ? 'text-amber-ink' : 'text-tmain'
 
 function phqLabel(s) {
   if (s == null) return '—'
@@ -79,7 +79,7 @@ export default function ClientDetail() {
           </button>
           <div className="flex items-center gap-4">
             <div className={`w-13 h-13 rounded-full flex items-center justify-center text-lg font-bold
-              ${latestFlag === 'RED' ? 'bg-coral/15 text-coral' : latestFlag === 'AMBER' ? 'bg-amber/15 text-amber' : 'bg-accent/15 text-accent'}`}
+              ${latestFlag === 'RED' ? 'bg-coral/15 text-coral-ink' : latestFlag === 'AMBER' ? 'bg-amber/15 text-amber-ink' : 'bg-accent/15 text-accent-ink'}`}
               style={{ width: 52, height: 52 }}>
               {clientId?.[0]?.toUpperCase() || 'C'}
             </div>
@@ -92,7 +92,7 @@ export default function ClientDetail() {
             </div>
             <button
               onClick={() => setShowPwd(true)}
-              className="flex items-center gap-2 text-sm font-medium text-coral border border-coral/30 bg-coral/10
+              className="flex items-center gap-2 text-sm font-medium text-coral-ink border border-coral/30 bg-coral/10
                          hover:bg-coral/20 rounded-xl px-4 h-9 transition-all duration-150 flex-shrink-0"
             >
               <Trash2 size={14} /> Delete Record
@@ -117,7 +117,7 @@ export default function ClientDetail() {
                 <div className="flex gap-2 flex-wrap mt-1">
                   {Object.entries(flagCounts).map(([f, n]) => (
                     <span key={f} className={`text-xs px-2 py-0.5 rounded-full font-medium ${FLAG_STYLE[f]?.chip || 'bg-border text-tsub'}`}>
-                      {n}× {f}
+                      {n}× {FLAG_STYLE[f]?.label || f}
                     </span>
                   ))}
                 </div>
@@ -126,11 +126,11 @@ export default function ClientDetail() {
               {/* PHQ-9 */}
               <div className="card p-5 flex flex-col gap-2">
                 <p className="text-xs font-semibold text-tsub uppercase tracking-wide">PHQ-9 (Latest)</p>
-                <p className={`text-3xl font-bold ${latestPHQ >= 15 ? 'text-coral' : latestPHQ >= 10 ? 'text-amber' : 'text-success'}`}>
+                <p className={`text-3xl font-bold ${latestPHQ >= 15 ? 'text-coral-ink' : latestPHQ >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                   {latestPHQ ?? '—'}
                   {latestPHQ != null && <span className="text-sm font-normal text-tsub ml-1">/ 27</span>}
                 </p>
-                <p className={`text-xs font-medium ${latestPHQ >= 15 ? 'text-coral' : latestPHQ >= 10 ? 'text-amber' : 'text-success'}`}>
+                <p className={`text-xs font-medium ${latestPHQ >= 15 ? 'text-coral-ink' : latestPHQ >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                   {phqLabel(latestPHQ)}
                 </p>
               </div>
@@ -138,11 +138,11 @@ export default function ClientDetail() {
               {/* GAD-7 */}
               <div className="card p-5 flex flex-col gap-2">
                 <p className="text-xs font-semibold text-tsub uppercase tracking-wide">GAD-7 (Latest)</p>
-                <p className={`text-3xl font-bold ${latestGAD >= 15 ? 'text-coral' : latestGAD >= 10 ? 'text-amber' : 'text-success'}`}>
+                <p className={`text-3xl font-bold ${latestGAD >= 15 ? 'text-coral-ink' : latestGAD >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                   {latestGAD ?? '—'}
                   {latestGAD != null && <span className="text-sm font-normal text-tsub ml-1">/ 21</span>}
                 </p>
-                <p className={`text-xs font-medium ${latestGAD >= 15 ? 'text-coral' : latestGAD >= 10 ? 'text-amber' : 'text-success'}`}>
+                <p className={`text-xs font-medium ${latestGAD >= 15 ? 'text-coral-ink' : latestGAD >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                   {gadLabel(latestGAD)}
                 </p>
               </div>
@@ -153,13 +153,13 @@ export default function ClientDetail() {
                 <div className="flex gap-4 mt-1">
                   <div>
                     <p className="text-xs text-tsub">PSI</p>
-                    <p className={`text-xl font-bold ${(sessions[0]?.psi ?? 0) >= 2 ? 'text-coral' : (sessions[0]?.psi ?? 0) >= 0.5 ? 'text-amber' : 'text-success'}`}>
+                    <p className={`text-xl font-bold ${(sessions[0]?.psi ?? 0) >= 2 ? 'text-coral-ink' : (sessions[0]?.psi ?? 0) >= 0.5 ? 'text-amber-ink' : 'text-success-ink'}`}>
                       {sessions[0]?.psi != null ? Number(sessions[0].psi).toFixed(2) : '—'}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-tsub">PAI</p>
-                    <p className={`text-xl font-bold ${(sessions[0]?.pai ?? 0) >= 2 ? 'text-coral' : (sessions[0]?.pai ?? 0) >= 0.5 ? 'text-amber' : 'text-success'}`}>
+                    <p className={`text-xl font-bold ${(sessions[0]?.pai ?? 0) >= 2 ? 'text-coral-ink' : (sessions[0]?.pai ?? 0) >= 0.5 ? 'text-amber-ink' : 'text-success-ink'}`}>
                       {sessions[0]?.pai != null ? Number(sessions[0].pai).toFixed(2) : '—'}
                     </p>
                   </div>
@@ -213,30 +213,30 @@ export default function ClientDetail() {
                           className={`border-t border-border/50 hover:bg-accent/5 transition-colors cursor-pointer ${i % 2 === 1 ? 'bg-[#FAFCFC]' : ''}`}
                         >
                           <td className="px-5 py-3 font-medium text-tsub text-xs">#{s.session_id}</td>
-                          <td className="px-5 py-3 text-tsub whitespace-nowrap">{s.timestamp}</td>
-                          <td className={`px-5 py-3 font-bold ${(s.phq ?? 0) >= 15 ? 'text-coral' : (s.phq ?? 0) >= 10 ? 'text-amber' : 'text-success'}`}>
+                          <td className="px-5 py-3 text-tsub whitespace-nowrap">{formatTimestamp(s.timestamp)}</td>
+                          <td className={`px-5 py-3 font-bold ${(s.phq ?? 0) >= 15 ? 'text-coral-ink' : (s.phq ?? 0) >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                             {s.phq ?? '—'}
                           </td>
-                          <td className={`px-5 py-3 font-bold ${(s.gad ?? 0) >= 15 ? 'text-coral' : (s.gad ?? 0) >= 10 ? 'text-amber' : 'text-success'}`}>
+                          <td className={`px-5 py-3 font-bold ${(s.gad ?? 0) >= 15 ? 'text-coral-ink' : (s.gad ?? 0) >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                             {s.gad ?? '—'}
                           </td>
                           <td className="px-5 py-3 font-mono text-xs text-tmain">{s.t2 != null ? Number(s.t2).toFixed(2) : '—'}</td>
-                          <td className={`px-5 py-3 font-mono text-xs ${(s.psi ?? 0) >= 2 ? 'text-coral' : (s.psi ?? 0) >= 0.5 ? 'text-amber' : 'text-success'}`}>
+                          <td className={`px-5 py-3 font-mono text-xs ${refTone('psi', s.psi ?? 0)}`}>
                             {s.psi != null ? Number(s.psi).toFixed(2) : '—'}
                           </td>
-                          <td className={`px-5 py-3 font-mono text-xs ${(s.pai ?? 0) >= 2 ? 'text-coral' : (s.pai ?? 0) >= 0.5 ? 'text-amber' : 'text-success'}`}>
+                          <td className={`px-5 py-3 font-mono text-xs ${refTone('pai', s.pai ?? 0)}`}>
                             {s.pai != null ? Number(s.pai).toFixed(2) : '—'}
                           </td>
                           <td className="px-5 py-3 text-tsub text-xs max-w-[180px] truncate">{s.label || '—'}</td>
                           <td className="px-5 py-3">
                             {s.flag ? (
-                              <span className={`status-chip ${fs2?.chip || 'bg-border text-tsub'}`}>{s.flag}</span>
+                              <StatusBadge flag={s.flag} label={s.label} />
                             ) : (
                               <span className="text-tsub text-xs">—</span>
                             )}
                           </td>
                           <td className="px-5 py-3">
-                            <button className="text-xs text-accent font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors whitespace-nowrap">
+                            <button className="text-xs text-accent-ink font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors whitespace-nowrap">
                               View Report →
                             </button>
                           </td>
@@ -264,7 +264,7 @@ export default function ClientDetail() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-card shadow-modal p-8 w-full max-w-md animate-slide-up">
             <div className="w-12 h-12 rounded-full bg-coral/15 flex items-center justify-center mx-auto mb-4">
-              <Trash2 size={22} className="text-coral" />
+              <Trash2 size={22} className="text-coral-ink" />
             </div>
             <h2 className="text-xl font-bold text-tmain text-center mb-2">Delete Client Record?</h2>
             <p className="text-tsub text-sm text-center mb-6 leading-relaxed">

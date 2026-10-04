@@ -61,7 +61,7 @@ export default function KeyboardCalibration() {
             />
             <div className="mt-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-tsub">{typed.length} / {TARGET.length} characters</span>
-              <span className={`text-sm font-bold ${canContinue ? 'text-success' : 'text-accent'}`}>{pct}% complete</span>
+              <span className={`text-sm font-bold ${canContinue ? 'text-success-ink' : 'text-accent-ink'}`}>{pct}% complete</span>
             </div>
             <div className="mt-3 h-3 overflow-hidden rounded-full bg-border">
               <div

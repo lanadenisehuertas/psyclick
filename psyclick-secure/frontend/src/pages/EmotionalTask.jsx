@@ -59,9 +59,9 @@ const QUESTIONS = [
 ]
 
 const LEVEL_COLORS = {
-  A: { bg: 'bg-success/15', text: 'text-success', border: 'border-success', badge: 'Low Load' },
-  B: { bg: 'bg-amber/15', text: 'text-amber', border: 'border-amber', badge: 'Moderate Load' },
-  C: { bg: 'bg-coral/15', text: 'text-coral', border: 'border-coral', badge: 'High Load' },
+  A: { bg: 'bg-success/15', text: 'text-success-ink', border: 'border-success', badge: 'Low Load' },
+  B: { bg: 'bg-amber/15', text: 'text-amber-ink', border: 'border-amber', badge: 'Moderate Load' },
+  C: { bg: 'bg-coral/15', text: 'text-coral-ink', border: 'border-coral', badge: 'High Load' },
 }
 
 const IDLE_MS = 30_000   // 30s — 10s was too aggressive during emotional reflection
@@ -203,7 +203,7 @@ export default function EmotionalTask() {
       <button
         type="button"
         onClick={() => setShowExitPwd(true)}
-        className="fixed left-6 top-6 z-40 inline-flex items-center gap-2 rounded-full border border-border bg-white/90 px-5 py-3 text-base font-bold text-tmain shadow-card backdrop-blur transition-colors hover:border-coral/50 hover:text-coral"
+        className="fixed left-6 top-6 z-40 inline-flex items-center gap-2 rounded-full border border-border bg-white/90 px-5 py-3 text-base font-bold text-tmain shadow-card backdrop-blur transition-colors hover:border-coral/50 hover:text-coral-ink"
       >
         <LogOut size={20} />
         Exit Session
@@ -224,7 +224,7 @@ export default function EmotionalTask() {
           <div className="mb-5">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-tsub uppercase tracking-wide">Progress</span>
-              <span className="text-xs font-bold text-accent">{qi + 1} / {total}</span>
+              <span className="text-xs font-bold text-accent-ink">{qi + 1} / {total}</span>
             </div>
             <div className="h-3 overflow-hidden rounded-full bg-border">
               <div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${pct}%` }} />
@@ -264,13 +264,13 @@ export default function EmotionalTask() {
               placeholder="Type your response here..."
               autoComplete="off"
             />
-            <p className={`mt-3 text-right text-sm font-semibold ${response.length >= 750 ? 'text-coral' : 'text-tsub'}`}>
+            <p className={`mt-3 text-right text-sm font-semibold ${response.length >= 750 ? 'text-coral-ink' : 'text-tsub'}`}>
               {response.length}/800
             </p>
           </div>
 
           {err && (
-            <div className="mb-4 rounded-card border border-coral/30 bg-coral/10 p-4 text-base font-medium text-coral">
+            <div className="mb-4 rounded-card border border-coral/30 bg-coral/10 p-4 text-base font-medium text-coral-ink">
               {err}
             </div>
           )}

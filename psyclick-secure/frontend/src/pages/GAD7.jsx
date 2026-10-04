@@ -113,7 +113,7 @@ export default function GAD7() {
           {answered} of {QUESTIONS.length} answered
         </div>
 
-        {err && <p className="text-coral text-sm text-center mb-3">{err}</p>}
+        {err && <p className="text-coral-ink text-sm text-center mb-3">{err}</p>}
 
         <button
           onClick={handleSubmit}

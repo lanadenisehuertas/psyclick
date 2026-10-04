@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, AlertTriangle, CheckCircle, Info } from 'lucide-react'
+import { ArrowLeft, Download, AlertTriangle, Info, Activity, Users, ListChecks } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
+import { motion, MotionConfig } from 'motion/react'
 import Sidebar from '../components/Sidebar.jsx'
-import AnimatedBackground from '../components/AnimatedBackground.jsx'
+import { StatusHero, Section, Collapsible, ScaleBar, ResultCard } from '../components/ReportParts.jsx'
+import { formatTimestamp } from '../lib/status.jsx'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 
@@ -78,7 +80,7 @@ function InfoTooltip({ glossaryKey, side = 'bottom' }) {
         type="button"
         onMouseEnter={show}
         onMouseLeave={() => setVisible(false)}
-        className="ml-1 text-tsub/60 hover:text-accent transition-colors focus:outline-none"
+        className="ml-1 text-tsub/60 hover:text-accent-ink transition-colors focus:outline-none"
         aria-label={`What is ${entry.title}?`}
       >
         <Info size={12} />
@@ -97,7 +99,7 @@ function InfoTooltip({ glossaryKey, side = 'bottom' }) {
           onMouseLeave={() => setVisible(false)}
         >
           <div className="px-4 py-2.5 border-b border-white/10 bg-accent/10">
-            <p className="font-bold text-[13px] text-accent">{entry.title}</p>
+            <p className="font-bold text-[13px] text-accent-ink">{entry.title}</p>
           </div>
           <div className="px-4 py-3 space-y-2.5">
             <div>
@@ -120,16 +122,21 @@ function InfoTooltip({ glossaryKey, side = 'bottom' }) {
 }
 
 // ── Design tokens ────────────────────────────────────────────────────────────
-const FLAG_STYLE = {
-  GREEN: { bg: 'bg-success/15 border-success/30', text: 'text-success', icon: CheckCircle,  label: 'No Significant Concerns' },
-  AMBER: { bg: 'bg-amber/15  border-amber/30',   text: 'text-amber',   icon: AlertTriangle, label: 'Moderate Concerns'       },
-  RED:   { bg: 'bg-coral/15  border-coral/30',   text: 'text-coral',   icon: AlertTriangle, label: 'Significant Concerns'    },
-}
-
-const DOMAIN_NAMES  = { 1: 'Time/Workload', 2: 'Interpersonal', 3: 'Academic', 4: 'Self-Eval' }
+const DOMAIN_NAMES  = { 1: 'Time & workload', 2: 'Relationships', 3: 'Performance', 4: 'Self-image' }
 const DOMAIN_COLORS = { 1: '#5BA4CF', 2: '#0ABFBC', 3: '#36C98E', 4: '#F27C7C' }
 const DOMAIN_BG     = { 1: '#EFF6FF', 2: '#E0FAFA', 3: '#ECFDF5', 4: '#FFF0F0' }
-const LEVEL_COLORS  = { A: '#36C98E', B: '#F5A623', C: '#F27C7C' }
+const LEVEL_NAMES   = { A: 'Mild prompts', B: 'Moderate prompts', C: 'Strong prompts' }
+const DOMAIN_TIPS   = {
+  1: 'Burnout, perfectionism, task overload. Screen for occupational stress.',
+  2: 'Attachment disruption, rejection sensitivity. Consider IIP-32 for interpersonal profiling.',
+  3: 'Performance anxiety, impostor feelings. Consider LSAS if social anxiety is suspected.',
+  4: 'Core negative beliefs about self. Highest suicide-risk correlation — assess directly. Consider DAS-24.',
+}
+const LEVEL_TIPS    = {
+  A: 'Mildest prompts. A high value here suggests the client arrived already activated — ask about pre-session stressors.',
+  B: 'Moderate prompts. A rise from mild to moderate shows reactivity is building.',
+  C: 'Strongest prompts. The highest value here is the clearest sign of a genuine reaction to emotional load.',
+}
 
 // ── Label helpers ────────────────────────────────────────────────────────────
 function phqLabel(s) {
@@ -146,39 +153,11 @@ function gadLabel(s) {
   return 'Severe'
 }
 
-// ── Interpretation helpers ────────────────────────────────────────────────────
-function t2Interp(t2, thr) {
-  if (!thr || thr === Infinity) return 'Insufficient baseline data.'
-  const r = t2 / thr
-  if (r <= 1.0) return `Within the healthy range (${r.toFixed(2)}× the healthy 95th-percentile threshold).`
-  if (r <= 1.5) return `Above the healthy 95th percentile (${r.toFixed(2)}× threshold). Moderate shift from own baseline.`
-  return `Well above the healthy 95th percentile (${r.toFixed(2)}× threshold). Marked shift from own baseline.`
-}
-// psiInterp / paiInterp read the value against the healthy normative testers
-// (empirical percentile). PSI/PAI are strongly right-skewed, so percentiles are
-// used rather than z-scores. Fallback reference values: healthy p75 / p95.
+// Healthy reference values (p75 / p95) used when no percentile is available
 const HEALTHY_REF = { psi: { p75: 9.32, p95: 29.63 }, pai: { p75: 15.55, p95: 80.26 } }
 
-function _indexInterp(kind, v, pct) {
-  const noun = kind === 'psi' ? 'psychomotor slowing' : 'psychomotor agitation'
-  if (pct !== undefined) {
-    if (pct >= 95) return `Above ${pct.toFixed(0)}% of healthy testers — marked ${noun} for this population.`
-    if (pct >= 85) return `Higher than ${pct.toFixed(0)}% of healthy testers — moderate ${noun}. Monitor.`
-    return `Within the healthy range (${pct.toFixed(0)}th percentile). No clinically notable ${noun}.`
-  }
-  const ref = HEALTHY_REF[kind]
-  if (v > ref.p95) return `Above the healthy 95th percentile (${ref.p95}) — marked ${noun}.`
-  if (v > ref.p75) return `Above the healthy 75th percentile (${ref.p75}). Some ${noun}.`
-  return `Within the healthy range. No clinically notable ${noun}.`
-}
-function psiInterp(v, pct) { return _indexInterp('psi', v, pct) }
-function paiInterp(v, pct) { return _indexInterp('pai', v, pct) }
-function pctColor(pct) {
-  return pct >= 95 ? 'text-coral' : pct >= 85 ? 'text-amber' : 'text-success'
-}
-
 // ── Clinical recommendations (ported from Python _clinical_recs) ─────────────
-function clinicalRecs(flag, label = '', psi = 0, pai = 0, phq = 0, gad = 0, domainT2 = {}, levelT2 = {}) {
+function clinicalRecs(flag, label = '', psi = 0, pai = 0, phq = 0, gad = 0, domainT2 = {}, levelT2 = {}, itemP95 = Infinity) {
   const recs = []
   label = label || ''
 
@@ -193,7 +172,11 @@ function clinicalRecs(flag, label = '', psi = 0, pai = 0, phq = 0, gad = 0, doma
       desc: 'Psychomotor behavior within normal range for this client. Maintain current session frequency.' })
   }
 
-  if (label.includes('Retardation') || psi > pai * 1.3) {
+  // Pattern-specific advice only when the session itself was flagged
+  const flagged = flag === 'RED' || flag === 'AMBER'
+  if (!flagged) {
+    // no psychomotor pattern advice for a typical session
+  } else if (label.includes('Retardation') || psi > pai * 1.3) {
     recs.push({ title: 'Psychomotor Retardation — Administer MADRS',
       desc: `PSI=${psi.toFixed(3)} dominates. Keystroke latency and pause frequency significantly elevated. This sub-clinical motor inhibition pattern precedes observable psychomotor retardation. Administer MADRS (Items 6 & 7) and assess energy, anergia, and psychic slowing explicitly.` })
   } else if (label.includes('Agitation') || pai > psi * 1.3) {
@@ -230,17 +213,17 @@ function clinicalRecs(flag, label = '', psi = 0, pai = 0, phq = 0, gad = 0, doma
       3: 'Explore performance schema and evaluation-related threat. Assess for social anxiety disorder, impostor phenomenon, and achievement-based self-worth. Consider LSAS if social anxiety is suspected.',
       4: 'Strongest signal is in identity/self-evaluation — highest clinical concern. Explore core beliefs (Beck\'s cognitive triad: self, world, future). Self-critical cognition at this intensity correlates with suicidality and treatment resistance. Administer DAS-24 or BDI Item 5.',
     }
-    if (Number(peakVal) > 0.3) {
-      recs.push({ title: `Peak Domain: ${names[Number(peakGid)] || '?'} (T²=${Number(peakVal).toFixed(3)})`,
+    if (Number(peakVal) > itemP95) {
+      recs.push({ title: `Peak Domain: ${names[Number(peakGid)] || '?'} (T²=${Number(peakVal).toFixed(1)})`,
         desc: `This domain produced the highest psychomotor deviation in the session. ${tips[Number(peakGid)] || ''}` })
     }
   }
 
   const la = levelT2.A || 0, lb = levelT2.B || 0, lc = levelT2.C || 0
-  if (lc > lb && lb > la && lc > 0.3) {
+  if (lc > lb && lb > la && lc > itemP95) {
     recs.push({ title: 'Dose-Response Escalation — High Clinical Validity',
       desc: `T² increases monotonically A→B→C (A=${la.toFixed(2)}, B=${lb.toFixed(2)}, C=${lc.toFixed(2)}). This is the strongest internal validity indicator the system can produce. It confirms the client is genuinely reactive to self-referential stress — deviation scales with emotional load. Level C items are the primary activation trigger.` })
-  } else if (la > lc && la > 0.3) {
+  } else if (la > lc && la > itemP95) {
     recs.push({ title: 'Elevated Baseline State Detected',
       desc: `T² is highest at Level A (${la.toFixed(2)}), suggesting the client entered the session already in an elevated psychomotor state. Assess pre-session stressors and environmental factors. Flag for session context note.` })
   }
@@ -249,39 +232,6 @@ function clinicalRecs(flag, label = '', psi = 0, pai = 0, phq = 0, gad = 0, doma
     desc: "The heatmap identifies specific words within each prompt where the client's cursor paused longest before typing. These micro-hesitations represent sub-verbal, pre-linguistic indicators of emotional activation. Use these as direct interview entry points: ask the client directly about the flagged words." })
 
   return recs
-}
-
-// ── PHQ/GAD gauge ────────────────────────────────────────────────────────────
-function ScoreGauge({ label, score, max, thresholds, sublabel }) {
-  const pct   = Math.min(100, Math.round((score / max) * 100))
-  const color = score >= thresholds[1] ? 'bg-coral' : score >= thresholds[0] ? 'bg-amber' : 'bg-success'
-  const tc    = score >= thresholds[1] ? 'text-coral' : score >= thresholds[0] ? 'text-amber' : 'text-success'
-  return (
-    <div className="card p-5">
-      <div className="flex justify-between items-baseline mb-1">
-        <p className="text-sm font-semibold text-tmain">{label}</p>
-        <p className={`text-2xl font-bold ${tc}`}>{score}<span className="text-sm font-normal text-tsub ml-1">/ {max}</span></p>
-      </div>
-      <p className={`text-xs font-semibold mb-2 ${tc}`}>{sublabel}</p>
-      <div className="h-2 bg-border rounded-full overflow-hidden">
-        <div className={`h-full ${color} rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  )
-}
-
-// ── Metric card ───────────────────────────────────────────────────────────────
-function MetricCard({ label, value, interp, color, glossaryKey }) {
-  return (
-    <div className="card p-5">
-      <p className="text-xs text-tsub font-semibold uppercase tracking-wide mb-1 flex items-center gap-1">
-        {label}
-        {glossaryKey && <InfoTooltip glossaryKey={glossaryKey} />}
-      </p>
-      <p className={`text-3xl font-bold mb-1 ${color || 'text-tmain'}`}>{value ?? '—'}</p>
-      {interp && <p className="text-xs text-tsub leading-relaxed mt-2 border-t border-border/60 pt-2">{interp}</p>}
-    </div>
-  )
 }
 
 // ── Temporal Heatmap (SVG, zoomable + pannable) ───────────────────────────────
@@ -365,7 +315,7 @@ function TemporalHeatmap({ snapshots, flag }) {
           {zoom !== 1 && (
             <button
               onClick={() => { setZoom(1); setPanMs(0) }}
-              className="text-xs text-accent font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors"
+              className="text-xs text-accent-ink font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors"
             >
               Reset
             </button>
@@ -508,7 +458,7 @@ function TemporalHeatmap({ snapshots, flag }) {
           })()}
         </svg>
       </div>
-      <div className={`mt-3 rounded-lg px-4 py-2 text-xs font-medium ${flag !== 'GREEN' ? 'bg-coral/10 text-coral' : 'bg-success/10 text-success'}`}>
+      <div className={`mt-3 rounded-lg px-4 py-2 text-xs font-medium ${flag !== 'GREEN' ? 'bg-coral/10 text-coral-ink' : 'bg-success/10 text-success-ink'}`}>
         {flag !== 'GREEN'
           ? 'Elevated reading latency detected. Larger nodes = longer pre-typing pause. Scroll/drag to explore.'
           : 'Smooth reading trajectories consistent with baseline. No significant hesitation spikes detected.'}
@@ -558,7 +508,7 @@ function Spectrogram({ flightTimes, snapshots, flag, pai }) {
           Keystroke Interval Spectrogram
           <InfoTooltip glossaryKey="Spectrogram" />
         </h2>
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isElevated ? 'bg-amber/15 text-amber' : 'bg-success/15 text-success'}`}>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isElevated ? 'bg-amber/15 text-amber-ink' : 'bg-success/15 text-success-ink'}`}>
           Mean: {mean.toFixed(0)} ms
         </span>
       </div>
@@ -626,7 +576,7 @@ function Spectrogram({ flightTimes, snapshots, flag, pai }) {
           })()}
         </svg>
       </div>
-      <div className={`mt-3 rounded-xl px-4 py-2.5 text-xs font-medium flex items-start gap-2 ${isElevated ? 'bg-amber/10 text-amber' : 'bg-success/10 text-success'}`}>
+      <div className={`mt-3 rounded-xl px-4 py-2.5 text-xs font-medium flex items-start gap-2 ${isElevated ? 'bg-amber/10 text-amber-ink' : 'bg-success/10 text-success-ink'}`}>
         <span className="font-bold shrink-0">{isElevated ? '⚠' : '✓'}</span>
         {isElevated
           ? `Irregular rhythm detected (+${Math.round((pai || 0) * 45)}% above baseline). Tall spikes = pauses where client hesitated — clinical entry points for interview. Consistently short bars = anxious rushing.`
@@ -637,111 +587,202 @@ function Spectrogram({ flightTimes, snapshots, flag, pai }) {
 }
 
 // ── Normative Comparison section ─────────────────────────────────────────────
+// ── Population comparison (specialist detail) ───────────────────────────────
+const NORM_LABELS = {
+  t2_score:  { name: 'Overall behaviour change', tech: 'Hotelling T²' },
+  psi:       { name: 'Slowing',                  tech: 'Psychomotor Slowing Index (PSI)' },
+  pai:       { name: 'Restlessness',             tech: 'Psychomotor Agitation Index (PAI)' },
+  phq_score: { name: 'Depression questionnaire', tech: 'PHQ-9' },
+  gad_score: { name: 'Anxiety questionnaire',    tech: 'GAD-7' },
+}
+
+function percentileValue(pct) {
+  return pct >= 99.5 ? '99+' : String(Math.round(pct))
+}
+
+function percentileText(pct) {
+  if (pct === undefined || pct === null) return ''
+  if (pct >= 99.5) return 'Higher than almost all healthy adults'
+  if (pct < 1) return 'Lower than almost all healthy adults'
+  if (pct < 85) return `Typical — higher than ${Math.round(pct)}% of healthy adults`
+  return `Higher than ${Math.round(pct)}% of healthy adults`
+}
+
 function NormativeComparison({ metrics, loading }) {
   const hasData = metrics && Object.keys(metrics).length > 0
+  const keys = ['t2_score', 'psi', 'pai', 'phq_score', 'gad_score'].filter(k => hasData && metrics[k])
+  const n = hasData ? metrics[keys[0]]?.count : null
 
-  const SHOW = ['t2_score', 'psi', 'pai', 'phq_score', 'gad_score']
-  const entries = hasData ? SHOW.map(k => metrics[k]).filter(Boolean) : []
-
-  // Colour and wording follow the empirical percentile among healthy testers
-  // (the metrics are skewed, so z-scores are shown for reference only).
-  function zColor(_z, pct) { return pctColor(pct) }
-  function zInterpret(_z, label, pct) {
-    if (pct >= 95) return `Higher than ${pct.toFixed(0)}% of healthy testers — elevated ${label}.`
-    if (pct >= 85) return `Higher than ${pct.toFixed(0)}% of healthy testers — moderately elevated.`
-    return 'Within the range of the healthy normative population.'
+  if (loading) {
+    return (
+      <div className="py-8 text-center" role="status">
+        <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+        <p className="text-tsub text-sm">Loading comparison…</p>
+      </div>
+    )
+  }
+  if (!hasData) {
+    return (
+      <div className="rounded-xl border border-border bg-[#F7FAFA] px-5 py-6 text-center">
+        <p className="font-semibold text-tmain mb-1">Comparison not available for this session</p>
+        <p className="text-sm text-tsub">The session must be saved before it can be compared with the healthy reference group.</p>
+      </div>
+    )
   }
 
   return (
-    <div className="card p-6">
-      <div className="flex items-center gap-2 mb-1">
-        <div className="w-5 h-5 rounded-full bg-[#2D5F5F] flex items-center justify-center flex-shrink-0">
-          <span className="text-white text-xs font-bold">N</span>
-        </div>
-        <h2 className="font-bold text-tmain text-sm uppercase tracking-wide">Population Comparison</h2>
-        {hasData && <span className="ml-auto text-xs text-tsub">vs. normative baseline (n={entries[0]?.count ?? '?'})</span>}
-      </div>
-      <p className="text-xs text-tsub mb-4 leading-relaxed">
-        Normative analysis — how this client's scores compare against the study-derived population baseline model
-        (n=100 participants). Z-scores show standard deviations from the population mean; percentile shows where
-        the client ranks. This complements the ipsative (within-session EWMA) analysis shown above.
+    <div className="space-y-4">
+      <p className="text-sm text-tsub leading-relaxed max-w-[90ch]">
+        Each score is ranked against {n ?? 'the'} healthy adults (one session each, PHQ-9 and GAD-7 below 10).
+        The marker shows where this client sits; the green zone is where most healthy adults fall.
       </p>
-
-      {/* Loading state */}
-      {loading && (
-        <div className="py-8 text-center">
-          <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-tsub text-xs">Loading population comparison…</p>
-        </div>
-      )}
-
-      {/* No data state */}
-      {!loading && !hasData && (
-        <div className="rounded-xl border border-border/60 bg-[#F7FAFA] px-5 py-6 text-center">
-          <p className="text-sm font-semibold text-tsub mb-1">Normative data unavailable for this session</p>
-          <p className="text-xs text-tsub/70 leading-relaxed">
-            Population comparison requires a completed session with a valid session ID.
-            If this is a fresh session, the backend normative model may not have returned data.
-          </p>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {entries.map(m => {
-          const pctBar = Math.min(100, Math.max(0, m.pct))
+      <div className="divide-y divide-border">
+        {keys.map(k => {
+          const m = metrics[k]
+          const pct = Math.max(0, Math.min(100, Number(m.pct)))
+          const tone = pct >= 95 ? 'text-coral-ink' : pct >= 85 ? 'text-amber-ink' : 'text-success-ink'
           return (
-            <div key={m.label} className="bg-[#F7FAFA] rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold text-tmain flex items-center gap-1">
-                  {m.label === 'Hotelling T² Score' ? 'Overall Behavioral Deviation (Hotelling T²)' : m.label}
-                  {m.label === 'Hotelling T² Score' && <InfoTooltip glossaryKey="T2" />}
-                </p>
-                <div className="flex items-center gap-3 text-right">
-                  <div>
-                    <p className="text-xs text-tsub">Client</p>
-                    <p className="font-bold text-tmain text-sm">{Number(m.patient).toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-tsub">Pop. Mean</p>
-                    <p className="font-mono text-tsub text-sm">{Number(m.norm_mean).toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-tsub">Z-score</p>
-                    <p className={`font-bold text-sm ${zColor(m.z, m.pct)}`}>{m.z > 0 ? '+' : ''}{m.z}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-tsub">Percentile</p>
-                    <p className={`font-bold text-sm ${zColor(m.z, m.pct)}`}>{m.pct.toFixed(0)}th</p>
-                  </div>
-                </div>
+            <div key={k} className="py-4 grid grid-cols-12 gap-4 items-center">
+              <div className="col-span-12 md:col-span-4">
+                <p className="font-semibold text-tmain">{NORM_LABELS[k].name}</p>
+                <p className="text-xs text-tsub">{NORM_LABELS[k].tech}</p>
               </div>
-              {/* Percentile bar */}
-              <div className="relative h-2 bg-border/30 rounded-full overflow-hidden">
-                {/* Normal Range Zone (16% to 84%) */}
-                <div className="absolute top-0 h-full bg-success/20" style={{ left: '16%', width: '68%' }} />
-                <div
-                  className={`h-full rounded-full ${m.pct >= 95 ? 'bg-coral' : m.pct >= 85 ? 'bg-amber' : 'bg-success'}`}
-                  style={{ width: `${pctBar}%` }}
+              <div className="col-span-12 md:col-span-5">
+                <ScaleBar
+                  value={pct}
+                  zones={[{ to: 85, label: 'Typical', tone: 'good' }, { to: 95, label: 'Higher', tone: 'warn' }, { to: 100, label: 'Top 5%', tone: 'high' }]}
+                  markerLabel={percentileValue(pct)}
+                  ariaLabel={`${NORM_LABELS[k].name}: ${percentileText(pct)}`}
                 />
-                {/* Midpoint marker */}
-                <div className="absolute top-0 left-1/2 w-px h-full bg-white/70 -translate-x-1/2" />
               </div>
-              <p className="text-xs text-tsub mt-1.5 leading-relaxed">{zInterpret(m.z, m.label, m.pct)}</p>
+              <div className="col-span-12 md:col-span-3 text-sm">
+                <p className={`font-semibold ${tone}`}>{percentileText(pct)}</p>
+                <p className="text-tsub tabular-nums mt-0.5">
+                  Client {Number(m.patient).toFixed(1)} · healthy avg {Number(m.norm_mean).toFixed(1)} · z {m.z > 0 ? '+' : ''}{Number(m.z).toFixed(2)}
+                </p>
+              </div>
             </div>
           )
         })}
       </div>
-      <p className="text-xs text-tsub mt-3 border-t border-border/50 pt-3">
-        <strong>Dual-Analytical Approach:</strong> The T² anomaly score above uses ipsative analysis —
-        comparing this client's assessment-phase behavior to their own within-session EWMA calibration baseline.
-        This table uses normative analysis — percentiles among 83 healthy normative testers (one session each, PHQ-9 and GAD-7 below 10),
-        enabling both intra-individual and inter-individual psychomotor interpretation (Thesis §1.3).
+      <p className="text-xs text-tsub border-t border-border pt-3">
+        The overall result compares the client with their own calibration (within-session baseline). This table adds the
+        comparison with other people, so both views can be read together (Thesis §1.3).
       </p>
     </div>
   )
 }
 
+// ── Question-by-question breakdown (specialist detail) ──────────────────────
+const ITEM_FLAG = {
+  GREEN:   { label: 'Typical',    cls: 'bg-success/15 text-success-ink' },
+  AMBER:   { label: 'Elevated',   cls: 'bg-amber/15 text-amber-ink' },
+  RED:     { label: 'High',       cls: 'bg-coral/15 text-coral-ink' },
+  NO_DATA: { label: 'Not scored', cls: 'bg-border/60 text-tsub' },
+}
+
+function QuestionBreakdown({ snapshots, itemP95 }) {
+  const flagged   = snapshots.filter(s => s.flag === 'RED' || s.flag === 'AMBER')
+  const redItems  = snapshots.filter(s => s.flag === 'RED').map(s => s.item_id).join(', ')
+  const ambItems  = snapshots.filter(s => s.flag === 'AMBER').map(s => s.item_id).join(', ')
+  const maxT2Snap = snapshots.reduce((best, s) => (s.t2_score || 0) > (best.t2_score || 0) ? s : best, snapshots[0])
+  const maxPauseSnap = snapshots.reduce((best, s) => (s.pre_typing_pause_ms || 0) > (best.pre_typing_pause_ms || 0) ? s : best, snapshots[0])
+  const allHovers = snapshots.flatMap(s => s.hover_words || [])
+  const topWord   = [...allHovers].sort((a, b) => (b.dwell_ms || 0) - (a.dwell_ms || 0))[0]?.word
+
+  return (
+    <div>
+      <div className="grid sm:grid-cols-3 gap-4 text-sm mb-5">
+        <div className="rounded-xl bg-[#F7FAFA] p-4">
+          <p className="text-xs font-semibold text-tsub uppercase tracking-wide mb-1">Prompts above typical</p>
+          {flagged.length === 0 ? (
+            <p className="text-success-ink font-semibold">None — all prompts typical</p>
+          ) : (
+            <>
+              <p className="font-semibold text-tmain">{flagged.length} of {snapshots.length} prompts</p>
+              {redItems && <p className="text-coral-ink mt-0.5">High: {redItems}</p>}
+              {ambItems && <p className="text-amber-ink">Elevated: {ambItems}</p>}
+            </>
+          )}
+        </div>
+        <div className="rounded-xl bg-[#F7FAFA] p-4">
+          <p className="text-xs font-semibold text-tsub uppercase tracking-wide mb-1">Largest change</p>
+          <p className="font-semibold text-tmain">Prompt {maxT2Snap?.item_id || '—'} <span className="font-normal text-tsub">(T² {Number(maxT2Snap?.t2_score || 0).toFixed(1)})</span></p>
+          <p className="text-tsub mt-0.5">{maxT2Snap?.group_name?.split(':')[1]?.trim() || '—'}, level {maxT2Snap?.level || '—'}</p>
+        </div>
+        <div className="rounded-xl bg-[#F7FAFA] p-4">
+          <p className="text-xs font-semibold text-tsub uppercase tracking-wide mb-1">Longest pause before typing</p>
+          <p className="font-semibold text-tmain">Prompt {maxPauseSnap?.item_id || '—'} <span className="font-normal text-tsub">({(Math.round(maxPauseSnap?.pre_typing_pause_ms || 0) / 1000).toFixed(1)} s)</span></p>
+          {topWord && <p className="text-tsub mt-0.5">Word read longest: <span className="font-semibold text-tmain">&ldquo;{topWord}&rdquo;</span></p>}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full text-[13px]">
+          <caption className="sr-only">Biometric results for each prompt</caption>
+          <thead>
+            <tr className="bg-[#F7FAFA] text-tsub text-xs font-semibold uppercase tracking-wide">
+              {['Prompt', 'Topic', 'Level', 'Change (T²)', 'PSI', 'PAI', 'Key gap', 'Pause', 'Word read longest', 'Result', 'What it suggests'].map(h => (
+                <th key={h} scope="col" className="px-2.5 py-3 text-left whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {snapshots.map((snap, i) => {
+              const lv     = snap.level || 'A'
+              const noData = snap.flag === 'NO_DATA'
+              const f      = ITEM_FLAG[snap.flag] || ITEM_FLAG.GREEN
+              const psi_v  = Number(snap.psi || 0)
+              const pai_v  = Number(snap.pai || 0)
+              const t2v    = Number(snap.t2_score || 0)
+              const topHW  = (snap.hover_words || [])[0]
+              let interp
+              if (snap.flag === 'RED') {
+                interp = psi_v > pai_v * 1.2 ? 'Marked slowing on this prompt'
+                  : pai_v > psi_v * 1.2 ? 'Marked restlessness on this prompt'
+                  : 'Marked change — slowing and restlessness'
+              } else if (snap.flag === 'AMBER') {
+                interp = `Some change on a ${lv === 'C' ? 'strong' : lv === 'B' ? 'moderate' : 'mild'} prompt`
+              } else if (noData) {
+                interp = 'No typing captured'
+              } else {
+                interp = 'Typical'
+              }
+              return (
+                <tr key={i} className={`border-t border-border/60 ${i % 2 === 1 ? 'bg-[#FAFCFC]' : 'bg-white'}`}>
+                  <td className="px-2.5 py-2.5 font-bold text-tmain">{snap.item_id || '—'}</td>
+                  <td className="px-2.5 py-2.5 text-tsub max-w-[120px] truncate" title={snap.group_name || ''}>{snap.group_name?.split(':')[1]?.trim() || '—'}</td>
+                  <td className="px-2.5 py-2.5 font-semibold text-tmain">{lv}</td>
+                  <td className={`px-2.5 py-2.5 tabular-nums ${!noData && itemP95 && t2v > itemP95 ? 'text-coral-ink font-semibold' : 'text-tmain'}`}>{noData ? '—' : t2v.toFixed(1)}</td>
+                  <td className="px-2.5 py-2.5 tabular-nums text-tsub">{noData ? '—' : psi_v.toFixed(1)}</td>
+                  <td className="px-2.5 py-2.5 tabular-nums text-tsub">{noData ? '—' : pai_v.toFixed(1)}</td>
+                  <td className="px-2.5 py-2.5 tabular-nums text-tsub whitespace-nowrap">{noData ? '—' : `${Math.round((snap.flight_time || 0) * 1000)} ms`}</td>
+                  <td className="px-2.5 py-2.5 tabular-nums text-tsub whitespace-nowrap">{(Math.round(snap.pre_typing_pause_ms || 0) / 1000).toFixed(1)} s</td>
+                  <td className="px-2.5 py-2.5 text-tmain max-w-[120px] truncate">
+                    {topHW ? <span className="font-medium">&ldquo;{topHW.word}&rdquo;</span> : <span className="text-tsub">—</span>}
+                  </td>
+                  <td className="px-2.5 py-2.5">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${f.cls}`}>{f.label}</span>
+                  </td>
+                  <td className="px-2.5 py-2.5 text-tsub min-w-[150px]">{interp}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {itemP95 && (
+        <p className="text-xs text-tsub mt-3">
+          A single prompt counts as above typical when its change is higher than in 95% of healthy adults (T² &gt; {itemP95.toFixed(0)}).
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Main Report component ─────────────────────────────────────────────────────
+const FALLBACK_THRESHOLDS = { session: { p95: 77.8, p99: 114.1 }, item: { p95: 526.4, p99: 932.9 } }
+
 export default function Report() {
   const navigate        = useNavigate()
   const { sessionId }   = useParams()
@@ -750,7 +791,9 @@ export default function Report() {
   const [data,        setData]        = useState(null)
   const [normComp,    setNormComp]    = useState(null)
   const [normLoading, setNormLoading] = useState(true)
+  const [thresholds,  setThresholds]  = useState(FALLBACK_THRESHOLDS)
   const [exporting,   setExporting]   = useState(false)
+  const [exportMsg,   setExportMsg]   = useState('')
   const [err,         setErr]         = useState('')
   const [fontScale, setFontScale] = useState(1)
 
@@ -760,55 +803,58 @@ export default function Report() {
   function increaseFont() { if (scaleIdx < FONT_SCALES.length - 1) setFontScale(FONT_SCALES[scaleIdx + 1]) }
 
   useEffect(() => {
+    api.normativeStats().then(d => { if (d?.thresholds?.session) setThresholds(d.thresholds) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    function loadCompare(sid) {
+      setNormLoading(true)
+      api.normativeCompare(sid).then(d => {
+        const metrics = d?.available ? d.metrics
+                      : (d?.t2_score || d?.psi) ? d
+                      : null
+        if (metrics) setNormComp(metrics)
+        setNormLoading(false)
+      }).catch(() => setNormLoading(false))
+    }
     if (sessionId) {
       // Revisiting a saved session — load detail and normative compare
       api.sessionDetail(sessionId).then(d => {
         if (d.error) { setErr(d.error); return }
         setData(d)
       })
-      setNormLoading(true)
-      api.normativeCompare(sessionId).then(d => {
-        const metrics = d?.available ? d.metrics       // {available, metrics} wrapper
-                      : (d?.t2_score || d?.psi) ? d   // backend returned dict directly
-                      : null
-        if (metrics) setNormComp(metrics)
-        setNormLoading(false)
-      }).catch(() => setNormLoading(false))
+      loadCompare(sessionId)
     } else if (ctxReport) {
       setData(ctxReport)
-      const freshSid = ctxReport?.session_id
-      if (freshSid) {
-        setNormLoading(true)
-        api.normativeCompare(freshSid).then(d => {
-          const metrics = d?.available ? d.metrics
-                        : (d?.t2_score || d?.psi) ? d
-                        : null
-          if (metrics) setNormComp(metrics)
-          setNormLoading(false)
-        }).catch(() => setNormLoading(false))
-      } else {
-        setNormLoading(false)
-      }
+      if (ctxReport?.session_id) loadCompare(ctxReport.session_id)
+      else setNormLoading(false)
     }
   }, [sessionId, ctxReport])
 
   async function handleExport() {
     if (!data) return
     setExporting(true)
+    setExportMsg('')
     const res = await api.exportReport(data)
     setExporting(false)
     if (res.success && res.file) {
+      setExportMsg('Encrypted report saved.')
       window.electron?.openExternal?.(`file:///${res.file.replace(/\\/g, '/')}`)
     } else {
-      alert(res.error || 'Export failed.')
+      setExportMsg(res.error || 'Export failed. Please try again.')
     }
   }
 
   if (err) return (
     <div className="h-screen flex bg-bg">
       <Sidebar />
-      <main className="flex-1 flex items-center justify-center">
-        <p className="text-coral">{err}</p>
+      <main className="flex-1 flex items-center justify-center p-8">
+        <div className="card p-8 max-w-md text-center" role="alert">
+          <AlertTriangle size={28} className="text-coral-ink mx-auto mb-3" aria-hidden="true" />
+          <p className="font-semibold text-tmain mb-1">This report could not be opened</p>
+          <p className="text-sm text-tsub mb-5">{err}</p>
+          <button onClick={() => navigate('/clients')} className="btn-primary">Back to clients</button>
+        </div>
       </main>
     </div>
   )
@@ -817,9 +863,9 @@ export default function Report() {
     <div className="h-screen flex bg-bg">
       <Sidebar />
       <main className="flex-1 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center" role="status">
           <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-tsub text-sm">Loading report…</p>
+          <p className="text-tsub">Loading report…</p>
         </div>
       </main>
     </div>
@@ -827,8 +873,6 @@ export default function Report() {
 
   const { student_id, timestamp, phq, gad, analysis, visuals } = data
   const flag      = analysis?.flag  || 'GREEN'
-  const fs        = FLAG_STYLE[flag] || FLAG_STYLE.GREEN
-  const FlagIcon  = fs.icon
   const snapshots = visuals?.question_snapshots || []
   const domainT2  = visuals?.domain_t2  || {}
   const levelT2   = visuals?.level_t2   || {}
@@ -838,28 +882,29 @@ export default function Report() {
   const thr   = analysis?.t2_threshold ?? 0
   const psi   = analysis?.psi ?? 0
   const pai   = analysis?.pai ?? 0
-  const t2Color = (thr && t2 > thr) ? 'text-coral' : 'text-success'
+  const insufficient = analysis?.label === 'Insufficient Data'
 
   const phqScore = phq?.score ?? 0
   const gadScore = gad?.score ?? 0
   const recLabel = analysis?.label || ''
 
-  // Domain bar chart data
+  const sP95 = thresholds.session.p95, sP99 = thresholds.session.p99
+  const iP95 = thresholds.item.p95
+  // Sessions saved before the healthy-tester recalibration used another threshold
+  const legacyScoring = thr > 0 && Math.abs(thr - sP95) > 0.5
+
   const domainData = Object.entries(domainT2).map(([gid, val]) => ({
-    name:  DOMAIN_NAMES[Number(gid)] || `G${gid}`,
-    value: Number(Number(val).toFixed(3)),
-    color: DOMAIN_COLORS[Number(gid)] || '#888',
+    name:  DOMAIN_NAMES[Number(gid)] || `Topic ${gid}`,
+    value: Number(Number(val).toFixed(1)),
     gid:   Number(gid),
   })).sort((a, b) => a.gid - b.gid)
 
-  // Level bar chart data
   const levelData = Object.entries(levelT2).map(([lv, val]) => ({
-    name:  `Level ${lv}`,
-    value: Number(Number(val).toFixed(3)),
-    color: LEVEL_COLORS[lv] || '#888',
-  }))
+    name:  LEVEL_NAMES[lv] || `Level ${lv}`,
+    lv,
+    value: Number(Number(val).toFixed(1)),
+  })).sort((a, b) => a.lv.localeCompare(b.lv))
 
-  // Flight time histogram (bucketed, legacy chart kept)
   const histData = (() => {
     if (!flights.length) return []
     const buckets = {}
@@ -873,400 +918,313 @@ export default function Report() {
       .map(([ms, count]) => ({ ms: `${Math.round(Number(ms) * 1000)}ms`, count }))
   })()
 
-  const recs = clinicalRecs(flag, recLabel, psi, pai, phqScore, gadScore, domainT2, levelT2)
+  const recs = clinicalRecs(flag, recLabel, psi, pai, phqScore, gadScore, domainT2, levelT2, iP95)
+
+  // Plain-language reading of the three behaviour scores
+  const t2Max   = Math.max(sP99 * 1.5, t2 * 1.08)
+  const t2Verd  = t2 <= sP95 ? ['Within the healthy range', 'text-success-ink']
+                : t2 <= sP99 ? ['Higher than most healthy adults', 'text-amber-ink']
+                : ['Much higher than healthy adults', 'text-coral-ink']
+  const indexCard = (kind, value) => {
+    const pct = normComp?.[kind]?.pct
+    const ref = HEALTHY_REF[kind]
+    if (pct !== undefined) {
+      const tone = pct >= 95 ? 'text-coral-ink' : pct >= 85 ? 'text-amber-ink' : 'text-success-ink'
+      return {
+        verdict: [percentileText(pct), tone],
+        bar: <ScaleBar value={pct} markerLabel={percentileValue(pct)}
+               zones={[{ to: 85, label: 'Typical', tone: 'good' }, { to: 95, label: 'Higher', tone: 'warn' }, { to: 100, label: 'Top 5%', tone: 'high' }]}
+               ariaLabel={percentileText(pct)} />,
+      }
+    }
+    const max = Math.max(ref.p95 * 1.5, value * 1.08)
+    return {
+      verdict: value > ref.p95 ? ['Above the healthy 95th percentile', 'text-coral-ink']
+             : value > ref.p75 ? ['Above most healthy adults', 'text-amber-ink']
+             : ['Within the healthy range', 'text-success-ink'],
+      bar: <ScaleBar value={value} markerLabel={value.toFixed(1)}
+             zones={[{ to: ref.p75, label: 'Typical', tone: 'good' }, { to: ref.p95, label: 'Higher', tone: 'warn' }, { to: max, label: 'Top 5%', tone: 'high' }]}
+             ariaLabel={`${kind} ${value.toFixed(1)}`} />,
+    }
+  }
+  const slow = indexCard('psi', psi)
+  const rest = indexCard('pai', pai)
+  const sessionDate = formatTimestamp(timestamp, { dateStyle: 'full', timeStyle: 'short' })
+  const aboveDomains = domainData.filter(d => d.value > iP95)
 
   return (
-    <div className="h-screen flex bg-bg" style={{ position: 'relative' }}>
-      <AnimatedBackground variant="subtle" />
+    <MotionConfig reducedMotion="user">
+    <div className="h-screen flex bg-bg">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto px-10 py-8 animate-fade-in" style={{ position: 'relative', zIndex: 1 }}>
+      <main className="flex-1 overflow-y-auto" aria-label="Clinical assessment report">
+        <div className="max-w-[1200px] mx-auto px-8 py-7" style={{ zoom: fontScale }}>
 
-        {/* Top bar */}
-        <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={() => { setReport(null); navigate(sessionId ? `/clients/${student_id}` : '/dashboard') }}
-            className="flex items-center gap-2 text-tsub hover:text-tmain text-sm transition-colors"
-          >
-            <ArrowLeft size={16} /> Back
-          </button>
-          <div className="flex items-center gap-2">
-            {/* Font size controls */}
-            <div className="flex items-center gap-1 bg-white border border-border rounded-xl px-1.5 py-1 shadow-card">
-              <button
-                onClick={decreaseFont}
-                disabled={scaleIdx === 0}
-                title="Decrease text size"
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold text-tsub hover:bg-bg hover:text-tmain transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                A−
-              </button>
-              <span className="text-xs text-tsub px-1 select-none w-8 text-center font-semibold">
-                {Math.round(fontScale * 100)}%
-              </span>
-              <button
-                onClick={increaseFont}
-                disabled={scaleIdx === FONT_SCALES.length - 1}
-                title="Increase text size"
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-base font-bold text-tsub hover:bg-bg hover:text-tmain transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                A+
-              </button>
-            </div>
+          {/* Top bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="btn-primary flex items-center gap-2 text-sm h-9 px-4"
+              onClick={() => { setReport(null); navigate(sessionId ? `/clients/${student_id}` : '/dashboard') }}
+              className="inline-flex items-center gap-2 text-tsub hover:text-tmain text-sm font-medium h-10 px-2 -ml-2 rounded-lg transition-colors cursor-pointer"
             >
-              <Download size={14} />
-              {exporting ? 'Exporting…' : 'Export Full Report'}
+              <ArrowLeft size={18} aria-hidden="true" /> {sessionId ? 'Back to client' : 'Back to dashboard'}
             </button>
-          </div>
-        </div>
-
-        <div style={{ zoom: fontScale }}>
-        {/* Title */}
-        <h1 className="text-2xl font-bold text-tmain mb-0.5">Clinical Assessment Report</h1>
-        <p className="text-tsub text-sm mb-6">
-          Client: <span className="font-semibold text-tmain">{student_id}</span>
-          <span className="mx-2 text-border">·</span>
-          {timestamp ? new Date(String(timestamp).replace(' ', 'T') + 'Z').toLocaleString() : '—'}
-        </p>
-
-        <div className="w-full space-y-4">
-
-          {/* Status banner */}
-          <div className={`rounded-card border p-4 flex items-center gap-4 ${fs.bg}`}>
-            <FlagIcon size={24} className={fs.text} />
-            <div>
-              <p className={`font-bold text-base ${fs.text} flex items-center gap-1`}>
-                {fs.label}<InfoTooltip glossaryKey="Flag" />
-              </p>
-              {analysis?.label && <p className="text-sm text-tsub mt-0.5">{analysis.label}</p>}
-            </div>
-            {analysis?.confidence != null && (
-              <div className="ml-auto text-right">
-                <p className="text-xs text-tsub">Confidence</p>
-                <p className={`font-bold text-xl ${fs.text}`}>{Math.round(analysis.confidence * 100)}%</p>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-white border border-border rounded-xl px-1.5 h-10 shadow-card" role="group" aria-label="Text size">
+                <button onClick={decreaseFont} disabled={scaleIdx === 0} aria-label="Smaller text"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-tsub hover:bg-bg hover:text-tmain transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">A−</button>
+                <span className="text-xs text-tsub px-1 select-none w-10 text-center font-semibold tabular-nums">{Math.round(fontScale * 100)}%</span>
+                <button onClick={increaseFont} disabled={scaleIdx === FONT_SCALES.length - 1} aria-label="Larger text"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-base font-bold text-tsub hover:bg-bg hover:text-tmain transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">A+</button>
               </div>
-            )}
-          </div>
-
-          {/* Top row: PHQ/GAD + Biometric metrics */}
-          <div className="grid grid-cols-5 gap-4">
-            <div className="col-span-2 grid grid-rows-2 gap-4">
-              <ScoreGauge label="PHQ-9 — Depression"  score={phqScore} max={27} thresholds={[10, 15]} sublabel={phqLabel(phqScore)} />
-              <ScoreGauge label="GAD-7 — Anxiety"     score={gadScore} max={21} thresholds={[10, 15]} sublabel={gadLabel(gadScore)} />
+              <button onClick={handleExport} disabled={exporting} className="btn-primary h-10 disabled:opacity-60 cursor-pointer">
+                <Download size={16} aria-hidden="true" />
+                {exporting ? 'Saving…' : 'Export report'}
+              </button>
             </div>
-            <MetricCard
-              label="Hotelling T² Score"
-              value={t2.toFixed(3)}
-              color={t2Color}
-              interp={t2Interp(t2, thr)}
-              glossaryKey="T2"
-            />
-            <MetricCard
-              label="Psychomotor Slowing Index (PSI)"
-              value={psi.toFixed(3)}
-              color={normComp?.psi?.pct !== undefined ? pctColor(normComp.psi.pct)
-                : psi > HEALTHY_REF.psi.p95 ? 'text-coral' : psi > HEALTHY_REF.psi.p75 ? 'text-amber' : 'text-success'}
-              interp={psiInterp(psi, normComp?.psi?.pct)}
-              glossaryKey="PSI"
-            />
-            <MetricCard
-              label="Psychomotor Agitation Index (PAI)"
-              value={pai.toFixed(3)}
-              color={normComp?.pai?.pct !== undefined ? pctColor(normComp.pai.pct)
-                : pai > HEALTHY_REF.pai.p95 ? 'text-coral' : pai > HEALTHY_REF.pai.p75 ? 'text-amber' : 'text-success'}
-              interp={paiInterp(pai, normComp?.pai?.pct)}
-              glossaryKey="PAI"
-            />
           </div>
+          {exportMsg && <p className="text-sm text-tmain bg-white border border-border rounded-xl px-4 py-2 mb-4" role="status">{exportMsg}</p>}
 
-          {/* Heatmap + Spectrogram side by side */}
-          <div className="grid grid-cols-2 gap-4">
-            <TemporalHeatmap snapshots={snapshots} flag={flag} />
-            <Spectrogram flightTimes={flights} snapshots={snapshots} flag={flag} pai={pai} />
-          </div>
+          {/* Title */}
+          <header className="mb-6">
+            <h1 className="text-3xl font-bold text-tmain">Assessment report</h1>
+            <p className="text-tsub mt-1">
+              Client <span className="font-semibold text-tmain">{student_id || '—'}</span>
+              <span className="mx-2" aria-hidden="true">·</span>{sessionDate}
+            </p>
+          </header>
 
-          {/* Domain T² + Level + Flight in one responsive row */}
-          {(domainData.length > 0 || levelData.length > 0 || histData.length > 0) && (
-          <div className="grid grid-cols-2 gap-4">
-          {domainData.length > 0 && (
-            <div className="card p-5">
-              <h2 className="font-bold text-tmain text-sm uppercase tracking-wide mb-1 flex items-center">
-                Domain T² Scores<InfoTooltip glossaryKey="DomainT2" />
-              </h2>
-              <p className="text-xs text-tsub mb-3">Hover each bar to see what a spike in that domain clinically suggests.</p>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={domainData} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
-                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#7A9A9A' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#7A9A9A' }} />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null
-                      const d = payload[0].payload
-                      const tips = {
-                        1: 'Burnout, perfectionism, task-overload schema. Screen for occupational stress and Type-A patterns.',
-                        2: 'Attachment disruption, rejection sensitivity. Consider IIP-32 for interpersonal profiling.',
-                        3: 'Performance anxiety, impostor syndrome. Consider LSAS if social anxiety is suspected.',
-                        4: 'Core negative beliefs about self. Highest suicide-risk correlation — assess directly. Consider DAS-24.',
-                      }
-                      return (
-                        <div className="rounded-xl p-3 shadow-xl text-xs" style={{ background: '#0D2D2D', border: '1px solid rgba(10,191,188,0.3)', maxWidth: 240 }}>
-                          <p className="font-bold mb-1" style={{ color: d.color }}>{d.name}</p>
-                          <p className="text-white/90 mb-1">T² = <strong>{d.value}</strong>{thr > 0 ? ` (threshold: ${thr.toFixed(3)})` : ''}</p>
-                          <p className="text-white/65 leading-snug">{tips[d.gid]}</p>
-                        </div>
-                      )
-                    }}
-                  />
-                  {thr > 0 && <ReferenceLine y={thr} stroke="#F27C7C" strokeDasharray="4 2" label={{ value: 'Threshold', position: 'insideTopRight', fontSize: 10, fill: '#F27C7C' }} />}
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                    {domainData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="flex gap-3 mt-2 flex-wrap">
-                {domainData.map(d => (
-                  <div key={d.gid} className="flex items-center gap-1 text-xs text-tsub">
-                    <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: d.color }} />
-                    {d.name}: <span className="font-bold text-tmain">{d.value}</span>
-                  </div>
-                ))}
+          <div className="space-y-9">
+            <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label} />
+
+            {/* Key results */}
+            <Section title="Key results" subtitle="Each bar shows where this client sits. The green part of each bar is the range seen in healthy adults.">
+              <div className="grid md:grid-cols-2 gap-4">
+                <ResultCard
+                  title="Depression questionnaire" technical="PHQ-9 · client's own answers, last 2 weeks"
+                  value={phqScore} valueSuffix="/ 27"
+                  verdict={`${phqLabel(phqScore)} symptoms`}
+                  verdictTone={phqScore >= 15 ? 'text-coral-ink' : phqScore >= 10 ? 'text-amber-ink' : 'text-success-ink'}
+                >
+                  <ScaleBar value={phqScore} markerLabel={String(phqScore)} ariaLabel={`PHQ-9 ${phqScore} of 27, ${phqLabel(phqScore)}`}
+                    zones={[{ to: 4.5, label: 'Minimal', tone: 'good' }, { to: 9.5, label: 'Mild', tone: 'mild' }, { to: 14.5, label: 'Moderate', tone: 'warn' }, { to: 19.5, label: 'Mod. severe', tone: 'high' }, { to: 27, label: 'Severe', tone: 'high' }]} />
+                </ResultCard>
+                <ResultCard
+                  title="Anxiety questionnaire" technical="GAD-7 · client's own answers, last 2 weeks"
+                  value={gadScore} valueSuffix="/ 21"
+                  verdict={`${gadLabel(gadScore)} symptoms`}
+                  verdictTone={gadScore >= 15 ? 'text-coral-ink' : gadScore >= 10 ? 'text-amber-ink' : 'text-success-ink'}
+                  delay={0.05}
+                >
+                  <ScaleBar value={gadScore} markerLabel={String(gadScore)} ariaLabel={`GAD-7 ${gadScore} of 21, ${gadLabel(gadScore)}`}
+                    zones={[{ to: 4.5, label: 'Minimal', tone: 'good' }, { to: 9.5, label: 'Mild', tone: 'mild' }, { to: 14.5, label: 'Moderate', tone: 'warn' }, { to: 21, label: 'Severe', tone: 'high' }]} />
+                </ResultCard>
               </div>
-            </div>
-          )}
 
-          {/* Level T² + Flight stacked in right column */}
-          <div className="space-y-4">
-            {levelData.length > 0 && (
-              <div className="card p-5">
-                <h2 className="font-bold text-tmain text-sm uppercase tracking-wide mb-1 flex items-center">
-                  T² by Emotional Load Level<InfoTooltip glossaryKey="LevelABC" />
-                </h2>
-                <p className="text-xs text-tsub mb-3">Hover each bar to read what that load level's pattern means.</p>
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={levelData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#7A9A9A' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#7A9A9A' }} />
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.length) return null
-                        const d = payload[0].payload
-                        const lv = d.name.split(' ').pop()
-                        const interps = {
-                          A: 'Lowest stress level. If T² is already high here, the patient entered the session in a pre-activated state — assess pre-session stressors.',
-                          B: 'Moderate stress. Rising T² from A→B confirms emotional reactivity is building.',
-                          C: 'Highest stress level. Peak T² here = genuine dose-response — strongest clinical validity signal.',
-                        }
-                        return (
-                          <div className="rounded-xl p-3 shadow-xl text-xs" style={{ background: '#0D2D2D', border: '1px solid rgba(10,191,188,0.3)', maxWidth: 220 }}>
-                            <p className="font-bold mb-1" style={{ color: d.color }}>{d.name}</p>
-                            <p className="text-white/90 mb-1">T² = <strong>{d.value}</strong></p>
-                            <p className="text-white/65 leading-snug">{interps[lv]}</p>
-                          </div>
-                        )
-                      }}
-                    />
-                    <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                      {levelData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="flex gap-4 mt-2">
-                  <span className="flex items-center gap-1 text-xs text-tsub"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-success" />A: Low load</span>
-                  <span className="flex items-center gap-1 text-xs text-tsub"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-amber" />B: Moderate</span>
-                  <span className="flex items-center gap-1 text-xs text-tsub"><span className="w-2.5 h-2.5 rounded-sm inline-block bg-coral" />C: High load</span>
+              {insufficient ? (
+                <div className="card p-5 text-sm text-tmain">
+                  Behaviour scores are not shown because too little typing was captured in this session.
                 </div>
+              ) : (
+              <div className="grid lg:grid-cols-3 gap-4">
+                <ResultCard
+                  title="Overall behaviour change" technical={`Hotelling T² · change from own baseline`}
+                  info={<InfoTooltip glossaryKey="T2" />}
+                  value={t2.toFixed(1)}
+                  verdict={t2Verd[0]} verdictTone={t2Verd[1]}
+                  explain="How much the client's typing and mouse rhythm changed from their own calm baseline while answering the emotional prompts."
+                  delay={0.1}
+                >
+                  <ScaleBar value={t2} markerLabel={t2.toFixed(0)} ariaLabel={`Overall change ${t2.toFixed(1)}: ${t2Verd[0]}`}
+                    zones={[{ to: sP95, label: 'Typical', tone: 'good' }, { to: sP99, label: 'Higher', tone: 'warn' }, { to: t2Max, label: 'Much higher', tone: 'high' }]} />
+                  {legacyScoring && (
+                    <p className="text-xs text-tsub mt-2">This session was scored with an earlier calibration; its result label reflects that version.</p>
+                  )}
+                </ResultCard>
+                <ResultCard
+                  title="Slowing" technical={`Psychomotor Slowing Index · PSI ${psi.toFixed(1)}`}
+                  info={<InfoTooltip glossaryKey="PSI" />}
+                  value={normComp?.psi?.pct !== undefined ? percentileValue(normComp.psi.pct) : psi.toFixed(1)}
+                  valueSuffix={normComp?.psi?.pct !== undefined ? 'percentile' : ''}
+                  verdict={slow.verdict[0]} verdictTone={slow.verdict[1]}
+                  explain="Slower key presses, longer key holds and more pauses than during calibration."
+                  delay={0.15}
+                >{slow.bar}</ResultCard>
+                <ResultCard
+                  title="Restlessness" technical={`Psychomotor Agitation Index · PAI ${pai.toFixed(1)}`}
+                  info={<InfoTooltip glossaryKey="PAI" />}
+                  value={normComp?.pai?.pct !== undefined ? percentileValue(normComp.pai.pct) : pai.toFixed(1)}
+                  valueSuffix={normComp?.pai?.pct !== undefined ? 'percentile' : ''}
+                  verdict={rest.verdict[0]} verdictTone={rest.verdict[1]}
+                  explain="More irregular, jerky movement and more corrections than during calibration."
+                  delay={0.2}
+                >{rest.bar}</ResultCard>
               </div>
-            )}
+              )}
+            </Section>
 
-            {histData.length > 0 && (
-              <div className="card p-5">
-                <h2 className="font-bold text-tmain text-sm uppercase tracking-wide mb-1">Keystroke Flight Time Distribution</h2>
-                <p className="text-xs text-tsub mb-3">Hover a bar to see what that timing bucket indicates clinically.</p>
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={histData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                    <XAxis dataKey="ms" tick={{ fontSize: 10, fill: '#7A9A9A' }} interval={2} />
-                    <YAxis tick={{ fontSize: 11, fill: '#7A9A9A' }} />
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.length) return null
-                        const d = payload[0].payload
-                        const ms = parseInt(d.ms)
-                        let signal = ms < 80
-                          ? 'Very short — anxious rushing or automatic motor response'
-                          : ms < 160 ? 'Fast-normal — efficient typing, low cognitive load'
-                          : ms < 280 ? 'Normal range — consistent with calm, focused state'
-                          : ms < 450 ? 'Slightly slow — mild hesitation or processing pause'
-                          : 'Prolonged — psychomotor slowing or cognitive disruption'
-                        return (
-                          <div className="rounded-xl p-3 shadow-xl text-xs" style={{ background: '#0D2D2D', border: '1px solid rgba(10,191,188,0.3)', maxWidth: 200 }}>
-                            <p className="font-bold text-accent mb-1">{d.ms} bucket</p>
-                            <p className="text-white/90 mb-1">{d.count} keystrokes</p>
-                            <p className="text-white/65 leading-snug">{signal}</p>
-                          </div>
-                        )
-                      }}
-                    />
-                    <Bar dataKey="count" fill="#0ABFBC" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-                <p className="text-xs text-tsub mt-2">Inter-keystroke interval frequency · {flights.length} samples</p>
-              </div>
-            )}
-          </div>
-          </div>
-          )}
-
-          {/* Clinical Rationale */}
-          {analysis?.rationale && (
-            <div className="card p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <Info size={16} className="text-accent" />
-                <h2 className="font-bold text-tmain text-sm uppercase tracking-wide">Clinical Rationale</h2>
-              </div>
-              <p className="text-tmain text-sm leading-relaxed">{analysis.rationale}</p>
-            </div>
-          )}
-
-          {/* Clinical Recommendations */}
-          {recs.length > 0 && (
-            <div>
-              <h2 className="font-bold text-tmain text-sm uppercase tracking-wide mb-3 px-1">Clinical Recommendations</h2>
-              <div className="grid grid-cols-2 gap-4">
-                {recs.map((rec, i) => (
-                  <div key={i} className="card p-5 flex gap-4">
-                    <div className="flex-shrink-0 w-7 h-7 rounded-full bg-accent flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">{i + 1}</span>
+            {/* Where it showed up */}
+            {(domainData.length > 0 || levelData.length > 0) && (
+              <Section
+                title="Where the changes showed up"
+                subtitle={aboveDomains.length
+                  ? `Bars above the dashed line are higher than in 95% of healthy adults: ${aboveDomains.map(d => d.name).join(', ')}.`
+                  : 'All topics stayed below the dashed line — the level reached by 95% of healthy adults.'}
+              >
+                <div className="grid lg:grid-cols-2 gap-4">
+                  {domainData.length > 0 && (
+                    <div className="card p-5">
+                      <h3 className="font-semibold text-tmain flex items-center">By topic of the prompt<InfoTooltip glossaryKey="DomainT2" /></h3>
+                      <p className="text-sm text-tsub mb-3">Average change while answering prompts about each topic.</p>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={domainData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }}>
+                          <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#557272' }} interval={0} />
+                          <YAxis tick={{ fontSize: 11, fill: '#557272' }} width={44} domain={[0, dataMax => Math.ceil(Math.max(dataMax, iP95 * 1.15))]} />
+                          <Tooltip cursor={{ fill: 'rgba(10,191,188,0.06)' }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null
+                              const d = payload[0].payload
+                              return (
+                                <div className="rounded-xl p-3 shadow-xl text-xs bg-tmain text-white max-w-[240px]">
+                                  <p className="font-bold mb-1">{d.name}</p>
+                                  <p className="mb-1">Change: <strong>{d.value}</strong> · typical up to {iP95.toFixed(0)}</p>
+                                  <p className="text-white/75 leading-snug">{DOMAIN_TIPS[d.gid]}</p>
+                                </div>
+                              )
+                            }}
+                          />
+                          <ReferenceLine y={iP95} stroke="#B83A38" strokeDasharray="5 3"
+                            label={{ value: 'Typical limit', position: 'insideTopRight', fontSize: 11, fill: '#B83A38' }} />
+                          <Bar dataKey="value" radius={[6, 6, 0, 0]} isAnimationActive>
+                            {domainData.map((d, i) => <Cell key={i} fill={d.value > iP95 ? '#F27C7C' : '#7FD3D1'} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-tmain leading-snug mb-1">{rec.title}</p>
-                      <p className="text-xs text-tsub leading-relaxed">{rec.desc}</p>
+                  )}
+                  {levelData.length > 0 && (
+                    <div className="card p-5">
+                      <h3 className="font-semibold text-tmain flex items-center">By strength of the prompt<InfoTooltip glossaryKey="LevelABC" /></h3>
+                      <p className="text-sm text-tsub mb-3">A rising pattern from mild to strong prompts means the client reacted to emotional load.</p>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={levelData} margin={{ top: 16, right: 16, left: 0, bottom: 4 }}>
+                          <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#557272' }} interval={0} />
+                          <YAxis tick={{ fontSize: 11, fill: '#557272' }} width={44} domain={[0, dataMax => Math.ceil(Math.max(dataMax, iP95 * 1.15))]} />
+                          <Tooltip cursor={{ fill: 'rgba(10,191,188,0.06)' }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null
+                              const d = payload[0].payload
+                              return (
+                                <div className="rounded-xl p-3 shadow-xl text-xs bg-tmain text-white max-w-[230px]">
+                                  <p className="font-bold mb-1">{d.name}</p>
+                                  <p className="mb-1">Change: <strong>{d.value}</strong></p>
+                                  <p className="text-white/75 leading-snug">{LEVEL_TIPS[d.lv]}</p>
+                                </div>
+                              )
+                            }}
+                          />
+                          <ReferenceLine y={iP95} stroke="#B83A38" strokeDasharray="5 3"
+                            label={{ value: 'Typical limit', position: 'insideTopRight', fontSize: 11, fill: '#B83A38' }} />
+                          <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                            {levelData.map((d, i) => <Cell key={i} fill={d.value > iP95 ? '#F27C7C' : '#7FD3D1'} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Population Comparison (normative) */}
-          <NormativeComparison metrics={normComp} loading={normLoading} />
-
-          {/* Per-question biometric table */}
-          {snapshots.length > 0 && (() => {
-            const flagged  = snapshots.filter(s => s.flag === 'RED' || s.flag === 'AMBER')
-            const redItems = snapshots.filter(s => s.flag === 'RED').map(s => s.item_id).join(', ')
-            const ambItems = snapshots.filter(s => s.flag === 'AMBER').map(s => s.item_id).join(', ')
-            const maxT2Snap = snapshots.reduce((best, s) => (s.t2_score || 0) > (best.t2_score || 0) ? s : best, snapshots[0])
-            const maxPauseSnap = snapshots.reduce((best, s) => (s.pre_typing_pause_ms || 0) > (best.pre_typing_pause_ms || 0) ? s : best, snapshots[0])
-            const allHovers = snapshots.flatMap(s => s.hover_words || [])
-            const globalTop = allHovers.sort((a, b) => (b.dwell_ms || 0) - (a.dwell_ms || 0))[0]
-            const topWord   = globalTop?.word
-
-            return (
-              <div className="card overflow-hidden">
-                <div className="px-6 py-4 border-b border-border">
-                  <h2 className="font-bold text-tmain text-sm uppercase tracking-wide mb-0.5">Per-Question Biometric Breakdown</h2>
-                  <p className="text-tsub text-xs">Biometric features recorded for each prompt. Rows with elevated T² indicate psychomotor deviation from baseline.</p>
+                  )}
                 </div>
+              </Section>
+            )}
 
-                {/* Summary interpretation bar */}
-                <div className="px-6 py-4 bg-[#F7FAFA] border-b border-border/50 grid grid-cols-3 gap-4 text-xs">
-                  <div>
-                    <p className="font-semibold text-tsub uppercase tracking-wide mb-1">Flagged Items</p>
-                    {flagged.length === 0 ? (
-                      <p className="text-success font-medium">All items within normal range</p>
-                    ) : (
-                      <div className="space-y-0.5">
-                        {redItems  && <p className="text-coral font-medium">RED: {redItems}</p>}
-                        {ambItems  && <p className="text-amber font-medium">AMBER: {ambItems}</p>}
-                        <p className="text-tsub mt-1">{flagged.length} of {snapshots.length} items elevated</p>
+            {/* Next steps + rationale */}
+            <Section title="Suggested next steps" subtitle="Generated from the scores above. Use the ones that fit your clinical judgement.">
+              <div className="grid lg:grid-cols-3 gap-4">
+                <ol className="lg:col-span-2 grid sm:grid-cols-2 gap-4">
+                  {recs.map((rec, i) => (
+                    <motion.li key={i} className="card p-5 flex gap-4"
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.25, delay: 0.04 * i }}>
+                      <span className="flex-shrink-0 w-8 h-8 rounded-full bg-accent-ink text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">{i + 1}</span>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-tmain leading-snug mb-1">{rec.title}</p>
+                        <p className="text-sm text-tsub leading-relaxed">{rec.desc}</p>
                       </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-tsub uppercase tracking-wide mb-1">Peak T² Item</p>
-                    <p className="text-tmain font-bold">{maxT2Snap?.item_id || '—'} <span className="font-normal text-tsub">({Number(maxT2Snap?.t2_score || 0).toFixed(3)})</span></p>
-                    <p className="text-tsub mt-0.5 leading-relaxed">{maxT2Snap?.group_name?.split(':')[1]?.trim() || '—'}, Level {maxT2Snap?.level || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-tsub uppercase tracking-wide mb-1">Reading Latency Peak</p>
-                    <p className="text-tmain font-bold">{maxPauseSnap?.item_id || '—'} <span className="font-normal text-tsub">({Math.round(maxPauseSnap?.pre_typing_pause_ms || 0)} ms)</span></p>
-                    {topWord && <p className="text-tsub mt-0.5">Top hover word: <span className="font-semibold text-tmain">&ldquo;{topWord}&rdquo;</span></p>}
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-[#F7FAFA] text-tsub font-semibold uppercase tracking-wide">
-                        {['ID', 'Domain', 'Lvl', 'T²', 'PSI', 'PAI', 'Flight (ms)', 'Pause (ms)', 'Top Hover Word', 'Flag', 'Interpretation'].map(h => (
-                          <th key={h} className="px-4 py-3 text-left whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {snapshots.map((snap, i) => {
-                        const lv     = snap.level || 'A'
-                        const lc     = { A: 'text-success', B: 'text-amber', C: 'text-coral' }[lv] || 'text-tsub'
-                        const noData = snap.flag === 'NO_DATA'
-                        const fc     = snap.flag === 'RED' ? 'text-coral' : snap.flag === 'AMBER' ? 'text-amber' : noData ? 'text-tsub' : 'text-success'
-                        const fcBg   = snap.flag === 'RED' ? 'bg-coral/15' : snap.flag === 'AMBER' ? 'bg-amber/15' : noData ? 'bg-border/40' : 'bg-success/15'
-                        const psi_v  = Number(snap.psi || 0)
-                        const pai_v  = Number(snap.pai || 0)
-                        const topHW  = (snap.hover_words || [])[0]
-
-                        // Per-row interpretation
-                        let interp = ''
-                        if (snap.flag === 'RED') {
-                          interp = psi_v > pai_v * 1.2
-                            ? 'Significant slowing — motor inhibition pattern'
-                            : pai_v > psi_v * 1.2
-                            ? 'Significant agitation — cursor irregularity elevated'
-                            : 'Significant deviation — mixed psychomotor signal'
-                        } else if (snap.flag === 'AMBER') {
-                          interp = `Moderate elevation on ${lv === 'C' ? 'highest-load' : lv === 'B' ? 'moderate-load' : 'low-load'} item`
-                        } else if (noData) {
-                          interp = 'No typing captured — item not scored'
-                        } else {
-                          interp = 'Within normal psychomotor range'
-                        }
-
-                        return (
-                          <tr key={i} className={`border-t border-border/50 ${i % 2 === 1 ? 'bg-[#FAFCFC]' : ''}`}>
-                            <td className="px-4 py-2.5 font-bold text-tmain">{snap.item_id || '—'}</td>
-                            <td className="px-4 py-2.5 text-tsub max-w-[110px] truncate">{snap.group_name?.split(':')[1]?.trim() || '—'}</td>
-                            <td className={`px-4 py-2.5 font-bold ${lc}`}>{lv}</td>
-                            <td className="px-4 py-2.5 font-mono">{Number(snap.t2_score || 0).toFixed(3)}</td>
-                            <td className={`px-4 py-2.5 font-mono ${psi_v >= 2 ? 'text-coral' : psi_v >= 0.5 ? 'text-amber' : 'text-tsub'}`}>{psi_v.toFixed(3)}</td>
-                            <td className={`px-4 py-2.5 font-mono ${pai_v >= 2 ? 'text-coral' : pai_v >= 0.5 ? 'text-amber' : 'text-tsub'}`}>{pai_v.toFixed(3)}</td>
-                            <td className="px-4 py-2.5 font-mono text-tsub">{Math.round((snap.flight_time || 0) * 1000)}</td>
-                            <td className="px-4 py-2.5 font-mono text-tsub">{Math.round(snap.pre_typing_pause_ms || 0)}</td>
-                            <td className="px-4 py-2.5 text-tmain max-w-[90px] truncate">
-                              {topHW ? <span className="font-medium">&ldquo;{topHW.word}&rdquo;</span> : <span className="text-tsub">—</span>}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className={`px-2 py-0.5 rounded-full font-bold ${fcBg} ${fc}`}>
-                                {noData ? 'NO DATA' : (snap.flag || 'GREEN')}
-                              </span>
-                            </td>
-                            <td className={`px-4 py-2.5 max-w-[200px] ${snap.flag === 'RED' ? 'text-coral' : snap.flag === 'AMBER' ? 'text-amber' : 'text-tsub'}`}>
-                              {interp}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                    </motion.li>
+                  ))}
+                </ol>
+                {analysis?.rationale && (
+                  <aside className="card p-5 h-fit">
+                    <h3 className="font-semibold text-tmain flex items-center gap-2 mb-2">
+                      <Info size={18} className="text-accent-ink" aria-hidden="true" /> Why the system reached this result
+                    </h3>
+                    <p className="text-sm text-tmain leading-relaxed">{analysis.rationale}</p>
+                  </aside>
+                )}
               </div>
-            )
-          })()}
+            </Section>
 
+            {/* Specialist detail */}
+            <Section title="Detailed analysis" subtitle="For specialists. Open a panel to see the underlying data.">
+              <div className="space-y-3">
+                <Collapsible icon={Activity} title="Hesitation and typing rhythm"
+                  summary="Where the client paused before answering, and the rhythm of their key presses.">
+                  <div className="grid xl:grid-cols-2 gap-4">
+                    <TemporalHeatmap snapshots={snapshots} flag={flag} />
+                    <Spectrogram flightTimes={flights} snapshots={snapshots} flag={flag} pai={pai} />
+                  </div>
+                  {histData.length > 0 && (
+                    <div className="card p-5 mt-4">
+                      <h3 className="font-semibold text-tmain mb-1">Time between key presses</h3>
+                      <p className="text-sm text-tsub mb-3">How often each gap length occurred · {flights.length} key presses. Hover a bar for its meaning.</p>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={histData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                          <XAxis dataKey="ms" tick={{ fontSize: 11, fill: '#557272' }} interval={2} />
+                          <YAxis tick={{ fontSize: 11, fill: '#557272' }} width={44} />
+                          <Tooltip cursor={{ fill: 'rgba(10,191,188,0.06)' }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null
+                              const d = payload[0].payload
+                              const ms = parseInt(d.ms)
+                              const signal = ms < 80 ? 'Very short — rushing or automatic typing'
+                                : ms < 160 ? 'Fast-normal — efficient typing'
+                                : ms < 280 ? 'Normal — calm, focused typing'
+                                : ms < 450 ? 'Slightly slow — mild hesitation'
+                                : 'Long — slowing or interrupted thinking'
+                              return (
+                                <div className="rounded-xl p-3 shadow-xl text-xs bg-tmain text-white max-w-[220px]">
+                                  <p className="font-bold mb-1">{d.ms} gap</p>
+                                  <p className="mb-1">{d.count} key presses</p>
+                                  <p className="text-white/75 leading-snug">{signal}</p>
+                                </div>
+                              )
+                            }}
+                          />
+                          <Bar dataKey="count" fill="#0ABFBC" radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </Collapsible>
+
+                <Collapsible icon={Users} title="Comparison with healthy adults"
+                  summary="Every score ranked against the healthy reference group (percentiles and z-scores).">
+                  <NormativeComparison metrics={normComp} loading={normLoading} />
+                </Collapsible>
+
+                {snapshots.length > 0 && (
+                  <Collapsible icon={ListChecks} title="Question-by-question breakdown"
+                    summary={`${snapshots.length} prompts · ${snapshots.filter(s => s.flag === 'RED' || s.flag === 'AMBER').length} above typical`}>
+                    <QuestionBreakdown snapshots={snapshots} itemP95={iP95} />
+                  </Collapsible>
+                )}
+              </div>
+            </Section>
+
+            <p className="text-xs text-tsub text-center pb-6">
+              PsyClick is a screening and decision-support tool. It does not diagnose a condition and does not replace evaluation by a qualified professional.
+            </p>
+          </div>
         </div>
-        </div>{/* end zoom wrapper */}
       </main>
     </div>
+    </MotionConfig>
   )
 }

@@ -115,8 +115,8 @@ export default function PHQ9() {
                 {/* Safety note for Q9 if answered > 0 */}
                 {qi === SAFETY_QUESTION_IDX && safetyFlagged && (
                   <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber/40 bg-amber/10 px-4 py-3">
-                    <AlertTriangle size={16} className="text-amber flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-amber leading-relaxed">
+                    <AlertTriangle size={16} className="text-amber-ink flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-amber-ink leading-relaxed">
                       <span className="font-semibold">Clinical note:</span> This response has been flagged for the attending clinician's attention. Please ensure appropriate follow-up is conducted per your institution's safety protocol.
                     </p>
                   </div>
@@ -130,7 +130,7 @@ export default function PHQ9() {
             {answered} of {QUESTIONS.length} answered
           </div>
 
-          {err && <p className="text-coral text-sm text-center mb-3">{err}</p>}
+          {err && <p className="text-coral-ink text-sm text-center mb-3">{err}</p>}
 
           <button
             onClick={handleSubmit}

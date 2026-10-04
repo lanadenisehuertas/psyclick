@@ -41,7 +41,7 @@ export default function PasswordDialog({ onConfirm, onCancel }) {
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center">
-            <Lock className="text-accent" size={24} />
+            <Lock className="text-accent-ink" size={24} />
           </div>
           <button onClick={onCancel} aria-label="Cancel" className="text-tsub hover:text-tmain transition-colors">
             <X size={20} />
@@ -61,7 +61,7 @@ export default function PasswordDialog({ onConfirm, onCancel }) {
           className="input-field mb-2"
           autoFocus
         />
-        {err && <p className="text-coral text-sm mb-3">{err}</p>}
+        {err && <p className="text-coral-ink text-sm mb-3">{err}</p>}
 
         <div className="flex gap-3 mt-4">
           <button onClick={onCancel} className="btn-ghost flex-1">Cancel</button>

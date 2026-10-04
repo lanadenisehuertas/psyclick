@@ -4,6 +4,7 @@ import { Users, CalendarDays, CheckCircle, AlertTriangle, Search, Plus, Download
 import { format, subDays, parseISO } from 'date-fns'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import Sidebar from '../components/Sidebar.jsx'
+import { StatusBadge, formatTimestamp } from '../lib/status.jsx'
 import AnimatedBackground from '../components/AnimatedBackground.jsx'
 import PasswordDialog from '../components/PasswordDialog.jsx'
 import { api }   from '../api/psyclick.js'
@@ -36,12 +37,14 @@ function Sparkline({ color, bars = [40, 65, 45, 80, 55, 90, 70] }) {
 }
 
 // ── Pharmacy-style stat card ──────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, sub, bg, iconColor, sparkColor, sparkBars, onClick }) {
+function StatCard({ icon: Icon, label, value, sub, bg, iconColor, textColor, sparkColor, sparkBars, onClick }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
-      className={`rounded-2xl p-5 flex flex-col justify-between cursor-pointer
-                  transition-all duration-200 hover:-translate-y-0.5 hover:shadow-hover select-none`}
+      className={`rounded-2xl p-5 flex flex-col justify-between cursor-pointer text-left
+                  transition-all duration-200 hover:-translate-y-0.5 hover:shadow-hover select-none
+                  focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-ink`}
       style={{ background: bg, minHeight: 140 }}
     >
       <div className="flex items-start justify-between mb-3">
@@ -52,15 +55,15 @@ function StatCard({ icon: Icon, label, value, sub, bg, iconColor, sparkColor, sp
         <Sparkline color={sparkColor || iconColor} bars={sparkBars} />
       </div>
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: iconColor, opacity: 0.7 }}>{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: textColor || iconColor }}>{label}</p>
         <p className="text-[28px] font-bold leading-none tracking-tight text-tmain">{value ?? '—'}</p>
         {sub && (
-          <p className="text-[11px] mt-1.5 font-semibold" style={{ color: iconColor }}>
+          <p className="text-xs mt-1.5 font-semibold" style={{ color: textColor || iconColor }}>
             {sub}
           </p>
         )}
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -113,7 +116,7 @@ export default function Dashboard() {
 
   const flagData = [
     { name: 'No Concerns', value: stats?.normal || 0, color: '#36C98E' },
-    { name: 'Need Review',  value: stats?.review || 0, color: '#F27C7C' },
+    { name: 'Need follow-up', value: stats?.review || 0, color: '#F27C7C' },
   ].filter(d => d.value > 0)
 
   // Sessions by day (last 7 days)
@@ -181,7 +184,7 @@ export default function Dashboard() {
               <p className="text-tsub text-sm mt-0.5">{format(new Date(), "EEEE, d MMMM yyyy")}</p>
             </div>
             <div className="flex items-center gap-2 bg-white border border-border rounded-xl px-4 py-2 text-sm font-medium text-tmain shadow-card">
-              <CalendarDays size={14} className="text-accent" />
+              <CalendarDays size={14} className="text-accent-ink" />
               All Time
             </div>
           </div>
@@ -201,6 +204,7 @@ export default function Dashboard() {
                 sub={`${stats?.total ?? 0} active records`}
                 bg="linear-gradient(135deg, #E0F9F9 0%, #CCF4F3 100%)"
                 iconColor="#0ABFBC"
+                textColor="#087F7D"
                 sparkBars={[30,50,40,70,55,80,65]}
                 onClick={() => navigate('/clients')}
               />
@@ -211,6 +215,7 @@ export default function Dashboard() {
                 sub={`+${stats?.week ?? 0} new sessions`}
                 bg="linear-gradient(135deg, #EEF4FF 0%, #DDE8FF 100%)"
                 iconColor="#5BA4CF"
+                textColor="#2F6690"
                 sparkBars={[20,40,35,60,45,75,55]}
                 onClick={() => navigate('/clients')}
               />
@@ -221,16 +226,18 @@ export default function Dashboard() {
                 sub={stats?.total ? `${Math.round((stats.normal/stats.total)*100)}% of clients` : 'All clear'}
                 bg="linear-gradient(135deg, #E8FBF2 0%, #D2F5E5 100%)"
                 iconColor="#36C98E"
+                textColor="#127552"
                 sparkBars={[60,75,65,80,70,85,80]}
                 onClick={() => navigate('/clients', { state: { filterFlag: 'GREEN' } })}
               />
               <StatCard
                 icon={AlertTriangle}
-                label="Need Review"
+                label="Need follow-up"
                 value={stats?.review ?? '—'}
-                sub={stats?.total ? `${Math.round((stats.review/stats.total)*100)}% flagged` : 'Monitor closely'}
+                sub={stats?.total ? `${Math.round((stats.review/stats.total)*100)}% of clients` : 'Monitor closely'}
                 bg="linear-gradient(135deg, #FFF0F0 0%, #FFE0E0 100%)"
                 iconColor="#F27C7C"
+                textColor="#B83A38"
                 sparkBars={[15,25,20,35,28,40,30]}
                 onClick={() => navigate('/clients', { state: { filterFlag: 'REVIEW' } })}
               />
@@ -342,7 +349,7 @@ export default function Dashboard() {
                     onClick={() => setShowFilters(v => !v)}
                     className={`h-8 px-2.5 rounded-xl border text-xs font-semibold transition-all ${
                       showFilters || filterFlag !== 'ALL'
-                        ? 'bg-accent/10 border-accent/40 text-accent'
+                        ? 'bg-accent/10 border-accent/40 text-accent-ink'
                         : 'border-border bg-[#F0F4F8] text-tsub hover:border-accent/30'
                     }`}
                   >
@@ -356,10 +363,10 @@ export default function Dashboard() {
                           onClick={() => { setFilterFlag(f); if (f === 'ALL') setShowFilters(false) }}
                           className={`h-7 px-2.5 rounded-lg border text-xs font-semibold transition-all ${
                             filterFlag === f
-                              ? f === 'GREEN' ? 'bg-success/15 border-success/40 text-success'
-                                : f === 'AMBER' ? 'bg-amber/15 border-amber/40 text-amber'
-                                : f === 'RED' ? 'bg-coral/15 border-coral/40 text-coral'
-                                : 'bg-accent/10 border-accent/40 text-accent'
+                              ? f === 'GREEN' ? 'bg-success/15 border-success/40 text-success-ink'
+                                : f === 'AMBER' ? 'bg-amber/15 border-amber/40 text-amber-ink'
+                                : f === 'RED' ? 'bg-coral/15 border-coral/40 text-coral-ink'
+                                : 'bg-accent/10 border-accent/40 text-accent-ink'
                               : 'border-border bg-[#F0F4F8] text-tsub hover:border-accent/30'
                           }`}
                         >
@@ -378,7 +385,7 @@ export default function Dashboard() {
                   <Download size={12} />
                   {exporting ? 'Exporting…' : 'Export'}
                 </button>
-                <button onClick={() => navigate('/clients')} className="text-accent text-xs font-semibold hover:underline ml-1">
+                <button onClick={() => navigate('/clients')} className="text-accent-ink text-xs font-semibold hover:underline ml-1">
                   View All →
                 </button>
               </div>
@@ -401,8 +408,6 @@ export default function Dashboard() {
                       </td>
                     </tr>
                   ) : filtered.map((s, i) => {
-                    const flagColor = s.flag === 'RED' ? '#FFF0F0' : s.flag === 'AMBER' ? '#FFF8E8' : '#EEFBF5'
-                    const flagText  = s.flag === 'RED' ? '#F27C7C' : s.flag === 'AMBER' ? '#F5A623' : '#36C98E'
                     return (
                       <tr
                         key={s.session_id}
@@ -414,7 +419,7 @@ export default function Dashboard() {
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center
-                                            text-accent text-xs font-bold flex-shrink-0">
+                                            text-accent-ink text-xs font-bold flex-shrink-0">
                               {(s.patient_id || '?')[0].toUpperCase()}
                             </div>
                             <div>
@@ -423,23 +428,20 @@ export default function Dashboard() {
                           </div>
                         </td>
                         {/* Date */}
-                        <td className="px-5 py-3.5 text-tsub text-xs">{s.timestamp ? new Date(String(s.timestamp).replace(' ', 'T') + 'Z').toLocaleString() : '—'}</td>
+                        <td className="px-5 py-3.5 text-tsub text-xs">{formatTimestamp(s.timestamp)}</td>
                         {/* PHQ */}
                         <td className={`px-5 py-3.5 font-bold text-sm tabular-nums
-                                        ${s.phq >= 15 ? 'text-coral' : s.phq >= 10 ? 'text-amber' : 'text-success'}`}>
+                                        ${s.phq >= 15 ? 'text-coral-ink' : s.phq >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                           {s.phq ?? '—'}
                         </td>
                         {/* GAD */}
                         <td className={`px-5 py-3.5 font-bold text-sm tabular-nums
-                                        ${s.gad >= 15 ? 'text-coral' : s.gad >= 10 ? 'text-amber' : 'text-success'}`}>
+                                        ${s.gad >= 15 ? 'text-coral-ink' : s.gad >= 10 ? 'text-amber-ink' : 'text-success-ink'}`}>
                           {s.gad ?? '—'}
                         </td>
                         {/* Status chip */}
                         <td className="px-5 py-3.5">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold"
-                                style={{ background: flagColor, color: flagText }}>
-                            {s.flag || '—'}
-                          </span>
+                          {s.flag ? <StatusBadge flag={s.flag} label={s.label} /> : <span className="text-tsub text-xs">—</span>}
                         </td>
                         {/* Summary */}
                         <td className="px-5 py-3.5 text-xs max-w-[180px] truncate text-tsub">
@@ -447,7 +449,7 @@ export default function Dashboard() {
                         </td>
                         {/* Action */}
                         <td className="px-5 py-3.5 text-right">
-                          <span className="text-xs text-accent font-semibold hover:underline">View →</span>
+                          <span className="text-xs text-accent-ink font-semibold hover:underline">View →</span>
                         </td>
                       </tr>
                     )

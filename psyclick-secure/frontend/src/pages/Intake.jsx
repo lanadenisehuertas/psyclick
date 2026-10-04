@@ -82,7 +82,7 @@ export default function Intake() {
                     disabled={genIdBusy}
                     title="Auto-assign next available client ID"
                     className="flex items-center gap-1.5 px-3 h-10 rounded-[10px] bg-accent/10 border border-accent/30
-                               text-accent text-xs font-semibold hover:bg-accent/20 transition-all disabled:opacity-50 whitespace-nowrap"
+                               text-accent-ink text-xs font-semibold hover:bg-accent/20 transition-all disabled:opacity-50 whitespace-nowrap"
                   >
                     <Sparkles size={13} />
                     {genIdBusy ? '…' : 'New ID'}
@@ -95,7 +95,7 @@ export default function Intake() {
           {/* Consent card */}
           <div className="card p-8">
             <div className="flex items-center gap-3 mb-3">
-              <ShieldCheck className="text-accent" size={22} />
+              <ShieldCheck className="text-accent-ink" size={22} />
               <h2 className="font-bold text-tmain text-lg">Your Privacy Matters</h2>
             </div>
             <p className="text-tsub text-sm mb-5 leading-relaxed">
@@ -105,13 +105,13 @@ export default function Intake() {
             <label className="flex items-center gap-3 cursor-pointer group">
               <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}
                      className="w-5 h-5 accent-accent rounded" />
-              <span className="text-sm text-tmain group-hover:text-accent transition-colors">
+              <span className="text-sm text-tmain group-hover:text-accent-ink transition-colors">
                 I consent to local biometric recording for this session
               </span>
             </label>
           </div>
 
-          {err && <p className="text-coral text-sm">{err}</p>}
+          {err && <p className="text-coral-ink text-sm">{err}</p>}
 
           <button
             disabled={!consent}

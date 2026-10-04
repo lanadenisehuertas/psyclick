@@ -8,8 +8,8 @@ import { api } from '../api/psyclick.js'
 
 function Metric({ icon: Icon, label, value, tone = 'accent', detail }) {
   const tones = {
-    accent: 'bg-accent/10 text-adark', success: 'bg-success/10 text-success',
-    amber: 'bg-amber/10 text-amber', coral: 'bg-coral/10 text-coral',
+    accent: 'bg-accent/10 text-adark', success: 'bg-success/10 text-success-ink',
+    amber: 'bg-amber/10 text-amber-ink', coral: 'bg-coral/10 text-coral-ink',
   }
   return (
     <div className="card p-5 animate-fade-up-1">
@@ -78,7 +78,7 @@ export default function SecurityCenter() {
           <div className="absolute right-16 top-10 w-32 h-32 rounded-full bg-accent/10 blur-2xl" />
           <div className="relative flex items-start justify-between gap-8">
             <div>
-              <p className="text-accent text-[11px] uppercase tracking-[0.22em] font-bold">Administrative trust boundary</p>
+              <p className="text-accent-ink text-[11px] uppercase tracking-[0.22em] font-bold">Administrative trust boundary</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight">Security Center</h1>
               <p className="mt-2 text-[#8AB6B6] text-sm max-w-xl">Manage least-privilege access, verify the audit chain, and produce a tested encrypted recovery point.</p>
             </div>
@@ -113,7 +113,7 @@ export default function SecurityCenter() {
                     {users.map(user => <tr key={user.id} className="border-t border-border/70">
                       <td className="px-5 py-4"><p className="font-semibold text-tmain">{user.name}</p><p className="text-[11px] text-tsub">ID {user.id}</p></td>
                       <td className="px-5 py-4"><select value={user.role} disabled={busy} onChange={e => updateAccount(user, { role: e.target.value })} className="bg-bg border border-border rounded-lg px-2.5 py-2 text-xs text-tmain"><option value="admin">Admin</option><option value="clinician">Clinician</option><option value="auditor">Auditor</option></select></td>
-                      <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${user.status === 'active' ? 'bg-success/10 text-success' : 'bg-coral/10 text-coral'}`}>{user.status}</span></td>
+                      <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${user.status === 'active' ? 'bg-success/10 text-success-ink' : 'bg-coral/10 text-coral-ink'}`}>{user.status}</span></td>
                       <td className="px-5 py-4 text-xs text-tsub">{user.last_login_at || 'Never'}</td>
                       <td className="px-5 py-4"><button disabled={busy} onClick={() => updateAccount(user, { status: user.status === 'active' ? 'disabled' : 'active' })} className="text-xs font-semibold text-adark hover:underline">{user.status === 'active' ? 'Disable' : 'Enable'}</button></td>
                     </tr>)}
@@ -124,7 +124,7 @@ export default function SecurityCenter() {
 
             <aside className="space-y-5 animate-fade-up-3">
               <div className="card p-6 bg-sidebar text-white border-0">
-                <div className="w-11 h-11 rounded-2xl bg-accent/15 text-accent grid place-items-center"><ArchiveRestore size={20} /></div>
+                <div className="w-11 h-11 rounded-2xl bg-accent/15 text-accent-ink grid place-items-center"><ArchiveRestore size={20} /></div>
                 <h2 className="font-bold mt-4">Verified recovery</h2>
                 <p className="text-xs text-[#8AB6B6] mt-2 leading-relaxed">Creates a transaction-consistent SQLite copy, protects it with Windows DPAPI, checks SHA-256, decrypts only in a temporary directory, and runs SQLite integrity_check.</p>
                 <button disabled={busy} onClick={createAndVerifyBackup} className="mt-5 w-full rounded-xl bg-accent hover:bg-adark disabled:opacity-60 py-3 text-sm font-bold flex items-center justify-center gap-2"><ShieldCheck size={16} /> Create & verify</button>

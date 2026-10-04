@@ -28,7 +28,7 @@
   }
 
   .btn-primary {
-    @apply bg-accent hover:bg-adark text-white font-semibold rounded-[10px]
+    @apply bg-accent-ink hover:bg-[#066A68] text-white font-semibold rounded-[10px]
            px-5 h-10 text-sm transition-all duration-150 active:scale-[0.97] select-none
            inline-flex items-center justify-center gap-2;
   }

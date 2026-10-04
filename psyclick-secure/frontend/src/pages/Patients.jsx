@@ -2,18 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Search, Users, CheckCircle, AlertTriangle, X } from 'lucide-react'
 import Sidebar from '../components/Sidebar.jsx'
+import { StatusBadge, formatTimestamp } from '../lib/status.jsx'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 
-const FLAG_STYLE = {
-  GREEN: 'bg-success/15 text-success',
-  AMBER: 'bg-amber/15   text-amber',
-  RED:   'bg-coral/15   text-coral',
-}
 
 const FILTER_LABELS = {
-  GREEN:  { label: 'No Concerns',  color: 'bg-success/15 text-success border-success/30' },
-  REVIEW: { label: 'Need Review',  color: 'bg-coral/15 text-coral border-coral/30' },
+  GREEN:  { label: 'No Concerns',  color: 'bg-success/15 text-success-ink border-success/30' },
+  REVIEW: { label: 'Need Review',  color: 'bg-coral/15 text-coral-ink border-coral/30' },
 }
 
 export default function Clients() {
@@ -143,7 +139,7 @@ export default function Clients() {
                       {(query || flagFilter) && (
                         <button
                           onClick={() => { setQuery(''); setFlagFilter(null) }}
-                          className="mt-3 text-accent text-sm font-medium hover:underline"
+                          className="mt-3 text-accent-ink text-sm font-medium hover:underline"
                         >
                           Clear filters
                         </button>
@@ -158,18 +154,16 @@ export default function Clients() {
                   >
                     <td className="px-5 py-3 font-semibold text-tmain">{p.id}</td>
                     <td className="px-5 py-3 text-tsub">{p.sessions}</td>
-                    <td className="px-5 py-3 text-tsub">{p.last_seen?.slice(0, 16) || '—'}</td>
+                    <td className="px-5 py-3 text-tsub">{formatTimestamp(p.last_seen)}</td>
                     <td className="px-5 py-3">
                       {p.flag ? (
-                        <span className={`status-chip ${FLAG_STYLE[p.flag] || 'bg-border text-tsub'}`}>
-                          {p.flag}
-                        </span>
+                        <StatusBadge flag={p.flag} />
                       ) : (
                         <span className="text-tsub text-xs">—</span>
                       )}
                     </td>
                     <td className="px-5 py-3">
-                      <button className="text-xs text-accent font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors">
+                      <button className="text-xs text-accent-ink font-semibold bg-accent/10 rounded-pill px-3 py-1 hover:bg-accent/20 transition-colors">
                         View →
                       </button>
                     </td>

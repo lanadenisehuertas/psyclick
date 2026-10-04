@@ -10,13 +10,18 @@ export default {
         accent:  '#0ABFBC',
         adark:   '#089F9D',
         tmain:   '#0D2D2D',
-        tsub:    '#7A9A9A',
+        tsub:    '#557272',   // 5.2:1 on white (WCAG AA)
         border:  '#E4F0F0',
         coral:   '#F27C7C',
         success: '#36C98E',
         amber:   '#F5A623',
         blue:    '#5BA4CF',
         sidebar: '#0D2D2D',
+        // Text-safe (>= 4.5:1 on white) variants of the status colours
+        'coral-ink':   '#B83A38',
+        'amber-ink':   '#9A5B00',
+        'success-ink': '#127552',
+        'accent-ink':  '#087F7D',
       },
       borderRadius: { card: '20px', pill: '999px' },
       boxShadow: {

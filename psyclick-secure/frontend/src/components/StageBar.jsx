@@ -13,9 +13,9 @@ export default function StageBar({ active }) {
             key={s}
             className={`text-xs font-medium ${
               i < active
-                ? 'text-success'
+                ? 'text-success-ink'
                 : i === active
-                  ? 'text-accent font-semibold'
+                  ? 'text-accent-ink font-semibold'
                   : 'text-tsub'
             }`}
           >

@@ -686,7 +686,14 @@ def set_normative_mode():
 
 @app.route("/api/normative/stats")
 def normative_stats():
-    return jsonify(get_normative_stats())
+    payload = get_normative_stats()
+    # Healthy-tester cut-offs, so the UI draws the same reference the engine flags on
+    from anomaly_engine import BOOTSTRAP_THRESHOLDS
+    payload["thresholds"] = {
+        "session": BOOTSTRAP_THRESHOLDS["task_3"],
+        "item":    BOOTSTRAP_THRESHOLDS["task_3_item"],
+    }
+    return jsonify(payload)
 
 @app.route("/api/normative/compute", methods=["POST"])
 @require_roles("admin")
