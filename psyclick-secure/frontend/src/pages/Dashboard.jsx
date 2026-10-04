@@ -8,22 +8,33 @@ import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 import { PageShell, Card, ActionCard, Button, IconTile, EmptyState, Skeleton, Segmented, useToast, EASE } from '../components/ui.jsx'
 import { StatusBadge, formatTimestamp, parseTimestamp } from '../lib/status.jsx'
+import { TINT } from '../report/overview.jsx'
+
+const ALERT_TINT = { bg: 'linear-gradient(150deg,#FBE1DF 0%,#FDF4F3 70%)', ink: '#B83A38' }
 
 function greeting() {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
 }
 
-function StatCard({ label, value, detail, onClick, delay, alert }) {
+function StatCard({ label, value, detail, onClick, delay, alert, tint = 'mint', icon: Icon }) {
+  const t = alert && value > 0 ? ALERT_TINT : TINT[tint]
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay, ease: EASE }}>
-      <ActionCard onClick={onClick} className="w-full p-5 h-full group flex flex-col justify-start" ariaLabel={`${label}: ${value ?? '—'}. ${detail}`}>
-        <p className="text-sm font-medium text-tsub flex items-center justify-between">
+      <ActionCard onClick={onClick} style={{ background: t.bg }}
+        className={`w-full p-5 h-full group flex flex-col justify-start !border-white/70 ${alert && value > 0 ? 'ring-2 ring-[#F27C7C]/70' : ''}`}
+        ariaLabel={`${label}: ${value ?? '—'}. ${detail}`}>
+        <p className="text-sm font-semibold text-tmain flex items-start justify-between gap-2">
           {label}
-          <ArrowRight size={16} className="opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" aria-hidden="true" />
+          {Icon && (
+            <span className="w-10 h-10 -mt-1 -mr-1 rounded-full bg-white/90 border border-white shadow-sm flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105" style={{ color: t.ink }}>
+              <Icon size={19} aria-hidden="true" />
+            </span>
+          )}
         </p>
-        <p className={`mt-3 font-mono text-[38px] font-semibold leading-none tabular-nums ${alert && value > 0 ? 'text-coral-ink' : 'text-tmain'}`}>{value ?? '—'}</p>
-        <p className="mt-3 text-sm text-tsub">{detail}</p>
+        <p className={`mt-1 font-display text-[40px] font-semibold leading-none tabular-nums ${alert && value > 0 ? 'text-coral-ink' : 'text-tmain'}`}>{value ?? '—'}</p>
+        <p className="mt-3 text-sm text-tsub flex items-center justify-between gap-2">{detail}
+          <ArrowRight size={16} className="opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all flex-shrink-0" style={{ color: t.ink }} aria-hidden="true" /></p>
       </ActionCard>
     </motion.div>
   )
@@ -108,13 +119,13 @@ export default function Dashboard() {
 
       {/* Key numbers — each one opens the matching list */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard label="Clients" value={stats?.clients ?? stats?.total}
+        <StatCard tint="mint" icon={Users} label="Clients" value={stats?.clients ?? stats?.total}
           detail={`${stats?.total ?? 0} sessions in total`} onClick={() => navigate('/clients')} delay={0.05} />
-        <StatCard label="Sessions this week" value={stats?.week}
+        <StatCard tint="cyan" icon={CalendarDays} label="Sessions this week" value={stats?.week}
           detail="In the last 7 days" onClick={() => navigate('/clients')} delay={0.1} />
-        <StatCard label="Need follow-up" value={stats?.review}
+        <StatCard tint="peri" icon={AlertTriangle} label="Need follow-up" value={stats?.review}
           detail="Sessions marked Follow up or Review now" onClick={() => setFilter('ATTENTION')} delay={0.15} />
-        <StatCard alert label="Self-harm answers" value={stats?.safety ?? 0}
+        <StatCard alert tint="deep" icon={ShieldAlert} label="Self-harm answers" value={stats?.safety ?? 0}
           detail="PHQ-9 question 9 answered above 0" onClick={() => navigate('/clients', { state: { filterFlag: 'SAFETY' } })} delay={0.2} />
       </div>
 
@@ -162,13 +173,18 @@ export default function Dashboard() {
           <div className="mt-4 h-[200px]" role="img" aria-label={`Sessions per day: ${week.map(w => `${w.day} ${w.count}`).join(', ')}`}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={week} margin={{ top: 4, right: 4, left: -18, bottom: 0 }} barSize={26}>
-                <CartesianGrid vertical={false} stroke="#E8F0F0" />
-                <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#557272' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#557272' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip cursor={{ fill: 'rgba(10,191,188,0.06)' }} formatter={(v) => [v, 'Sessions']}
-                  contentStyle={{ fontSize: 13, borderRadius: 12, border: '1px solid #E4F0F0' }} />
+                <defs>
+                  <linearGradient id="wk-today" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor="#68D8E8" /><stop offset="1" stopColor="#3D5FA8" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} stroke="#E3EDF0" />
+                <XAxis dataKey="day" tick={{ fontSize: 12, fill: '#4A6670' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#4A6670' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip cursor={{ fill: 'rgba(104,216,232,0.10)' }} formatter={(v) => [v, 'Sessions']}
+                  contentStyle={{ fontSize: 13, borderRadius: 12, border: '1px solid #D9E6EA' }} />
                 <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {week.map((d, i) => <Cell key={i} fill={d.today ? '#087F7D' : '#BFE8E7'} />)}
+                  {week.map((d, i) => <Cell key={i} fill={d.today ? 'url(#wk-today)' : '#BDEBE0'} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

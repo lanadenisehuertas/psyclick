@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import { Lock, Activity, ClipboardCheck, ShieldCheck, Copy, Check, ArrowRight, KeyRound, UserPlus } from 'lucide-react'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 import { Alert, Button, Field, PasswordInput, Spinner, inputCls, EASE } from '../components/ui.jsx'
 import { HOME_FOR_ROLE } from '../lib/roles.js'
-
-const BENEFITS = [
-  { icon: Activity,       title: 'Behaviour you can see', text: 'Typing rhythm and mouse movement, measured during a guided session.' },
-  { icon: ClipboardCheck, title: 'Validated questionnaires', text: 'PHQ-9 and GAD-7 scored and shown in one clear report.' },
-  { icon: ShieldCheck,    title: 'Private by design', text: 'Data stays on this computer, encrypted, with a full audit trail.' },
-]
+import AnimatedLogo from '../components/AnimatedLogo.jsx'
 
 function passwordChecks(pwd) {
   return [
@@ -21,39 +16,107 @@ function passwordChecks(pwd) {
   ]
 }
 
-function BrandPanel() {
+const BENEFITS = [
+  { icon: Activity,       title: 'Behaviour you can see', text: 'Typing rhythm and mouse movement, measured during a guided session.', tint: 'rgba(112,232,192,.16)', ink: '#70E8C0' },
+  { icon: ClipboardCheck, title: 'Validated questionnaires', text: 'PHQ-9 and GAD-7 scored and shown in one clear report.', tint: 'rgba(104,216,232,.16)', ink: '#68D8E8' },
+  { icon: ShieldCheck,    title: 'Private by design', text: 'Data stays on this computer, encrypted, with a full audit trail.', tint: 'rgba(120,168,216,.2)', ink: '#9DC0E8' },
+]
+
+// Small floating cards around the logo: what PsyClick measures
+function FloatChip({ className, delay, children }) {
+  const still = useReducedMotion()
   return (
-    <div className="hidden lg:flex w-[46%] max-w-[640px] relative overflow-hidden flex-col justify-between p-12 text-white"
-      style={{ background: 'radial-gradient(40rem 26rem at 0% 100%, rgba(112,232,192,0.28), transparent 70%), radial-gradient(36rem 26rem at 100% 0%, rgba(120,168,216,0.30), transparent 70%), radial-gradient(30rem 20rem at 60% 60%, rgba(104,216,232,0.14), transparent 70%), #0F2A33' }}>
-      {/* Calm "signal" lines: a nod to keystroke rhythm */}
-      <svg className="absolute inset-x-0 top-[40%] w-full h-40 opacity-40" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+    <motion.div className={`absolute rounded-2xl border border-white/15 bg-white/[0.08] backdrop-blur-md px-3.5 py-2.5 shadow-[0_12px_30px_-12px_rgba(0,0,0,.5)] ${className}`}
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: still ? 0 : [0, -5, 0] }}
+      transition={{ opacity: { delay, duration: 0.5 }, y: still ? { delay, duration: 0.5 } : { delay, duration: 5, repeat: Infinity, ease: 'easeInOut' } }}>
+      {children}
+    </motion.div>
+  )
+}
+
+function RhythmBars() {
+  const still = useReducedMotion()
+  const H = [10, 18, 7, 22, 13, 16, 9, 20]
+  return (
+    <span className="flex items-end gap-[3px] h-6">
+      {H.map((h, i) => (
+        <motion.span key={i} className="w-[4px] rounded-full" style={{ height: h, background: i % 3 === 0 ? '#70E8C0' : i % 3 === 1 ? '#68D8E8' : '#78A8D8', originY: 1 }}
+          animate={still ? undefined : { scaleY: [1, 0.45, 1.1, 0.8, 1] }}
+          transition={{ duration: 1.8, delay: i * 0.12, repeat: Infinity, ease: 'easeInOut' }} />
+      ))}
+    </span>
+  )
+}
+
+function BrandPanel() {
+  const still = useReducedMotion()
+  return (
+    <div className="hidden lg:flex w-[46%] max-w-[640px] relative overflow-hidden flex-col p-12 text-white"
+      style={{ background: 'radial-gradient(40rem 26rem at 0% 100%, rgba(112,232,192,0.22), transparent 70%), radial-gradient(36rem 26rem at 100% 0%, rgba(120,168,216,0.28), transparent 70%), linear-gradient(160deg, #0F2A33 0%, #0D3440 55%, #12304A 100%)' }}>
+      {/* Drifting colour fields */}
+      {[
+        { c: 'rgba(112,232,192,.30)', s: 340, x: '-10%', y: '58%', d: 18 },
+        { c: 'rgba(104,216,232,.24)', s: 280, x: '62%', y: '8%', d: 22 },
+        { c: 'rgba(120,168,216,.30)', s: 300, x: '55%', y: '66%', d: 26 },
+      ].map((b, i) => (
+        <motion.div key={i} className="absolute rounded-full blur-3xl pointer-events-none" aria-hidden="true"
+          style={{ width: b.s, height: b.s, left: b.x, top: b.y, background: b.c }}
+          animate={still ? undefined : { x: [0, 30, -20, 0], y: [0, -24, 16, 0] }}
+          transition={{ duration: b.d, repeat: Infinity, ease: 'easeInOut' }} />
+      ))}
+      {/* Dot grid */}
+      <div className="absolute inset-0 opacity-[0.18] pointer-events-none" aria-hidden="true"
+        style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,.55) 1px, transparent 1px)', backgroundSize: '22px 22px', maskImage: 'radial-gradient(ellipse at 50% 38%, black 20%, transparent 70%)', WebkitMaskImage: 'radial-gradient(ellipse at 50% 38%, black 20%, transparent 70%)' }} />
+      {/* Keystroke-rhythm lines */}
+      <svg className="absolute inset-x-0 top-[60%] w-full h-44 opacity-40 pointer-events-none" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="lg-wave" x1="0" x2="1">
+            <stop offset="0" stopColor="#70E8C0" /><stop offset=".5" stopColor="#68D8E8" /><stop offset="1" stopColor="#78A8D8" />
+          </linearGradient>
+        </defs>
         {[0, 1, 2].map(i => (
           <motion.path key={i}
             d={`M0 ${120 + i * 22} C 80 ${60 + i * 20}, 140 ${170 - i * 10}, 220 ${110 + i * 15} S 380 ${50 + i * 25}, 450 ${120 + i * 12} S 560 ${150 - i * 18}, 600 ${100 + i * 20}`}
-            fill="none" stroke={i === 1 ? '#7FE3E0' : '#0ABFBC'} strokeWidth={i === 1 ? 2.5 : 1.5}
+            fill="none" stroke="url(#lg-wave)" strokeWidth={i === 1 ? 2.2 : 1.2} strokeOpacity={i === 1 ? 1 : 0.6}
             initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 2.2, delay: 0.2 * i, ease: EASE }} />
         ))}
       </svg>
-      <div className="relative">
-        <img src={`${import.meta.env.BASE_URL}images/LOGO%20WITH%20WORD%20white.png`} alt="PsyClick"
-          className="h-12 object-contain"
-          onError={(e) => { e.currentTarget.src = `${import.meta.env.BASE_URL}images/LOGOggg.png` }} />
-        <h1 className="mt-14 font-display text-[42px] leading-[1.08] font-semibold max-w-[15ch]">
+
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+        <div className="relative">
+          <AnimatedLogo size={196} />
+          <FloatChip className="-left-[150px] top-6 text-left" delay={0.8}>
+            <p className="text-[11px] uppercase tracking-wider text-white/60 font-semibold">Typing rhythm</p>
+            <div className="mt-1"><RhythmBars /></div>
+          </FloatChip>
+          <FloatChip className="-right-[178px] top-[56%] text-left" delay={1.1}>
+            <p className="text-[11px] uppercase tracking-wider text-white/60 font-semibold">Questionnaires</p>
+            <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold"><span className="w-2 h-2 rounded-full bg-mint" />PHQ-9<span className="w-2 h-2 rounded-full bg-peri ml-1.5" />GAD-7</p>
+          </FloatChip>
+        </div>
+        <motion.img src={`${import.meta.env.BASE_URL}images/WORD_.png`} alt="PsyClick" className="h-12 mt-12 object-contain"
+          initial={{ opacity: 0, clipPath: 'inset(0 100% 0 0)' }} animate={{ opacity: 1, clipPath: 'inset(0 0% 0 0)' }}
+          transition={{ duration: 0.9, delay: 0.35, ease: EASE }} />
+        <motion.h1 className="mt-6 font-display text-[34px] leading-[1.1] font-semibold max-w-[20ch]"
+          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.6, ease: EASE }}>
           A clearer picture, in one short session.
-        </h1>
-        <p className="mt-4 text-lg text-white/75 max-w-[42ch]">
+        </motion.h1>
+        <motion.p className="mt-3 text-[17px] text-white/75 max-w-[44ch]"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.75 }}>
           Clinical decision support that pairs questionnaires with how a person types and moves.
-        </p>
+        </motion.p>
       </div>
-      <ul className="relative space-y-5 mt-10">
+
+      <ul className="relative grid grid-cols-3 gap-3 mt-8">
         {BENEFITS.map((b, i) => (
-          <motion.li key={b.title} className="flex gap-4"
-            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.15 + i * 0.08, ease: EASE }}>
-            <span className="w-11 h-11 rounded-full border border-white/20 text-mint flex items-center justify-center flex-shrink-0"><b.icon size={20} aria-hidden="true" /></span>
-            <div>
-              <p className="font-semibold">{b.title}</p>
-              <p className="text-white/70 text-[15px]">{b.text}</p>
-            </div>
+          <motion.li key={b.title} className="rounded-2xl border border-white/10 p-4 backdrop-blur-sm"
+            style={{ background: `linear-gradient(160deg, ${b.tint}, rgba(255,255,255,.03))` }}
+            initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.9 + i * 0.1, ease: EASE }}>
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: b.tint, color: b.ink }}>
+              <b.icon size={18} aria-hidden="true" />
+            </span>
+            <p className="font-semibold mt-3 text-[15px] leading-snug">{b.title}</p>
+            <p className="text-white/65 text-[13px] mt-1 leading-snug">{b.text}</p>
           </motion.li>
         ))}
       </ul>

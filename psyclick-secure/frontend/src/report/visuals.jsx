@@ -88,7 +88,7 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
   })
 
   const h = hover != null ? snaps[hover] : null
-  const dotFill = v => v > itemP99 ? C.coral : v > itemP95 ? C.amber : C.teal
+  const dotFill = v => v > itemP99 ? C.coral : v > itemP95 ? C.amber : '#3D5FA8'
 
   return (
     <div ref={ref} className="relative">
@@ -121,8 +121,20 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
           })}
 
           {/* trace */}
+          <defs>
+            <linearGradient id="trace-line" gradientUnits="userSpaceOnUse" x1={M.l} x2={M.l + pw} y1="0" y2="0">
+              <stop offset="0" stopColor="#2FBF95" /><stop offset=".4" stopColor="#2BB8CF" /><stop offset=".75" stopColor="#5C8BD0" /><stop offset="1" stopColor="#3D5FA8" />
+            </linearGradient>
+            <linearGradient id="trace-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#68D8E8" stopOpacity=".32" /><stop offset="1" stopColor="#78A8D8" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {segments.map((pts, k) => pts.length > 1 && (
+            <motion.path key={`a${k}`} d={`${pathOf(pts)} L${pts[pts.length - 1][0].toFixed(1)} ${yAt(0)} L${pts[0][0].toFixed(1)} ${yAt(0)} Z`}
+              fill="url(#trace-area)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.5 }} />
+          ))}
           {segments.map((pts, k) => (
-            <motion.path key={k} d={pathOf(pts)} fill="none" stroke={C.ink} strokeWidth="2" strokeLinejoin="round"
+            <motion.path key={k} d={pathOf(pts)} fill="none" stroke="url(#trace-line)" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round"
               initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }} />
           ))}
           {snaps.map((s, i) => {

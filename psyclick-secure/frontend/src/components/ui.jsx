@@ -66,13 +66,14 @@ export function Card({ className = '', children, ...rest }) {
 }
 
 // A whole card that is one action: a real button, with hover lift and focus ring.
-export function ActionCard({ onClick, className = '', children, ariaLabel, disabled }) {
+export function ActionCard({ onClick, className = '', children, ariaLabel, disabled, style }) {
   return (
     <motion.button
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
       disabled={disabled}
+      style={style}
       whileHover={disabled ? undefined : { y: -3 }}
       whileTap={disabled ? undefined : { scale: 0.985 }}
       transition={{ duration: 0.18, ease: EASE }}

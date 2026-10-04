@@ -65,9 +65,9 @@ export function collectSignals({ item9, phq, gad, t2, sP95, psiPct, paiPct, snap
 }
 
 const STYLE = {
-  alert: { icon: ShieldAlert,   cls: 'text-coral-ink',  label: 'Act now' },
-  watch: { icon: AlertTriangle, cls: 'text-amber-ink',  label: 'Watch' },
-  note:  { icon: Eye,           cls: 'text-peri-ink',   label: 'Worth noting' },
+  alert: { icon: ShieldAlert,   cls: 'text-coral-ink',  label: 'Act now',      row: 'bg-[#FBEDEC] border-[#F3C9C6]', chip: 'bg-coral-ink text-white' },
+  watch: { icon: AlertTriangle, cls: 'text-amber-ink',  label: 'Watch',        row: 'bg-[#FEF5E6] border-[#F6DDB0]', chip: 'bg-[#FCE3B6] text-amber-ink' },
+  note:  { icon: Eye,           cls: 'text-peri-ink',   label: 'Worth noting', row: 'bg-[#EEF3FB] border-[#D6E2F4]', chip: 'bg-[#DCE6F6] text-peri-ink' },
 }
 
 export function SignalsList({ signals }) {
@@ -79,15 +79,14 @@ export function SignalsList({ signals }) {
     )
   }
   return (
-    <ul className="grid md:grid-cols-2 gap-x-8 gap-y-3">
+    <ul className="grid gap-2">
       {signals.map((s, i) => {
         const st = STYLE[s.level]
         return (
-          <li key={i} className="flex gap-3 items-start">
+          <li key={i} className={`flex gap-3 items-start rounded-xl border px-3.5 py-2.5 ${st.row}`}>
             <st.icon size={18} className={`${st.cls} flex-shrink-0 mt-0.5`} aria-hidden="true" />
-            <p className="text-[15px] text-tmain leading-snug">
-              <span className={`text-xs font-semibold uppercase tracking-wide ${st.cls} mr-1.5`}>{st.label}</span>{s.text}
-            </p>
+            <p className="text-[15px] text-tmain leading-snug flex-1">{s.text}</p>
+            <span className={`text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 whitespace-nowrap ${st.chip}`}>{st.label}</span>
           </li>
         )
       })}

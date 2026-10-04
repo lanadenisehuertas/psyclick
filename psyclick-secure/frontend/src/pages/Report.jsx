@@ -12,6 +12,7 @@ import InfoTooltip from '../report/InfoTooltip.jsx'
 import { SessionTrace, TopicGrid, RhythmChart, ChangeSince } from '../report/visuals.jsx'
 import ReadingHeatmap from '../report/ReadingHeatmap.jsx'
 import { collectSignals, SignalsList } from '../report/signals.jsx'
+import { KpiStrip, ProfileRadar } from '../report/overview.jsx'
 import { NormativeComparison, QuestionBreakdown, percentileText, percentileValue } from '../report/detail.jsx'
 import { HEALTHY_REF, ITEM9_LABEL, phqLabel, gadLabel, clinicalRecs } from '../report/text.js'
 
@@ -263,12 +264,22 @@ export default function Report() {
 
             <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label} />
 
-            <Panel title="What stood out"
-              caption="Every signal in this session, including small ones that did not change the overall result. Small signals are where early changes show first.">
-              <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95,
-                psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
-                snapshots, iP95, levelT2, history, sessionId: thisSession })} />
-            </Panel>
+            <KpiStrip t2={t2} sP95={sP95} sP99={sP99} insufficient={insufficient} phq={phqScore} gad={gadScore} item9={item9}
+              snapshots={snapshots} iP95={iP95} iP99={iP99} history={history} sessionId={thisSession} />
+
+            <div className="grid xl:grid-cols-[1.4fr_1fr] print:grid-cols-[1.4fr_1fr] gap-6 items-stretch">
+              <Panel title="What stood out"
+                caption="Every signal in this session, most urgent first — including small ones that did not change the overall result. Small signals are where early changes show first.">
+                <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95,
+                  psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
+                  snapshots, iP95, levelT2, history, sessionId: thisSession })} />
+              </Panel>
+              <Panel title="Profile against healthy adults"
+                caption="Each corner is one score, ranked against healthy adults. The further out, the more unusual.">
+                {normLoading ? <p className="text-sm text-tsub" role="status">Loading comparison…</p>
+                  : <ProfileRadar metrics={normComp} insufficient={insufficient} />}
+              </Panel>
+            </div>
 
             {/* The session, prompt by prompt — the signature view */}
             {snapshots.length > 0 && (

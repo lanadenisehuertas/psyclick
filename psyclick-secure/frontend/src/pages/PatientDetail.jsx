@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Legend } from 'recharts'
-import { ArrowLeft, Trash2, Plus, ArrowRight, ShieldAlert, TrendingUp, FileText } from 'lucide-react'
+import { ArrowLeft, Trash2, Plus, ArrowRight, ShieldAlert, TrendingUp, FileText, CloudRain, Wind } from 'lucide-react'
 import { api } from '../api/psyclick.js'
 import { PageShell, Card, Button, Alert, Spinner, EmptyState, ConfirmDialog, Field, inputCls, useToast } from '../components/ui.jsx'
 import PasswordDialog from '../components/PasswordDialog.jsx'
 import { StatusBadge, flagMeta, formatTimestamp, parseTimestamp } from '../lib/status.jsx'
+import { TINT, Ring } from '../report/overview.jsx'
 
 function phqLabel(s) {
   if (s == null) return '—'
@@ -97,18 +98,30 @@ export default function ClientDetail() {
               <Button variant="secondary" size="sm" className="mt-4" iconRight={ArrowRight}
                 onClick={() => navigate(`/clients/session/${latest.session_id}`)}>Open latest report</Button>
             </Card>
-            <Card className="p-6">
-              <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Depression · PHQ-9</p>
-              <p className="mt-2 text-4xl font-bold text-tmain tabular-nums">{latest.phq}<span className="text-lg text-tsub font-medium"> / 27</span></p>
-              <p className="mt-1 font-semibold text-tmain">{phqLabel(latest.phq)}</p>
-              {prev && <p className="text-sm text-tsub mt-1">{change(latest.phq, prev.phq)}</p>}
-            </Card>
-            <Card className="p-6">
-              <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Anxiety · GAD-7</p>
-              <p className="mt-2 text-4xl font-bold text-tmain tabular-nums">{latest.gad}<span className="text-lg text-tsub font-medium"> / 21</span></p>
-              <p className="mt-1 font-semibold text-tmain">{gadLabel(latest.gad)}</p>
-              {prev && <p className="text-sm text-tsub mt-1">{change(latest.gad, prev.gad)}</p>}
-            </Card>
+            {[
+              { name: 'Depression', tech: 'PHQ-9', v: latest.phq, max: 27, label: phqLabel(latest.phq), p: prev?.phq, tint: 'mint', icon: CloudRain },
+              { name: 'Anxiety', tech: 'GAD-7', v: latest.gad, max: 21, label: gadLabel(latest.gad), p: prev?.gad, tint: 'peri', icon: Wind },
+            ].map(q => (
+              <div key={q.tech} className="rounded-[20px] border border-white/70 shadow-card p-6" style={{ background: TINT[q.tint].bg }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-tmain">{q.name}</p>
+                    <p className="text-[13px] text-tsub">{q.tech} · latest session</p>
+                  </div>
+                  <span className="w-10 h-10 rounded-full bg-white/90 border border-white shadow-sm flex items-center justify-center" style={{ color: TINT[q.tint].ink }}>
+                    <q.icon size={19} aria-hidden="true" />
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-display text-[40px] font-semibold text-tmain leading-none tabular-nums">{q.v}<span className="text-base text-tsub font-medium"> / {q.max}</span></p>
+                    <p className="mt-2 text-sm font-semibold" style={{ color: TINT[q.tint].ink }}>{q.label}</p>
+                  </div>
+                  <Ring value={q.v} max={q.max} color={q.v >= 15 ? '#E0605E' : q.v >= 10 ? '#F5A623' : TINT[q.tint].stroke} label={`${q.tech} ${q.v} of ${q.max}`} />
+                </div>
+                {q.p != null && <p className="text-sm text-tsub mt-3 pt-3 border-t border-black/[0.06]">{change(q.v, q.p)}</p>}
+              </div>
+            ))}
           </div>
 
           <Card className="p-6">
