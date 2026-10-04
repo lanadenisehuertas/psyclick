@@ -750,9 +750,14 @@ def get_normative_count():
 
 def compute_normative_stats():
     conn = _conn()
+    # Exclude cold-start artifacts (first-session EWMA warm-up, T² > 10x its
+    # threshold), mirroring how the 102-session seed population was built.
+    # Without this, recomputing would overwrite the seed with contaminated stats.
     rows = _exec(conn, """
         SELECT t2_score, psi, pai, phq_score, gad_score, flight_time_mean
         FROM normative_sessions
+        WHERE t2_threshold IS NULL OR t2_threshold <= 0
+           OR t2_score <= 10 * t2_threshold
     """).fetchall()
     conn.close()
     if not rows:

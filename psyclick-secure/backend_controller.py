@@ -33,6 +33,7 @@ They are NOT recomputed from the typing-phase mouse data.
 
 import json
 import os
+import sys
 from pathlib import Path
 import database_manager as db
 import dynamics_logger  as dl
@@ -147,14 +148,17 @@ class PsyClickController:
         Searches for normative_baseline.json in:
           1. Current directory
           2. Parent directory (psyclick-1/)
-          3. psyclick-clinical/ subdirectory
+          3. Next to this module / the packaged executable
 
         Returns None if not found (engine will use ipsative-only fallback).
         """
+        module_dir = Path(__file__).resolve().parent
         search_paths = [
             Path("normative_baseline.json"),
             Path("..") / "normative_baseline.json",
-            Path(".") / "normative_baseline.json",
+            module_dir / "normative_baseline.json",
+            module_dir.parent / "normative_baseline.json",
+            Path(sys.executable).resolve().parent / "normative_baseline.json",
         ]
 
         for path in search_paths:
@@ -266,7 +270,7 @@ class PsyClickController:
         if feats:
             self.session_data["kbase"] = feats
             # Seed baseline with keyboard features only
-            self.engine.update_baseline(feats)
+            self.engine.update_baseline(feats, keystroke_count=feats.get("key_count", 0))
         return feats is not None
 
     def save_mbase(self):
@@ -377,6 +381,7 @@ class PsyClickController:
             "level_name":        question_meta.get("level_name", ""),
             "prompt":            question_meta.get("prompt", ""),
             "response_len":      len(response_text),
+            "key_count":         key_feats.get("key_count", 0),
 
             # T² results — use _ae_scalar so nested clinical engine dicts become floats
             "t2_score":          _ae_scalar(analysis, "t2_score"),
@@ -456,6 +461,10 @@ class PsyClickController:
                 "jerk":           phq_m.get("jerk", 0),
                 "pause_frequency":0.0,
             }
+
+        # Engagement is judged on the assessment typing as well as calibration;
+        # without this the keystroke tally never grows past calibration.
+        self.engine.baseline.keystroke_count += sum(s.get("key_count", 0) for s in valid_snaps)
 
         # Assessment phase — analyse against frozen calibration baseline only.
         analysis = self.engine.analyse(agg) or {}

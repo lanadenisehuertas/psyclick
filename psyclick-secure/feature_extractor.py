@@ -93,7 +93,9 @@ def extract_features(raw_data_list):
     typing_velocity = len(clean) / total_time if total_time > 0 else 0.0
 
     # ── Error Rate ────────────────────────────────────────────────────────────
-    backspaces  = df[df["key"].isin(["backspace", "BackSpace"])].shape[0]
+    # Count key-DOWN events only: each press also emits an UP event, which
+    # would otherwise double-count every backspace.
+    backspaces  = df[(df["event"] == "DOWN") & df["key"].isin(["backspace", "BackSpace"])].shape[0]
     total_keys  = len(df[df["event"] == "DOWN"])
     error_rate  = backspaces / total_keys if total_keys > 0 else 0.0
 

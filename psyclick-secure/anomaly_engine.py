@@ -186,16 +186,21 @@ class EWMABaseline:
     def update(self, x, mask=None, keystroke_count=0):
         x   = np.asarray(x, dtype=float)
         obs = mask if mask is not None else np.ones(N_FEATURES, dtype=bool)
+        first_seen = obs & ~self.ever_seen          # features observed for the first time
         self.ever_seen |= obs
         self.keystroke_count += keystroke_count  # NEW: Accumulate keystrokes
 
         if self.mu is None:
-            self.mu = x.copy()
+            self.mu = np.where(obs, x, 0.0)
             self.S  = np.eye(N_FEATURES) * 1e-4
         else:
             x_eff = np.where(obs, x, self.mu)
-            diff    = x_eff - self.mu
-            self.mu = _LAMBDA * x_eff + (1.0 - _LAMBDA) * self.mu
+            # A feature's first observation seeds its mean directly. Blending it
+            # into the 0.0 placeholder would bias mu low and inject a spurious
+            # innovation into S.
+            diff    = np.where(first_seen, 0.0, x_eff - self.mu)
+            self.mu = np.where(first_seen, x_eff,
+                               _LAMBDA * x_eff + (1.0 - _LAMBDA) * self.mu)
             self.S  = _LAMBDA * np.outer(diff, diff) + (1.0 - _LAMBDA) * self.S
         self.n += 1
 
@@ -348,11 +353,10 @@ def compute_contributions_revised(x, mu, S_inv, ever_seen=None):
     hesitation = pause_contrib + (0.5 * error_contrib)  # Weight errors at 50%
 
     # Component 3: Compensatory pattern
-    # Trying to maintain speed (typing_velocity high) but making errors
-    # This is someone stressed, not slow
+    # Typing velocity has dropped while errors have risen: effortful, error-prone
+    # slowing rather than simple slowness
     compensatory = 0.0
-    if diff[2] < 0 and diff[3] > 0:  # Speed up but error up
-        # Person is pushing to maintain speed but failing (distressed)
+    if diff[2] < 0 and diff[3] > 0:  # Velocity down and error rate up
         compensatory = 0.5 * max(0.0, C[3])
 
     # Total PSI: sum of components
