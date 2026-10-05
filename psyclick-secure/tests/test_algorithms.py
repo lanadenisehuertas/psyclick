@@ -1,6 +1,7 @@
 """Numerical regression tests for the PsyClick analysis pipeline."""
 import json
 import os
+os.environ["PSYCLICK_SYNC_URL"] = ""   # tests never touch the cloud
 import sqlite3
 import tempfile
 import unittest
@@ -344,6 +345,35 @@ class FullSessionTests(unittest.TestCase):
         c4 = next(s for s in snaps if s["item_id"] == "C4")
         self.assertEqual(c4["hover_words"][0]["word"], "hard?")
         self.assertAlmostEqual(c4["hover_words"][0]["dwell_ms"], 2000, delta=50)
+
+
+class TypingPlausibilityTests(unittest.TestCase):
+    def test_human_typing_passes(self):
+        self.assertIsNone(fe.typing_problem(_typing_events(60, flight=0.17)))
+
+    def test_injected_text_is_caught(self):
+        ev = _typing_events(60, flight=0.17)
+        for i, e in enumerate(ev):           # every other press lands in the same instant
+            e["time"] = (i // 4) * 0.17 + (0.0001 if e["event"] == "UP" else 0.0)
+        self.assertEqual(fe.typing_problem(ev), "automatic")
+
+    def test_held_key_is_caught(self):
+        ev = [{"key": "a", "event": "DOWN", "time": 0.5 + 0.033 * i} for i in range(40)]
+        ev.append({"key": "a", "event": "UP", "time": 2.0})
+        self.assertEqual(fe.typing_problem(ev), "held_key")
+
+    def test_rejected_warm_up_never_becomes_the_baseline(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from backend_controller import PsyClickController
+        from demo_simulation import FakeLogger
+        ctrl = PsyClickController()
+        ctrl.key_logger = FakeLogger()
+        ctrl.key_logger.next = [{"key": "a", "event": e, "time": 1.0 + (i // 2) * 0.001}
+                                for i, e in enumerate(["DOWN", "UP"] * 80)]
+        self.assertFalse(ctrl.save_kbase())
+        self.assertEqual(ctrl.kbase_problem, "automatic")
+        self.assertFalse(ctrl.engine.baseline.is_ready)
 
 
 if __name__ == "__main__":

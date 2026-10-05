@@ -7,7 +7,13 @@ seed_demo.py — create the PsyClick demo administrator and its sample clients.
 FOR DEMONSTRATION ONLY. Every session is simulated input run through the real
 scoring pipeline (see demo_simulation.py), so the results are exactly what
 PsyClick computes for that behaviour. The clients belong to the demo account
-only, and their sessions are marked so they are never uploaded by cloud sync.
+and sync like any other account's data, so the demo works on every device.
+
+Two clients (DEMO-14, DEMO-15) show restlessness, which the current engine
+cannot reach from simulated input (questionnaire-phase mouse movement is part
+of the client's own baseline). Their overall scores are set by hand and the
+flag, label and rationale come from the engine's own classifier; they are
+marked "illustrative" in the notes.
 
 Re-running replaces the demo account's clients; nothing else is touched.
 """
@@ -25,13 +31,14 @@ sys.path.insert(0, HERE)
 import logging
 logging.disable(logging.WARNING)
 
+import anomaly_engine as ae
 import database_manager as db
+import json
 from backend_controller import PsyClickController
 from demo_simulation import run_session
 
 DEMO_NAME     = "Demo Admin (simulation)"
 DEMO_PASSWORD = "PsyClickDemo2026"
-NOT_FOR_SYNC  = "demo-never-sync"     # synced_at marker: excluded from cloud upload
 
 # Behaviour profiles (see demo_simulation.CALM for the healthy defaults)
 NEAR_LIMIT = {"flight": 0.27, "dwell": 0.115, "pause": 0.03}
@@ -102,6 +109,13 @@ SCENARIOS = [
      ("AMBER", "Mixed Disturbance")),
     # Some prompts left blank
     ("DEMO-13", 20, dict(phq=5, gad=10), {"skip": ["B2", "C2", "C3"], "linger": LINGER_LOW}, ("GREEN", "Normal")),
+    # Restlessness (illustrative values, see the module docstring)
+    ("DEMO-14", 10, dict(phq=8, gad=13), {"task": {"err": 0.08}, "linger": LINGER_LOW,
+                                          "illustrative": dict(t2=96.0, psi=9.0, pai=96.0)},
+     ("AMBER", "Psychomotor Agitation")),
+    ("DEMO-15", 1,  dict(phq=14, gad=19), {"task": {"err": 0.1}, "linger": LINGER_HIGH,
+                                           "illustrative": dict(t2=168.0, psi=12.0, pai=210.0)},
+     ("RED", "Psychomotor Agitation")),
 ]
 
 NOTES = {
@@ -118,7 +132,42 @@ NOTES = {
     "DEMO-11": "Within the healthy range but leaning towards slowing",
     "DEMO-12": "Error-heavy, erratic typing (mixed pattern)",
     "DEMO-13": "Some prompts left blank",
+    "DEMO-14": "Restlessness, Follow up (illustrative values)",
+    "DEMO-15": "Marked restlessness with severe anxiety, Review now (illustrative values)",
 }
+
+LEVEL_WEIGHT = {"A": 0.7, "B": 1.0, "C": 1.4}
+
+
+def apply_illustrative(session_id, final, values):
+    """Set the overall scores by hand; flag, label and rationale come from the
+    engine's classifier, and the prompt scores are rescaled to match."""
+    p95 = ae.BOOTSTRAP_THRESHOLDS["task_3"]["p95"]
+    fz = ae.fuzzy_classify(values["t2"], p95, p95, {"total": values["psi"]}, values["pai"], task_context="task_3")
+    snaps = [s for s in final["visuals"]["question_snapshots"]]
+    scored = [s for s in snaps if s.get("flag") != "NO_DATA"]
+    total_w = sum(LEVEL_WEIGHT[s["level"]] for s in scored) or 1
+    for s in scored:
+        w = LEVEL_WEIGHT[s["level"]] * len(scored) / total_w
+        s["t2_score"] = round(values["t2"] * 1.1 * w, 2)
+        s["psi"] = round(values["psi"] * w, 2)
+        s["pai"] = round(values["pai"] * w, 2)
+    domain = {}
+    for s in scored:
+        domain.setdefault(s["group_id"], []).append(s["t2_score"])
+    domain = {g: sum(v) / len(v) for g, v in domain.items()}
+    conn = db._conn()
+    conn.execute("""UPDATE intake_sessions SET t2_score=?, psi=?, pai=?, fuzzy_label=?, fuzzy_confidence=?,
+                    flag=?, rationale=?, domain_t2_json=?, question_snapshots_json=? WHERE session_id=?""",
+                 (values["t2"], values["psi"], values["pai"], fz["label"], fz["confidence"], fz["flag"],
+                  fz["rationale"], json.dumps(domain),
+                  json.dumps([{k: v for k, v in s.items() if k not in ("raw_flights", "pause_coords")} for s in snaps]),
+                  session_id))
+    for s in scored:
+        conn.execute("UPDATE question_snapshots SET t2_score=?, psi=?, pai=? WHERE session_id=? AND item_id=?",
+                     (s["t2_score"], s["psi"], s["pai"], session_id, s["item_id"]))
+    conn.commit(); conn.close()
+    return {"t2_score": values["t2"], "flag": fz["flag"], "label": fz["label"]}
 
 
 def demo_account():
@@ -134,14 +183,11 @@ def demo_account():
 
 
 def clear_demo_clients(cid):
+    """Remove the demo account's sessions; tombstones carry this to other devices."""
     conn = db._conn()
-    ids = [r[0] for r in conn.execute("SELECT session_id FROM intake_sessions WHERE clinician_id=?", (cid,))]
-    if ids:
-        marks = ",".join("?" * len(ids))
-        conn.execute(f"DELETE FROM question_snapshots WHERE session_id IN ({marks})", ids)
-        conn.execute(f"DELETE FROM intake_sessions WHERE session_id IN ({marks})", ids)
+    n = db.delete_sessions(conn, "clinician_id=?", (cid,))
     conn.commit(); conn.close()
-    return len(ids)
+    return n
 
 
 def main():
@@ -157,6 +203,8 @@ def main():
         for seed in range(40):
             final = run_session(ctrl, db, spec, cid, random.Random(zlib.crc32(f"{client}/{days}".encode()) + seed))
             a = final["analysis"]
+            if "illustrative" in spec:
+                a = apply_illustrative(final["session_id"], final, spec["illustrative"])
             if (want_flag in (None, a["flag"])) and (want_label in (None, a["label"])):
                 break
             clear_session(final["session_id"])
@@ -165,8 +213,8 @@ def main():
 
         when = now - timedelta(days=days, hours=random.Random(days).randint(0, 6), minutes=random.Random(client).randint(0, 59))
         conn = db._conn()
-        conn.execute("UPDATE intake_sessions SET timestamp=?, synced_at=? WHERE session_id=?",
-                     (when.strftime("%Y-%m-%d %H:%M:%S"), NOT_FOR_SYNC, final["session_id"]))
+        conn.execute("UPDATE intake_sessions SET timestamp=? WHERE session_id=?",
+                     (when.strftime("%Y-%m-%d %H:%M:%S"), final["session_id"]))
         conn.commit(); conn.close()
         print(f"  {client}  {when:%Y-%m-%d}  PHQ-9 {q['phq']:>2}  GAD-7 {q['gad']:>2}  "
               f"T² {a['t2_score']:7.1f}  {a['flag']:5}  {a['label']}")
@@ -179,8 +227,7 @@ def main():
 
 def clear_session(session_id):
     conn = db._conn()
-    conn.execute("DELETE FROM question_snapshots WHERE session_id=?", (session_id,))
-    conn.execute("DELETE FROM intake_sessions WHERE session_id=?", (session_id,))
+    db.delete_sessions(conn, "session_id=?", (session_id,))
     conn.commit(); conn.close()
 
 

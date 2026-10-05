@@ -48,18 +48,23 @@ function SyncBadge() {
   if (!sync || !sync.enabled) return null
   const pending = sync.pending || 0
   const busy = syncing || sync.syncing
-  const label = busy ? 'Syncing…'
-    : !sync.connected ? (pending ? `${pending} waiting — offline` : 'Offline')
-    : pending ? `${pending} record${pending !== 1 ? 's' : ''} waiting`
-    : sync.last_sync ? `Synced ${sync.last_sync.slice(11, 16)}` : 'Synced'
+  const status = busy ? 'Syncing…'
+    : !sync.connected ? (pending ? `Offline · ${pending} change${pending !== 1 ? 's' : ''} to sync` : 'Offline · will sync later')
+    : pending ? `${pending} change${pending !== 1 ? 's' : ''} to sync`
+    : sync.last_sync ? `Synced at ${sync.last_sync.slice(11, 16)}` : 'Synced'
   const Icon = (!sync.connected || pending > 0) ? CloudOff : Cloud
 
   return (
     <div className="px-3 pb-2">
-      <button onClick={handleSyncNow} disabled={busy} title={sync.error || 'Sync now'}
-        className="flex items-center gap-2 w-full px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-[#A9CACA] disabled:opacity-60 cursor-pointer">
-        {busy ? <RefreshCw size={14} className="animate-spin" aria-hidden="true" /> : <Icon size={14} aria-hidden="true" />}
-        <span className="truncate">{label}</span>
+      <button onClick={handleSyncNow} disabled={busy} title={sync.error ? `Last attempt: ${sync.error}` : 'Sync now'}
+        aria-label={`Data saved on this computer. ${status}. Sync now.`}
+        className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-left disabled:opacity-60 cursor-pointer">
+        {busy ? <RefreshCw size={15} className="animate-spin text-[#9FE8D4] flex-shrink-0" aria-hidden="true" />
+              : <Icon size={15} className={`flex-shrink-0 ${sync.connected && !pending ? 'text-[#9FE8D4]' : 'text-[#F5C26B]'}`} aria-hidden="true" />}
+        <span className="min-w-0">
+          <span className="block text-[11px] text-white/55 leading-tight">Saved on this computer</span>
+          <span className="block text-xs font-medium text-[#CFE3E6] truncate leading-tight mt-0.5">{status}</span>
+        </span>
       </button>
     </div>
   )

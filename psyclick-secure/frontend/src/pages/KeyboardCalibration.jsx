@@ -24,7 +24,11 @@ export default function KeyboardCalibration() {
     setBusy(true); setErr('')
     const res = await api.kCalSave()
     setBusy(false)
-    if (res?.success === false) { setErr(res.error || 'Something went wrong. Please try again.'); return }
+    if (res?.success === false) {
+      setErr(res.error || 'Something went wrong. Please try again.')
+      if (res.retry) { setTyped(''); areaRef.current?.focus() }   // capture restarted on the server
+      return
+    }
     navigate('/calibration/mouse')
   }
 

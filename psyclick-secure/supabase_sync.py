@@ -1,17 +1,22 @@
 """
-supabase_sync.py — PsyClick Clinical Edition: Background Cloud Sync
+supabase_sync.py — PsyClick offline-first cloud sync (Supabase Postgres).
 
-Offline-first design:
-  - The app runs 100% on local SQLite with no internet requirement.
-  - When Supabase is configured AND internet is available, unsynced
-    session records are uploaded automatically in the background.
-  - Safe no-op when supabase_url / supabase_key are absent from config.json.
+The app always works on the local SQLite database; nothing here is needed to
+assess, score or report. When a sync connection is configured and the
+computer is online, a background thread:
 
-config.json fields used (all optional):
-  {
-    "supabase_url": "https://xxxx.supabase.co",
-    "supabase_key": "<anon-or-service-role-key>"
-  }
+  1. uploads changed accounts (newest change wins, keyed by clinician ID),
+  2. uploads deletions and new sessions (keyed by a device-independent uid),
+  3. downloads everything other devices changed since the last download.
+
+So any account can sign in on any device that has synced once, and sees its
+own clients there. Syncing wakes immediately after a change and otherwise
+every 60 s; it simply waits while offline.
+
+Configuration (config.json next to the app, or %APPDATA%\\PsyClick\\config.json):
+    {"sync_url": "postgresql://psyclick_app.<project>:<password>@<host>:5432/postgres"}
+The role in sync_url only needs the psyclick schema created by
+scripts/setup_cloud_sync.py; it cannot read anything else in the project.
 """
 
 import json
@@ -21,6 +26,7 @@ import socket
 import sys
 import threading
 import time
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -28,291 +34,265 @@ _handler = logging.StreamHandler(sys.stderr)
 _handler.setFormatter(logging.Formatter('[PsyClick Sync] %(levelname)s: %(message)s'))
 logger.addHandler(_handler)
 
-# ── Internal state ─────────────────────────────────────────────────────────────
+SCHEMA = os.environ.get("PSYCLICK_SYNC_SCHEMA", "psyclick")   # tests use a scratch schema
+_SYNC_INTERVAL = 60      # seconds between routine sync attempts
+_CONN_TIMEOUT  = 5       # seconds for the connectivity probe and connect
+_PULL_OVERLAP  = 200     # re-read recent changes in case a slower upload committed late
+
 _sync_status = {
-    "enabled":    False,   # True once valid Supabase config is found
-    "connected":  False,   # Last connectivity check result
-    "last_sync":  None,    # ISO timestamp of last successful upload
-    "pending":    0,       # Unsynced record count
-    "error":      None,    # Last error string (None if clean)
-    "syncing":    False,   # Currently uploading
+    "enabled":   False,   # a sync connection is configured
+    "connected": False,   # last attempt reached the cloud
+    "last_sync": None,    # local time of the last complete sync
+    "pending":   0,       # local changes waiting for upload
+    "error":     None,
+    "syncing":   False,
 }
+_lock        = threading.Lock()     # one sync at a time
+_wake        = threading.Event()
+_stop_event  = threading.Event()
+_sync_thread = None
 
-_stop_event   = threading.Event()
-_sync_thread  = None
-_SYNC_INTERVAL = 60        # seconds between sync attempts
-_CONN_TIMEOUT  = 5         # seconds for connectivity probe
 
-
-# ── Config loading ─────────────────────────────────────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────────
 
 def _config_paths():
-    """Return candidate config.json paths in priority order."""
-    paths = []
+    here = os.path.dirname(os.path.abspath(__file__))
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
     appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
-
+    paths = []
     if getattr(sys, 'frozen', False):
-        # Packaged (PyInstaller): check alongside the exe and in %APPDATA%\PsyClick
         if hasattr(sys, '_MEIPASS'):
             paths.append(os.path.join(sys._MEIPASS, 'config.json'))
-        paths.append(os.path.join(appdata, 'PsyClick', 'config.json'))
+        # Electron ships config.json in resources/, one level above the API folder
+        paths += [os.path.join(exe_dir, 'config.json'), os.path.join(os.path.dirname(exe_dir), 'config.json')]
     else:
-        # Development: project directory
-        paths.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json'))
-        paths.append(os.path.join(appdata, 'PsyClick', 'config.json'))
-
+        paths.append(os.path.join(here, 'config.json'))
+    paths += [os.path.join(appdata, 'PsyClickSecure', 'config.json'),
+              os.path.join(appdata, 'PsyClick', 'config.json')]
     return paths
 
 
-def _load_supabase_config():
-    """Return (supabase_url, supabase_key) or (None, None) if not configured."""
+def _load_sync_url():
+    override = os.environ.get('PSYCLICK_SYNC_URL')
+    if override is not None:
+        return override.strip() or None
     for path in _config_paths():
         try:
-            if not os.path.exists(path):
-                continue
-            with open(path, 'r', encoding='utf-8-sig') as fh:
-                cfg = json.load(fh)
-            url = cfg.get('supabase_url', '').strip()
-            key = cfg.get('supabase_key', '').strip()
-            if url and key:
-                logger.info(f'Supabase config loaded from {path}')
-                return url, key
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8-sig') as fh:
+                    url = (json.load(fh).get('sync_url') or '').strip()
+                if url:
+                    return url
         except Exception as exc:
             logger.warning(f'Could not read {path}: {exc}')
-    return None, None
+    return None
 
-
-# ── Connectivity check ─────────────────────────────────────────────────────────
 
 def _is_online(url):
-    """Return True if we can resolve the Supabase host DNS."""
     try:
-        host = url.replace('https://', '').replace('http://', '').split('/')[0]
-        socket.setdefaulttimeout(_CONN_TIMEOUT)
-        socket.getaddrinfo(host, 443)
-        return True
+        host = urlparse(url).hostname
+        socket.getaddrinfo(host, urlparse(url).port or 5432)
+        with socket.create_connection((host, urlparse(url).port or 5432), timeout=_CONN_TIMEOUT):
+            return True
     except Exception:
         return False
 
 
-# ── Sync logic ─────────────────────────────────────────────────────────────────
+def _connect(url):
+    import psycopg2  # type: ignore
+    return psycopg2.connect(url, connect_timeout=_CONN_TIMEOUT)
 
-def _do_sync(supabase_url, supabase_key):
-    """Upload all pending unsynced sessions to Supabase."""
-    from database_manager import get_unsynced_sessions, mark_session_synced
 
-    try:
-        from supabase import create_client  # type: ignore
-    except ImportError:
-        _sync_status['error'] = 'supabase-py not installed — run: pip install supabase'
-        logger.warning(_sync_status['error'])
-        return
+# ── One sync pass ─────────────────────────────────────────────────────────────
 
-    try:
-        client = create_client(supabase_url, supabase_key)
-    except Exception as exc:
-        _sync_status['error'] = f'Supabase client error: {exc}'
-        _sync_status['connected'] = False
-        return
+def _push_accounts(cur, db):
+    for acc in db.get_dirty_accounts():
+        cur.execute(f"""
+            INSERT INTO {SCHEMA}.accounts
+                (clinician_id, account_uid, name, password_hash, role, status, created_at, updated_at, server_seq)
+            VALUES (%(clinician_id)s, %(account_uid)s, %(name)s, %(password_hash)s, %(role)s, %(status)s,
+                    %(created_at)s, %(updated_at)s, nextval('{SCHEMA}.change_seq'))
+            ON CONFLICT (clinician_id) DO UPDATE SET
+                name = EXCLUDED.name, password_hash = EXCLUDED.password_hash, role = EXCLUDED.role,
+                status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
+                server_seq = nextval('{SCHEMA}.change_seq')
+            WHERE {SCHEMA}.accounts.account_uid = EXCLUDED.account_uid
+              AND {SCHEMA}.accounts.updated_at < EXCLUDED.updated_at
+            RETURNING account_uid""", acc)
+        if cur.fetchone() is None:
+            cur.execute(f"SELECT account_uid FROM {SCHEMA}.accounts WHERE clinician_id=%s", (acc["clinician_id"],))
+            row = cur.fetchone()
+            if row and row[0] != acc["account_uid"]:
+                # Same ID made on two devices while offline: this one moves
+                cur.execute(f"SELECT clinician_id FROM {SCHEMA}.accounts")
+                new_id = db.reassign_clinician_id(acc["clinician_id"], [r[0] for r in cur.fetchall()])
+                db.log_audit("security", "Account ID changed by sync",
+                             f"{acc['name']}: {acc['clinician_id']} -> {new_id} (ID was taken on another device)")
+                logger.warning(f"Account {acc['clinician_id']} moved to {new_id}: ID taken on another device")
+                return True          # push again on the next pass with the new ID
+        db.mark_account_synced(acc["clinician_id"], acc["updated_at"])
+    return False
 
-    sessions = get_unsynced_sessions(limit=100)
-    _sync_status['pending'] = len(sessions)
 
-    if not sessions:
-        _sync_status['connected']  = True
-        _sync_status['last_sync']  = time.strftime('%Y-%m-%d %H:%M:%S')
-        _sync_status['error']      = None
-        return
+def _push_deletions(cur, db):
+    for suid, deleted_at in db.get_pending_tombstones():
+        cur.execute(f"""
+            INSERT INTO {SCHEMA}.sessions (session_uid, clinician_id, data, deleted_at, server_seq)
+            VALUES (%s, NULL, '{{}}'::jsonb, %s, nextval('{SCHEMA}.change_seq'))
+            ON CONFLICT (session_uid) DO UPDATE SET
+                data = '{{}}'::jsonb, deleted_at = EXCLUDED.deleted_at,
+                server_seq = nextval('{SCHEMA}.change_seq')""", (suid, deleted_at))
+        db.mark_tombstone_pushed(suid)
 
-    _sync_status['syncing'] = True
-    synced = 0
 
-    for row in sessions:
+def _push_sessions(cur, db):
+    while True:
+        batch = db.get_unsynced_sessions(limit=50)
+        if not batch:
+            return
+        for item in batch:
+            data = item["data"]
+            cur.execute(f"""
+                INSERT INTO {SCHEMA}.sessions (session_uid, clinician_id, data, deleted_at, server_seq)
+                VALUES (%s, %s, %s::jsonb, NULL, nextval('{SCHEMA}.change_seq'))
+                ON CONFLICT (session_uid) DO NOTHING""",
+                (data["session_uid"], data.get("clinician_id"), json.dumps(data, default=str)))
+            db.mark_session_synced(item["session_id"])
+
+
+def _pull(cur, db, accounts_only=False):
+    since = int(db.get_sync_state("last_seq", "0") or 0)
+    start = max(0, since - _PULL_OVERLAP)
+    top = since
+    cur.execute(f"""SELECT clinician_id, account_uid, name, password_hash, role, status, created_at,
+                           updated_at, server_seq
+                    FROM {SCHEMA}.accounts WHERE server_seq > %s ORDER BY server_seq""", (start,))
+    for r in cur.fetchall():
+        db.apply_remote_account({"clinician_id": r[0], "account_uid": r[1], "name": r[2], "password_hash": r[3],
+                                 "role": r[4], "status": r[5], "created_at": r[6], "updated_at": r[7]})
+        top = max(top, r[8])
+    if accounts_only:
+        return          # the shared watermark only moves once sessions are read too
+    while True:
+        cur.execute(f"""SELECT session_uid, data, deleted_at, server_seq FROM {SCHEMA}.sessions
+                        WHERE server_seq > %s ORDER BY server_seq LIMIT 200""", (start,))
+        rows = cur.fetchall()
+        if not rows:
+            break
+        for suid, data, deleted_at, seq in rows:
+            db.apply_remote_session(suid, data if isinstance(data, dict) else json.loads(data or "{}"),
+                                    deleted_at.isoformat() if deleted_at else None)
+            top = max(top, seq)
+            start = seq
+    db.set_sync_state("last_seq", top)
+
+
+def _sync_once(url, pull_only=False, accounts_only=False):
+    import database_manager as db
+    with _lock:
+        _sync_status['syncing'] = True
         try:
-            # Upsert using local session_id as the conflict key.
-            # Your Supabase intake_sessions table should have session_id as PK
-            # (or a unique index) to accept upserts from multiple devices.
-            client.table('intake_sessions').upsert(
-                row, on_conflict='session_id'
-            ).execute()
-            mark_session_synced(row['session_id'])
-            synced += 1
+            conn = _connect(url)
+            try:
+                conn.autocommit = True
+                cur = conn.cursor()
+                if not pull_only:
+                    # Pull accounts first so pushes see IDs taken elsewhere
+                    _pull(cur, db)
+                    while _push_accounts(cur, db):
+                        pass
+                    _push_deletions(cur, db)
+                    _push_sessions(cur, db)
+                _pull(cur, db, accounts_only=accounts_only)
+            finally:
+                conn.close()
+            _sync_status.update(connected=True, error=None, last_sync=time.strftime('%Y-%m-%d %H:%M:%S'))
+            return True
         except Exception as exc:
-            logger.error(f"Failed to sync session {row.get('session_id')}: {exc}")
-            _sync_status['error'] = str(exc)
-            break   # stop on first error; retry next cycle
-
-    _sync_status['pending']   = max(0, _sync_status['pending'] - synced)
-    _sync_status['connected'] = True
-    _sync_status['last_sync'] = time.strftime('%Y-%m-%d %H:%M:%S')
-    if synced == len(sessions):
-        _sync_status['error'] = None
-    _sync_status['syncing'] = False
-
-    if synced:
-        logger.info(f'Synced {synced} session(s) to Supabase.')
+            _sync_status.update(connected=False, error=str(exc).strip().splitlines()[0][:200])
+            logger.error(f'Sync failed: {exc}')
+            return False
+        finally:
+            _sync_status['syncing'] = False
+            _sync_status['pending'] = db.get_unsynced_count()
 
 
-# ── Background loop ────────────────────────────────────────────────────────────
+# ── Background service ────────────────────────────────────────────────────────
 
 def _sync_loop():
-    """Runs on a daemon thread; checks for work every _SYNC_INTERVAL seconds."""
-    # Brief startup delay so the Flask server and DB are ready first
-    _stop_event.wait(5)
-
+    _stop_event.wait(3)   # let the API and database start first
     while not _stop_event.is_set():
         try:
-            from database_manager import get_unsynced_count
-            _sync_status['pending'] = get_unsynced_count()
-
-            supabase_url, supabase_key = _load_supabase_config()
-
-            if supabase_url and supabase_key:
-                _sync_status['enabled'] = True
-                if _is_online(supabase_url):
-                    _do_sync(supabase_url, supabase_key)
+            url = _load_sync_url()
+            _sync_status['enabled'] = bool(url)
+            if url:
+                if _is_online(url):
+                    _sync_once(url)
                 else:
                     _sync_status['connected'] = False
-            else:
-                _sync_status['enabled'] = False
-
+                    from database_manager import get_unsynced_count
+                    _sync_status['pending'] = get_unsynced_count()
         except Exception as exc:
             logger.error(f'Sync loop error: {exc}')
+        _wake.wait(_SYNC_INTERVAL)
+        _wake.clear()
 
-        _stop_event.wait(_SYNC_INTERVAL)
-
-
-# ── Public API ─────────────────────────────────────────────────────────────────
 
 def start_sync_service():
-    """Start the background sync service. Idempotent — safe to call multiple times."""
+    """Start the background sync thread. Safe to call more than once."""
     global _sync_thread
     if _sync_thread and _sync_thread.is_alive():
         return
     _stop_event.clear()
-    _sync_thread = threading.Thread(
-        target=_sync_loop, daemon=True, name='psyclick-supabase-sync'
-    )
+    _sync_thread = threading.Thread(target=_sync_loop, daemon=True, name='psyclick-sync')
     _sync_thread.start()
     logger.info('Background sync service started.')
 
 
 def stop_sync_service():
-    """Signal the background sync thread to stop."""
     _stop_event.set()
+    _wake.set()
+
+
+def request_sync():
+    """Sync soon (after a local change). Never blocks."""
+    _wake.set()
+
+
+def pull_now(timeout=8):
+    """
+    Download accounts now, waiting at most `timeout` seconds, then let the
+    background sync bring the sessions. Used before sign-in or first-time
+    setup on a device that has not seen an account yet, so it stays quick.
+    Returns True when the accounts arrived.
+    """
+    url = _load_sync_url()
+    if not url or not _is_online(url):
+        return False
+    done = {}
+    t = threading.Thread(target=lambda: done.setdefault('ok', _sync_once(url, pull_only=True, accounts_only=True)),
+                         daemon=True)
+    t.start()
+    t.join(timeout)
+    request_sync()
+    return bool(done.get('ok'))
 
 
 def get_sync_status():
-    """Return a snapshot of the current sync status for the /api/sync/status endpoint."""
     try:
         from database_manager import get_unsynced_count
         _sync_status['pending'] = get_unsynced_count()
     except Exception:
         pass
+    _sync_status['enabled'] = bool(_load_sync_url())
     return dict(_sync_status)
 
 
 def trigger_sync_now():
-    """Attempt an immediate sync (blocking). Returns updated status dict."""
-    supabase_url, supabase_key = _load_supabase_config()
-    if not supabase_url or not supabase_key:
-        return get_sync_status()
-    if _is_online(supabase_url):
-        _do_sync(supabase_url, supabase_key)
+    """Attempt an immediate full sync (blocking). Returns the status."""
+    url = _load_sync_url()
+    if url and _is_online(url):
+        _sync_once(url)
+    elif url:
+        _sync_status['connected'] = False
     return get_sync_status()
-
-
-def pull_from_supabase():
-    """
-    One-time migration: pull existing sessions from Supabase into local SQLite.
-    Only inserts rows that don't already exist locally (by session_id).
-    Returns (pulled_count, error_message).
-    """
-    supabase_url, supabase_key = _load_supabase_config()
-
-    # Also support legacy postgresql:// URL from config for the pull
-    if not supabase_url or not supabase_key:
-        supabase_url, supabase_key = _load_postgres_config()
-
-    if not supabase_url:
-        return 0, 'No Supabase credentials configured in config.json'
-
-    if not _is_online(supabase_url if not supabase_url.startswith('postgresql') else supabase_url.split('@')[1].split('/')[0]):
-        return 0, 'No internet connection'
-
-    try:
-        import psycopg2  # type: ignore
-        from database_manager import _conn, _exec
-
-        pg = psycopg2.connect(_load_postgres_config()[0], connect_timeout=10)
-        pg_c = pg.cursor()
-
-        # Fetch all sessions from Supabase
-        pg_c.execute("""
-            SELECT session_id, student_id, timestamp,
-                   kbase_mean, kbase_std,
-                   mbase_hv, mbase_vv, mbase_tv, mbase_ta, mbase_jerk, mbase_curve,
-                   phq_score, phq_hv, phq_vv, phq_tv, phq_ta, phq_jerk, phq_curve,
-                   gad_score, gad_hv, gad_vv, gad_tv, gad_ta, gad_jerk, gad_curve,
-                   task_k_mean, task_k_std, k_z_score, m_z_score,
-                   t2_score, t2_threshold, psi, pai,
-                   fuzzy_label, fuzzy_confidence, flag, rationale,
-                   domain_t2_json, question_snapshots_json
-            FROM intake_sessions
-            ORDER BY session_id
-        """)
-        remote_rows = pg_c.fetchall()
-        pg.close()
-
-        if not remote_rows:
-            return 0, None
-
-        local = _conn()
-        # Get existing local session_ids to avoid duplicates
-        existing = {r[0] for r in _exec(local, 'SELECT session_id FROM intake_sessions').fetchall()}
-
-        pulled = 0
-        for row in remote_rows:
-            sid = row[0]
-            if sid in existing:
-                continue
-            _exec(local, """
-                INSERT INTO intake_sessions (
-                    session_id, student_id, timestamp,
-                    kbase_mean, kbase_std,
-                    mbase_hv, mbase_vv, mbase_tv, mbase_ta, mbase_jerk, mbase_curve,
-                    phq_score, phq_hv, phq_vv, phq_tv, phq_ta, phq_jerk, phq_curve,
-                    gad_score, gad_hv, gad_vv, gad_tv, gad_ta, gad_jerk, gad_curve,
-                    task_k_mean, task_k_std, k_z_score, m_z_score,
-                    t2_score, t2_threshold, psi, pai,
-                    fuzzy_label, fuzzy_confidence, flag, rationale,
-                    domain_t2_json, question_snapshots_json,
-                    synced_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (*row, time.strftime('%Y-%m-%d %H:%M:%S')))  # mark as already synced
-            pulled += 1
-
-        local.commit()
-        local.close()
-        logger.info(f'Pulled {pulled} session(s) from Supabase into local SQLite.')
-        return pulled, None
-
-    except Exception as exc:
-        logger.error(f'pull_from_supabase error: {exc}')
-        return 0, str(exc)
-
-
-def _load_postgres_config():
-    """Return the raw postgresql:// URL from config (for legacy pull migration)."""
-    for path in _config_paths():
-        try:
-            if not os.path.exists(path):
-                continue
-            with open(path, 'r', encoding='utf-8-sig') as fh:
-                cfg = json.load(fh)
-            url = cfg.get('database_url', '').strip()
-            if url.startswith('postgresql://') or url.startswith('postgres://'):
-                return url, None
-        except Exception:
-            pass
-    return None, None

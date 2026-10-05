@@ -53,6 +53,7 @@ from database_manager import (
     DatabaseUnavailableError,
     get_next_client_id,
     get_next_tester_id,
+    delete_sessions, touch_clinician,
 )
 from report_exporter import export_report, export_summary
 from security_manager import protect_file, create_encrypted_backup, validate_encrypted_backup
@@ -195,6 +196,9 @@ def login():
         return jsonify({"success": False, "error": "Clinician ID must be a number."})
     try:
         clinician_id = int(uid)
+        if not get_clinician_by_id(clinician_id):
+            # An account made on another device: fetch accounts before failing.
+            supabase_sync.pull_now(timeout=8)
         success, error_msg = db_verify_clinician(clinician_id, pwd)
         if success:
             intrusion_monitor.record_success(source_ip, clinician_id)
@@ -234,8 +238,11 @@ def register():
         requested_role = str(d.get("role", "clinician")).lower()
         if requested_role not in {"clinician", "auditor", "admin"}:
             return jsonify({"success": False, "error": "Invalid role."}), 400
+    # Fetch accounts made elsewhere first, so the new ID is free on every device
+    supabase_sync.pull_now(timeout=8)
     success, clinician_id, error_msg = register_clinician(name, pwd, requested_role)
     if success:
+        supabase_sync.request_sync()
         log_audit("admin" if actor else "system", "Registered account", name,
                   actor_id=actor.get("id") if actor else clinician_id)
         return jsonify({"success": True, "clinician_id": clinician_id, "name": name, "role": requested_role})
@@ -466,9 +473,22 @@ def kcal_start():
     log_audit("patient", "Entered Keyboard Calibration", controller.session_data["student_id"])
     return jsonify({"success": True})
 
+_TYPING_PROBLEM_TEXT = {
+    "automatic": "The typing arrived faster than a person can type, as if it was pasted or "
+                 "entered by another program. Please type the paragraph yourself.",
+    "held_key":  "It looks like a key was held down. Please type the paragraph again, "
+                 "pressing each key once.",
+}
+
+
 @app.route("/api/calibration/keyboard/save", methods=["POST"])
 def kcal_save():
-    require_controller().save_kbase()
+    controller = require_controller()
+    if controller.save_kbase() is False and getattr(controller, "kbase_problem", None):
+        problem = controller.kbase_problem
+        log_audit("patient", "Typing warm-up rejected", f"{controller.session_data['student_id']} · {problem}")
+        controller.start_key_capture(calibration_mode=True)
+        return jsonify({"success": False, "retry": True, "error": _TYPING_PROBLEM_TEXT[problem]})
     return jsonify({"success": True})
 
 # ─── Mouse calibration ─────────────────────────────────────────────────────────
@@ -582,6 +602,7 @@ def assessment_finish():
         result = controller.process_final_task()
         if result:
             log_audit("patient", "Finished Session", controller.session_data["student_id"])
+            supabase_sync.request_sync()
             return jsonify({"success": True, "report": result})
         return jsonify({"success": False, "error": "No biometric data captured — ensure calibration completed."})
     except Exception as e:
@@ -672,10 +693,9 @@ def delete_client(client_id):
         ph = _ph()
         conn = _conn(); c = conn.cursor()
         clinician_id = _scoped_clinician_id()
-        c.execute(f"DELETE FROM intake_sessions WHERE student_id={ph} AND clinician_id={ph}",
-                  (client_id, clinician_id))
-        deleted = c.rowcount
+        deleted = delete_sessions(conn, f"student_id={ph} AND clinician_id={ph}", (client_id, clinician_id))
         conn.commit(); conn.close()
+        supabase_sync.request_sync()
         log_audit(g.current_user["role"], f"Deleted client record: {client_id}",
                   f"{deleted} session(s) removed", actor_id=g.current_user["id"])
         return jsonify({"success": True, "deleted": deleted})
@@ -744,7 +764,6 @@ def sync_status():
 
 
 @app.route("/api/sync/now", methods=["POST"])
-@require_roles("admin")
 def sync_now():
     """Trigger an immediate sync attempt (clinician-initiated)."""
     try:
@@ -752,19 +771,6 @@ def sync_now():
         return jsonify(result)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/sync/pull", methods=["POST"])
-@require_roles("admin")
-def sync_pull():
-    """Pull existing sessions from Supabase into local SQLite (one-time migration)."""
-    try:
-        pulled, error = supabase_sync.pull_from_supabase()
-        if error:
-            return jsonify({"success": False, "error": error, "pulled": 0})
-        return jsonify({"success": True, "pulled": pulled})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e), "pulled": 0}), 500
 
 
 @app.route("/api/admin/backup", methods=["POST"])
@@ -824,12 +830,14 @@ def admin_update_user(clinician_id):
         conn.close(); return jsonify({"success": False, "error": "User not found."}), 404
     _exec(conn, "UPDATE clinicians SET role=?, status=? WHERE clinician_id=?",
           (role, status, clinician_id))
+    touch_clinician(conn, clinician_id)
     if status == "disabled":
         _exec(conn, "UPDATE security_sessions SET revoked_at=? WHERE clinician_id=? AND revoked_at IS NULL",
               (datetime.now().isoformat(timespec="seconds"), clinician_id))
     conn.commit(); conn.close()
     log_audit("admin", "Updated user access", f"{clinician_id}: {role}/{status}",
               actor_id=g.current_user["id"])
+    supabase_sync.request_sync()
     return jsonify({"success": True})
 
 
@@ -864,6 +872,9 @@ def setup_status():
     """Public: whether any account exists yet (first run shows administrator setup)."""
     try:
         conn = _conn(); count = _exec(conn, "SELECT COUNT(*) FROM clinicians").fetchone()[0]; conn.close()
+        if count == 0 and supabase_sync.pull_now(timeout=10):
+            # A new device: accounts from the cloud arrive before first-time setup is offered
+            conn = _conn(); count = _exec(conn, "SELECT COUNT(*) FROM clinicians").fetchone()[0]; conn.close()
         return jsonify({"has_accounts": count > 0})
     except DatabaseUnavailableError as e:
         return _db_unavailable_response(e)

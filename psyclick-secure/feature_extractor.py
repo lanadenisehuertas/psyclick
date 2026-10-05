@@ -35,6 +35,41 @@ def _sliding_wma(values):
     return out / norm
 
 
+# ── TYPING PLAUSIBILITY ─────────────────────────────────────────────────────
+# People cannot press keys in the same millisecond again and again, and a held
+# key auto-repeats without being released. Either one means the timing does
+# not describe the person's typing (text injected by software, or a key held
+# down), so it must not be scored or used as a baseline.
+_SIMULTANEOUS_S   = 0.005   # presses closer than this are not human
+_MAX_SIMULTANEOUS = 0.15    # share of such presses tolerated (key rollover)
+_MAX_REPEATS      = 0.30    # share of auto-repeated presses tolerated
+
+
+def typing_problem(raw_data_list):
+    """Return None for plausible typing, else 'automatic' or 'held_key'."""
+    if isinstance(raw_data_list, dict):
+        raw_data_list = raw_data_list.get("keys", [])
+    events = sorted(raw_data_list or [], key=lambda e: e["time"])
+    downs = [e for e in events if e.get("event") == "DOWN"]
+    if len(downs) < 4:
+        return None
+    gaps = [b["time"] - a["time"] for a, b in zip(downs, downs[1:])]
+    if sum(1 for g in gaps if g < _SIMULTANEOUS_S) / len(gaps) > _MAX_SIMULTANEOUS:
+        return "automatic"
+    held, repeats = set(), 0
+    for e in events:
+        k = e.get("key")
+        if e.get("event") == "DOWN":
+            if k in held:
+                repeats += 1
+            held.add(k)
+        else:
+            held.discard(k)
+    if repeats / len(downs) > _MAX_REPEATS:
+        return "held_key"
+    return None
+
+
 # ── STAGE 3: KEYSTROKE FEATURE EXTRACTION ────────────────────────────────────
 def extract_features(raw_data_list):
     """

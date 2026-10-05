@@ -6,7 +6,7 @@ This version uses ONLY local SQLite database.
 No network connections, no configuration files, no external dependencies.
 Perfect for air-gapped clinical environments and demo deployments.
 """
-import sqlite3, math, json, os, sys, time, hashlib, secrets, threading
+import sqlite3, math, json, os, sys, time, hashlib, secrets, threading, uuid
 import logging
 from datetime import datetime, timedelta
 
@@ -207,7 +207,10 @@ def init_db():
                 failed_attempts  INTEGER DEFAULT 0,
                 locked_until     TEXT,
                 last_login_at    TEXT,
-                created_at       TEXT DEFAULT (datetime('now'))
+                created_at       TEXT DEFAULT (datetime('now')),
+                account_uid      TEXT,
+                updated_at       TEXT,
+                sync_dirty       INTEGER DEFAULT 1
             )
         """),
 
@@ -241,7 +244,9 @@ def init_db():
                 question_snapshots_json TEXT,
                 flight_times_json TEXT,
                 synced_at       TEXT DEFAULT NULL,
-                phq_item9       INTEGER
+                phq_item9       INTEGER,
+                session_uid     TEXT,
+                updated_at      TEXT
             )
         """),
 
@@ -341,6 +346,21 @@ def init_db():
             )
         """),
 
+        # ── Cloud sync bookkeeping ────────────────────────────────────────────
+        ("sync_tombstones", """
+            CREATE TABLE IF NOT EXISTS sync_tombstones (
+                session_uid TEXT PRIMARY KEY,
+                deleted_at  TEXT NOT NULL,
+                pushed      INTEGER DEFAULT 0
+            )
+        """),
+        ("sync_state", """
+            CREATE TABLE IF NOT EXISTS sync_state (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """),
+
         # ── Normative population stats ────────────────────────────────────────
         ("normative_stats", """
             CREATE TABLE IF NOT EXISTS normative_stats (
@@ -385,8 +405,23 @@ def init_db():
     # end up with the same columns as a fresh one (no-op when present).
     for col, coltype in (('domain_t2_json', 'TEXT'), ('question_snapshots_json', 'TEXT'),
                          ('clinician_id', 'INTEGER'), ('flight_times_json', 'TEXT'),
-                         ('synced_at', 'TEXT'), ('phq_item9', 'INTEGER')):
+                         ('synced_at', 'TEXT'), ('phq_item9', 'INTEGER'),
+                         ('session_uid', 'TEXT'), ('updated_at', 'TEXT')):
         _add_col(conn, 'intake_sessions', col, coltype)
+    for col, coltype in (('account_uid', 'TEXT'), ('updated_at', 'TEXT'), ('sync_dirty', 'INTEGER')):
+        _add_col(conn, 'clinicians', col, coltype)
+    # Every account and session needs an identity that is unique across
+    # devices; local integer ids are not.
+    try:
+        for (cid,) in c.execute("SELECT clinician_id FROM clinicians WHERE account_uid IS NULL").fetchall():
+            c.execute("UPDATE clinicians SET account_uid=?, updated_at=COALESCE(updated_at, ?), sync_dirty=1 "
+                      "WHERE clinician_id=?", (uuid.uuid4().hex, utc_now(), cid))
+        for (sid,) in c.execute("SELECT session_id FROM intake_sessions WHERE session_uid IS NULL").fetchall():
+            c.execute("UPDATE intake_sessions SET session_uid=? WHERE session_id=?", (uuid.uuid4().hex, sid))
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_sessions_uid ON intake_sessions(session_uid)")
+        conn.commit()
+    except Exception as exc:
+        logger.error(f"init_db: failed to assign sync identities: {exc}")
 
     try:
         conn.commit()
@@ -564,6 +599,8 @@ def save_full_intake(data):
     item9 = (data.get("phq") or {}).get("item9")
     if item9 is not None:
         _exec(conn, "UPDATE intake_sessions SET phq_item9=? WHERE session_id=?", (int(item9), session_id))
+    _exec(conn, "UPDATE intake_sessions SET session_uid=?, updated_at=? WHERE session_id=?",
+          (uuid.uuid4().hex, utc_now(), session_id))
 
     # Per-question snapshots
     for snap in data.get("visuals", {}).get("question_snapshots", []):
@@ -1047,9 +1084,10 @@ def register_clinician(name, password, role=None):
         password_hash = _hash_password(password)
         _exec(conn,
             """INSERT INTO clinicians
-               (clinician_id, name, password, password_hash, role, status, failed_attempts)
-               VALUES (?, ?, '', ?, ?, 'active', 0)""",
-            (clinician_id, name, password_hash, assigned_role))
+               (clinician_id, name, password, password_hash, role, status, failed_attempts,
+                account_uid, updated_at, sync_dirty)
+               VALUES (?, ?, '', ?, ?, 'active', 0, ?, ?, 1)""",
+            (clinician_id, name, password_hash, assigned_role, uuid.uuid4().hex, utc_now()))
         conn.commit()
         conn.close()
         return True, clinician_id, None
@@ -1121,7 +1159,8 @@ def verify_clinician(clinician_id, password):
             conn.commit(); conn.close()
             return False, "Invalid clinician ID or password."
 
-        if not password_hash:
+        migrated = not password_hash
+        if migrated:
             password_hash = _hash_password(password)
         _exec(conn, """
             UPDATE clinicians
@@ -1129,6 +1168,8 @@ def verify_clinician(clinician_id, password):
                 locked_until=NULL, last_login_at=?
             WHERE clinician_id=?
         """, (password_hash, now.isoformat(timespec="seconds"), clinician_id))
+        if migrated:
+            touch_clinician(conn, clinician_id)
         conn.commit(); conn.close()
         return True, name
     except Exception:
@@ -1260,39 +1301,140 @@ def get_next_tester_id():
 
 
 # ── Cloud sync tracking ───────────────────────────────────────────────────────
+# Offline-first: every change is written here first. Accounts carry
+# sync_dirty, sessions carry synced_at (NULL = not uploaded yet), and deleted
+# sessions leave a tombstone so the deletion reaches other devices.
+
+def utc_now():
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "+00:00"
+
+
+def touch_clinician(conn, clinician_id):
+    """Mark an account change (role, status, password) for upload."""
+    _exec(conn, "UPDATE clinicians SET updated_at=?, sync_dirty=1 WHERE clinician_id=?",
+          (utc_now(), clinician_id))
+
+
+def delete_sessions(conn, where_sql, params):
+    """Delete sessions matching a WHERE clause, leaving tombstones for sync."""
+    rows = _exec(conn, f"SELECT session_id, session_uid FROM intake_sessions WHERE {where_sql}", params).fetchall()
+    now = utc_now()
+    for sid, suid in rows:
+        if suid:
+            _exec(conn, "INSERT OR REPLACE INTO sync_tombstones (session_uid, deleted_at, pushed) VALUES (?,?,0)",
+                  (suid, now))
+        _exec(conn, "DELETE FROM question_snapshots WHERE session_id=?", (sid,))
+        _exec(conn, "DELETE FROM intake_sessions WHERE session_id=?", (sid,))
+    return len(rows)
+
+
+def get_sync_state(key, default=None):
+    try:
+        conn = _conn()
+        row = _exec(conn, "SELECT value FROM sync_state WHERE key=?", (key,)).fetchone()
+        conn.close()
+        return row[0] if row else default
+    except Exception:
+        return default
+
+
+def set_sync_state(key, value):
+    conn = _conn()
+    _exec(conn, "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?,?)", (key, str(value)))
+    conn.commit(); conn.close()
+
+
+_ACCOUNT_FIELDS = ("clinician_id", "account_uid", "name", "password_hash", "role", "status",
+                   "created_at", "updated_at")
+
+
+def get_dirty_accounts():
+    conn = _conn()
+    rows = _exec(conn, f"SELECT {', '.join(_ACCOUNT_FIELDS)} FROM clinicians "
+                       "WHERE sync_dirty=1 AND password_hash IS NOT NULL AND password_hash != ''").fetchall()
+    conn.close()
+    return [dict(zip(_ACCOUNT_FIELDS, r)) for r in rows]
+
+
+def mark_account_synced(clinician_id, updated_at):
+    """Clear the flag unless the account changed again during the upload."""
+    conn = _conn()
+    _exec(conn, "UPDATE clinicians SET sync_dirty=0 WHERE clinician_id=? AND updated_at=?",
+          (clinician_id, updated_at))
+    conn.commit(); conn.close()
+
+
+def apply_remote_account(acc):
+    """Insert or update an account from the cloud (newest change wins)."""
+    conn = _conn()
+    try:
+        local = _exec(conn, "SELECT account_uid, updated_at FROM clinicians WHERE clinician_id=?",
+                      (acc["clinician_id"],)).fetchone()
+        if local is None:
+            name = acc["name"]
+            if _exec(conn, "SELECT 1 FROM clinicians WHERE name=?", (name,)).fetchone():
+                name = f"{name} ({acc['clinician_id']})"
+            _exec(conn, """INSERT INTO clinicians (clinician_id, name, password, password_hash, role, status,
+                           failed_attempts, created_at, account_uid, updated_at, sync_dirty)
+                           VALUES (?,?,'',?,?,?,0,?,?,?,0)""",
+                  (acc["clinician_id"], name, acc["password_hash"], acc["role"], acc["status"],
+                   acc.get("created_at"), acc["account_uid"], acc["updated_at"]))
+        elif local[0] == acc["account_uid"] and (local[1] or "") < acc["updated_at"]:
+            _exec(conn, """UPDATE clinicians SET password_hash=?, role=?, status=?, updated_at=?, sync_dirty=0
+                           WHERE clinician_id=?""",
+                  (acc["password_hash"], acc["role"], acc["status"], acc["updated_at"], acc["clinician_id"]))
+            if acc["status"] == "disabled":
+                _exec(conn, "UPDATE security_sessions SET revoked_at=? WHERE clinician_id=? AND revoked_at IS NULL",
+                      (datetime.now().isoformat(timespec="seconds"), acc["clinician_id"]))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reassign_clinician_id(old_id, taken_ids):
+    """
+    Two devices created different accounts with the same ID while offline.
+    The one that reached the cloud second moves to the next free ID, and its
+    sessions follow it. Returns the new ID.
+    """
+    conn = _conn()
+    try:
+        year = str(old_id)[:4]
+        used = {r[0] for r in _exec(conn, "SELECT clinician_id FROM clinicians").fetchall()} | set(taken_ids)
+        new_id = next(i for i in (int(f"{year}{n:03d}") for n in range(1, 1000)) if i not in used)
+        for table in ("clinicians", "intake_sessions", "consent_records", "security_sessions"):
+            _exec(conn, f"UPDATE {table} SET clinician_id=? WHERE clinician_id=?", (new_id, old_id))
+        touch_clinician(conn, new_id)
+        _exec(conn, "UPDATE intake_sessions SET synced_at=NULL WHERE clinician_id=?", (new_id,))
+        _exec(conn, "UPDATE security_sessions SET revoked_at=? WHERE clinician_id=? AND revoked_at IS NULL",
+              (datetime.now().isoformat(timespec="seconds"), new_id))
+        conn.commit()
+        return new_id
+    finally:
+        conn.close()
+
+
+_SESSION_LOCAL_ONLY = {"session_id", "synced_at"}
+
+
+def _session_columns(conn):
+    return [r[1] for r in _exec(conn, "PRAGMA table_info(intake_sessions)").fetchall()]
+
 
 def get_unsynced_sessions(limit=50):
-    """Return intake_sessions rows that have not yet been synced to the cloud."""
+    """Sessions not yet uploaded: [{session_id, data: {column: value}}]."""
     try:
-        conn  = _conn()
-        rows  = _exec(conn, """
-            SELECT session_id, student_id, clinician_id, timestamp,
-                   kbase_mean, kbase_std,
-                   mbase_hv, mbase_vv, mbase_tv, mbase_ta, mbase_jerk, mbase_curve,
-                   phq_score, phq_hv, phq_vv, phq_tv, phq_ta, phq_jerk, phq_curve,
-                   gad_score, gad_hv, gad_vv, gad_tv, gad_ta, gad_jerk, gad_curve,
-                   task_k_mean, task_k_std, k_z_score, m_z_score,
-                   t2_score, t2_threshold, psi, pai,
-                   fuzzy_label, fuzzy_confidence, flag, rationale,
-                   domain_t2_json, question_snapshots_json, flight_times_json
-            FROM intake_sessions
-            WHERE synced_at IS NULL
-            ORDER BY session_id ASC
-            LIMIT ?
-        """, (limit,)).fetchall()
+        conn = _conn()
+        cols = _session_columns(conn)
+        rows = _exec(conn, f"SELECT {', '.join(cols)} FROM intake_sessions WHERE synced_at IS NULL "
+                           "AND session_uid IS NOT NULL ORDER BY session_id ASC LIMIT ?", (limit,)).fetchall()
         conn.close()
-        cols = [
-            "session_id", "student_id", "clinician_id", "timestamp",
-            "kbase_mean", "kbase_std",
-            "mbase_hv", "mbase_vv", "mbase_tv", "mbase_ta", "mbase_jerk", "mbase_curve",
-            "phq_score", "phq_hv", "phq_vv", "phq_tv", "phq_ta", "phq_jerk", "phq_curve",
-            "gad_score", "gad_hv", "gad_vv", "gad_tv", "gad_ta", "gad_jerk", "gad_curve",
-            "task_k_mean", "task_k_std", "k_z_score", "m_z_score",
-            "t2_score", "t2_threshold", "psi", "pai",
-            "fuzzy_label", "fuzzy_confidence", "flag", "rationale",
-            "domain_t2_json", "question_snapshots_json", "flight_times_json",
-        ]
-        return [dict(zip(cols, r)) for r in rows]
+        out = []
+        for r in rows:
+            row = dict(zip(cols, r))
+            out.append({"session_id": row["session_id"],
+                        "data": {k: v for k, v in row.items() if k not in _SESSION_LOCAL_ONLY}})
+        return out
     except Exception as e:
         logger.error(f"get_unsynced_sessions error: {e}")
         return []
@@ -1301,28 +1443,67 @@ def get_unsynced_sessions(limit=50):
 def mark_session_synced(session_id):
     """Record that a session has been uploaded to the cloud."""
     try:
-        import datetime as _dt
-        ts   = _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn = _conn()
-        _exec(conn,
-              "UPDATE intake_sessions SET synced_at=? WHERE session_id=?",
-              (ts, session_id))
-        conn.commit()
-        conn.close()
+        _exec(conn, "UPDATE intake_sessions SET synced_at=? WHERE session_id=?", (utc_now(), session_id))
+        conn.commit(); conn.close()
         return True
     except Exception as e:
         logger.error(f"mark_session_synced error: {e}")
         return False
 
 
-def get_unsynced_count():
-    """Return the number of sessions not yet synced to the cloud."""
+def get_pending_tombstones():
+    conn = _conn()
+    rows = _exec(conn, "SELECT session_uid, deleted_at FROM sync_tombstones WHERE pushed=0").fetchall()
+    conn.close()
+    return rows
+
+
+def mark_tombstone_pushed(session_uid):
+    conn = _conn()
+    _exec(conn, "UPDATE sync_tombstones SET pushed=1 WHERE session_uid=?", (session_uid,))
+    conn.commit(); conn.close()
+
+
+def apply_remote_session(session_uid, data, deleted_at):
+    """Insert a session from another device, or apply its deletion."""
+    conn = _conn()
     try:
-        conn  = _conn()
-        count = _exec(conn,
-            "SELECT COUNT(*) FROM intake_sessions WHERE synced_at IS NULL"
-        ).fetchone()[0]
+        local = _exec(conn, "SELECT session_id FROM intake_sessions WHERE session_uid=?", (session_uid,)).fetchone()
+        if deleted_at:
+            if local:
+                _exec(conn, "DELETE FROM question_snapshots WHERE session_id=?", (local[0],))
+                _exec(conn, "DELETE FROM intake_sessions WHERE session_id=?", (local[0],))
+            _exec(conn, "INSERT OR REPLACE INTO sync_tombstones (session_uid, deleted_at, pushed) VALUES (?,?,1)",
+                  (session_uid, str(deleted_at)))
+        elif not local and not _exec(conn, "SELECT 1 FROM sync_tombstones WHERE session_uid=?",
+                                     (session_uid,)).fetchone():
+            cols = [c for c in _session_columns(conn) if c in data and c not in _SESSION_LOCAL_ONLY]
+            sid = _insert_returning(conn, f"INSERT INTO intake_sessions ({', '.join(cols)}, synced_at) "
+                                          f"VALUES ({', '.join('?' * len(cols))}, ?)",
+                                    (*[data[c] for c in cols], utc_now()))
+            for snap in json.loads(data.get("question_snapshots_json") or "[]"):
+                _exec(conn, """INSERT INTO question_snapshots
+                    (session_id, item_id, group_id, level, domain_label, t2_score, psi, pai, flag,
+                     flight_time, pause_freq, response_len, hover_words_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (sid, snap.get("item_id"), snap.get("group_id"), snap.get("level"), snap.get("domain_label"),
+                     _clean(snap.get("t2_score", 0)), _clean(snap.get("psi", 0)), _clean(snap.get("pai", 0)),
+                     snap.get("flag"), _clean(snap.get("flight_time", 0)), _clean(snap.get("pause_freq", 0)),
+                     snap.get("response_len", 0), json.dumps(snap.get("hover_words") or [])))
+        conn.commit()
+    finally:
         conn.close()
-        return count
+
+
+def get_unsynced_count():
+    """Changes waiting for upload: sessions, deletions and accounts."""
+    try:
+        conn = _conn()
+        n = _exec(conn, "SELECT COUNT(*) FROM intake_sessions WHERE synced_at IS NULL").fetchone()[0]
+        n += _exec(conn, "SELECT COUNT(*) FROM sync_tombstones WHERE pushed=0").fetchone()[0]
+        n += _exec(conn, "SELECT COUNT(*) FROM clinicians WHERE sync_dirty=1").fetchone()[0]
+        conn.close()
+        return n
     except Exception:
         return 0

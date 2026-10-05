@@ -4,6 +4,7 @@ Flask app, controller, feature extractor, anomaly engine and database.
 Keyboard/mouse hooks are replaced by scripted loggers so the test needs no
 physical input device or display."""
 import os
+os.environ["PSYCLICK_SYNC_URL"] = ""   # tests never touch the cloud
 import tempfile
 import unittest
 from pathlib import Path

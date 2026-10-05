@@ -36,13 +36,24 @@ Use the secure launcher from the project root for the combined workflow:
 .\\start_secure.bat
 ```
 
+## Offline-first sync
+
+PsyClick always works on the local SQLite database, with or without internet. When `config.json` holds a `sync_url`, a background thread uploads new accounts, account changes, sessions and deletions, and downloads what other devices changed (immediately after a change, otherwise every minute). Any account can then sign in on any device that has synced once; a new device fetches accounts before its first sign-in. If two offline devices create the same account ID, the second one to sync moves to the next free ID and the change is written to the audit log.
+
+```powershell
+python scripts\setup_cloud_sync.py   # once, by the project owner: schema, restricted role, config.json
+python scripts\check_cloud_sync.py   # two simulated devices against a throwaway schema
+```
+
+The app connects as `psyclick_app`, which can read and write only the `psyclick` schema (accounts and sessions); it cannot see the rest of the Supabase project. `config.json` is git-ignored and is bundled into the installer, so anyone holding an installer can reach the synced data: this suits a demo deployment, not real clinical data.
+
 ## Demo data (demonstration only)
 
 ```powershell
 python scripts\seed_demo.py
 ```
 
-Creates the administrator **Demo Admin (simulation)** (password `PsyClickDemo2026`; the ID is printed) with thirteen sample clients that cover every result the engine produces: No concerns, Follow up and Review now; slowing and mixed patterns; not enough typing; self-harm answers; topic- and load-specific reactions; and improving and worsening histories. Each session is simulated keyboard and mouse input run through the real scoring pipeline (`scripts/demo_simulation.py`), so the scores are what PsyClick computes. The clients are visible to the demo account only and are never uploaded by cloud sync. Running the script again replaces them.
+Creates the administrator **Demo Admin (simulation)** (password `PsyClickDemo2026`; the ID is printed) with fifteen sample clients that cover every result the engine produces: No concerns, Follow up and Review now; slowing, restlessness and mixed patterns; not enough typing; self-harm answers; topic- and load-specific reactions; and improving and worsening histories. Each session is simulated keyboard and mouse input run through the real scoring pipeline (`scripts/demo_simulation.py`), so the scores are what PsyClick computes. The clients belong to the demo account and sync like any other account's data. DEMO-14 and DEMO-15 (restlessness) use hand-set overall scores, because the current engine cannot reach that pattern from simulated input; their flag and label still come from the engine's classifier. Running the script again replaces the demo clients.
 
 ## Verification
 

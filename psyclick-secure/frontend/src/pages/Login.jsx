@@ -19,7 +19,7 @@ function passwordChecks(pwd) {
 const BENEFITS = [
   { icon: Activity,       title: 'Behaviour you can see', text: 'Typing rhythm and mouse movement, measured during a guided session.', tint: 'rgba(112,232,192,.16)', ink: '#70E8C0' },
   { icon: ClipboardCheck, title: 'Validated questionnaires', text: 'PHQ-9 and GAD-7 scored and shown in one clear report.', tint: 'rgba(104,216,232,.16)', ink: '#68D8E8' },
-  { icon: ShieldCheck,    title: 'Private by design', text: 'Data stays on this computer, encrypted, with a full audit trail.', tint: 'rgba(120,168,216,.2)', ink: '#9DC0E8' },
+  { icon: ShieldCheck,    title: 'Local first', text: 'Stored on this computer and works offline. Syncs when online, with a full audit trail.', tint: 'rgba(120,168,216,.2)', ink: '#9DC0E8' },
 ]
 
 // Small floating cards around the logo: what PsyClick measures
@@ -247,7 +247,7 @@ export default function Login() {
                       New here? Ask your administrator to create your account.</p>
                   </div>
                   <p className="mt-6 text-xs text-tsub flex items-center gap-1.5 justify-center">
-                    <Lock size={13} aria-hidden="true" /> Data is encrypted and stored only on this computer.
+                    <Lock size={13} aria-hidden="true" /> Data is stored on this computer and works offline. It syncs when online, so you can sign in on any device.
                   </p>
                 </form>
               )}

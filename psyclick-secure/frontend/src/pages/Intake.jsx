@@ -146,7 +146,7 @@ export default function Intake() {
                   <li key={r} className="flex gap-2 text-[15px] text-tmain"><Check size={16} className="text-success-ink flex-shrink-0 mt-1" aria-hidden="true" />{r}</li>
                 ))}
               </ul>
-              <p className="text-sm text-tsub mt-3">Everything is encrypted and kept on this computer. The client can stop at any time.</p>
+              <p className="text-sm text-tsub mt-3">Everything is stored on this computer, and copied to the clinic's PsyClick cloud when online. The client can stop at any time.</p>
             </div>
             <label className={`mt-4 flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition-colors ${consent ? 'border-success bg-success/5' : 'border-border hover:border-accent/50'}`}>
               <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}

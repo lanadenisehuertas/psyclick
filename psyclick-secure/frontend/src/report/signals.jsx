@@ -44,6 +44,9 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
     if (longest.p >= Math.max(2 * median, median + 5)) add('note', `Long hesitation before prompt ${longest.id}: ${longest.p.toFixed(1)} s, against a typical ${median.toFixed(1)} s.`)
   }
 
+  const odd = (snapshots || []).filter(s => s.typing_issue)
+  if (odd.length) add('watch', `Typing on ${odd.map(s => s.item_id).join(', ')} looked ${odd.some(s => s.typing_issue === 'automatic') ? 'pasted or entered by another program' : 'like a held-down key'}, so ${odd.length > 1 ? 'those prompts were' : 'that prompt was'} not scored.`)
+
   const words = {}
   ;(snapshots || []).forEach(s => (s.hover_words || []).forEach(h => {
     const k = String(h.word).toLowerCase().replace(/[^a-z'’-]/g, '')

@@ -141,6 +141,7 @@ class PsyClickController:
         self._question_snapshots = []
         self._phq_mouse_feats    = {}
         self._gad_mouse_feats    = {}
+        self.kbase_problem       = None
 
     def set_student_id(self, sid):
         self._reset_session()
@@ -285,6 +286,10 @@ class PsyClickController:
         Mouse is NOT running during keyboard calibration — client is typing.
         """
         raw   = self.key_logger.stop_logging()
+        self.kbase_problem = fe.typing_problem(raw)
+        if self.kbase_problem:
+            # Not the person's own typing: never let it become the baseline
+            return False
         feats = fe.extract_features(raw)
         if feats:
             self.session_data["kbase"] = feats
@@ -368,7 +373,10 @@ class PsyClickController:
         self.engine.set_task("task_3_item")
 
         # ── Keyboard features (primary) ───────────────────────────────────────
-        key_feats = fe.extract_features(key_raw) or {}
+        # Injected or auto-repeated keys are not the person's typing: the item
+        # is kept (answer length, hover) but its timing is not scored.
+        typing_issue = fe.typing_problem(key_raw)
+        key_feats = {} if typing_issue else (fe.extract_features(key_raw) or {})
 
         # ── Mouse: hover words (pre-typing window only) ───────────────────────
         hover_words       = self._map_hover_words(mouse_raw, key_raw)
@@ -410,6 +418,7 @@ class PsyClickController:
             "prompt":            question_meta.get("prompt", ""),
             "response_len":      len(response_text),
             "key_count":         key_feats.get("key_count", 0),
+            "typing_issue":      typing_issue,
 
             # T² results — use _ae_scalar so nested clinical engine dicts become floats
             "t2_score":          _ae_scalar(analysis, "t2_score"),
