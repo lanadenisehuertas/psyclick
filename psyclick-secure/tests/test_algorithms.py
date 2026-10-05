@@ -176,6 +176,22 @@ class FuzzyAndFlagTests(unittest.TestCase):
         self.assertAlmostEqual(a, 1 - np.exp(-1), places=6)
         self.assertTrue(0 < a < b < 1)
 
+    def test_label_follows_the_dominant_index(self):
+        # Marked slowing with little restlessness must read as slowing at any
+        # level of overall change, never as agitation.
+        for t2 in (self.P95 * 0.85, self.P95 * 1.2, self.P99 * 1.5):
+            self.assertEqual(self._flag(t2, psi=50.0, pai=20.0)["label"], "Psychomotor Retardation")
+            self.assertEqual(self._flag(t2, psi=3.0, pai=150.0)["label"], "Psychomotor Agitation")
+
+    def test_high_change_with_moderate_indices_is_not_normal(self):
+        r = self._flag(self.P99 * 1.5, psi=12.0, pai=30.0)
+        self.assertNotEqual(r["label"], "Normal")
+        self.assertEqual(r["flag"], "AMBER")
+
+    def test_high_change_with_a_high_index_stays_red(self):
+        r = self._flag(self.P99 * 1.5, psi=150.0, pai=18.0)
+        self.assertEqual((r["flag"], r["label"]), ("RED", "Psychomotor Retardation"))
+
     def test_memberships_are_valid(self):
         for x in np.linspace(0, 1, 101):
             for v in (ae._trapmf(x, -0.01, 0, 0.3, 0.55), ae._trimf(x, 0.3, 0.55, 0.8)):
@@ -296,6 +312,38 @@ class NormativeStatsTests(unittest.TestCase):
         self.assertEqual(t2["count"], 3)
         self.assertAlmostEqual(t2["mean"], 20.0)
         self.assertAlmostEqual(t2["sd"], 10.0)
+
+
+class FullSessionTests(unittest.TestCase):
+    """A complete simulated session through the real controller and database."""
+
+    @classmethod
+    def setUpClass(cls):
+        import random
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from backend_controller import PsyClickController
+        from demo_simulation import run_session
+        cls.final = run_session(PsyClickController(), db,
+                                {"client": "T-FULL", "phq": 11, "gad": 6, "item9": 2,
+                                 "linger": {"C4": {"hard?": 2.0}}},
+                                clinician_id=1, rng=random.Random(7))
+
+    def test_session_saves_on_a_fresh_database(self):
+        conn = sqlite3.connect(db.DB_NAME)
+        row = conn.execute("SELECT phq_score, gad_score, phq_item9, flag FROM intake_sessions WHERE session_id=?",
+                           (self.final["session_id"],)).fetchone()
+        conn.close()
+        self.assertEqual(row[:3], (11, 6, 2))
+        self.assertIn(row[3], {"GREEN", "AMBER", "RED"})
+
+    def test_every_prompt_is_scored_and_hover_is_mapped(self):
+        snaps = self.final["visuals"]["question_snapshots"]
+        self.assertEqual(len(snaps), 12)
+        self.assertTrue(all(s["flag"] != "NO_DATA" for s in snaps))
+        c4 = next(s for s in snaps if s["item_id"] == "C4")
+        self.assertEqual(c4["hover_words"][0]["word"], "hard?")
+        self.assertAlmostEqual(c4["hover_words"][0]["dwell_ms"], 2000, delta=50)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,14 @@ Use the secure launcher from the project root for the combined workflow:
 .\\start_secure.bat
 ```
 
+## Demo data (demonstration only)
+
+```powershell
+python scripts\seed_demo.py
+```
+
+Creates the administrator **Demo Admin (simulation)** (password `PsyClickDemo2026`; the ID is printed) with thirteen sample clients that cover every result the engine produces: No concerns, Follow up and Review now; slowing and mixed patterns; not enough typing; self-harm answers; topic- and load-specific reactions; and improving and worsening histories. Each session is simulated keyboard and mouse input run through the real scoring pipeline (`scripts/demo_simulation.py`), so the scores are what PsyClick computes. The clients are visible to the demo account only and are never uploaded by cloud sync. Running the script again replaces them.
+
 ## Verification
 
 Run the full suite from this folder:

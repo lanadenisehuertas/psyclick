@@ -240,7 +240,8 @@ def init_db():
                 domain_t2_json  TEXT,
                 question_snapshots_json TEXT,
                 flight_times_json TEXT,
-                synced_at       TEXT DEFAULT NULL
+                synced_at       TEXT DEFAULT NULL,
+                phq_item9       INTEGER
             )
         """),
 
@@ -380,6 +381,12 @@ def init_db():
 
     # Migration guard for question_shown_at
     _add_col(conn, 'question_snapshots', 'question_shown_at', 'REAL')
+    # A database created before a column existed, or by an older build, must
+    # end up with the same columns as a fresh one (no-op when present).
+    for col, coltype in (('domain_t2_json', 'TEXT'), ('question_snapshots_json', 'TEXT'),
+                         ('clinician_id', 'INTEGER'), ('flight_times_json', 'TEXT'),
+                         ('synced_at', 'TEXT'), ('phq_item9', 'INTEGER')):
+        _add_col(conn, 'intake_sessions', col, coltype)
 
     try:
         conn.commit()

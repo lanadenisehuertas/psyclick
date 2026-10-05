@@ -270,7 +270,7 @@ export default function Report() {
             <div className="grid xl:grid-cols-[1.4fr_1fr] print:grid-cols-[1.4fr_1fr] gap-6 items-stretch">
               <Panel title="What stood out"
                 caption="Every signal in this session, most urgent first — including small ones that did not change the overall result. Small signals are where early changes show first.">
-                <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95,
+                <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95, label: analysis?.label,
                   psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
                   snapshots, iP95, levelT2, history, sessionId: thisSession })} />
               </Panel>

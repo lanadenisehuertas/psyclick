@@ -3,7 +3,9 @@ import { MCID, ITEM9_LABEL } from './text.js'
 
 // Everything that stood out in one session, including signals too small to
 // change the overall result. Early detection lives in these small signals.
-export function collectSignals({ item9, phq, gad, t2, sP95, psiPct, paiPct, snapshots, iP95, levelT2, history, sessionId }) {
+const LEAN = { 'Psychomotor Retardation': 'slowing', 'Psychomotor Agitation': 'restlessness', 'Mixed Disturbance': 'both slowing and restlessness' }
+
+export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, levelT2, history, sessionId }) {
   const out = []
   const add = (level, text) => out.push({ level, text })
 
@@ -16,6 +18,7 @@ export function collectSignals({ item9, phq, gad, t2, sP95, psiPct, paiPct, snap
 
   if (t2 > sP95) add('watch', 'Typing and mouse behaviour shifted more than in 95% of healthy adults.')
   else if (t2 > sP95 * 0.8) add('note', 'Behaviour change was close to the healthy limit.')
+  if (t2 > 0 && t2 <= sP95 && LEAN[label]) add('note', `Within the healthy range, but the change leaned towards ${LEAN[label]}.`)
 
   const idx = (pct, what) => {
     if (pct == null) return

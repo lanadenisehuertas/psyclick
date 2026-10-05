@@ -35,7 +35,9 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
               <p className="text-[15px] text-tsub mt-1.5 leading-relaxed max-w-[62ch]">{m.meaning}</p>
               {pattern && pattern !== 'Normal' && pattern !== 'Insufficient Data' && (
                 <p className="text-sm text-tmain mt-2">
-                  Pattern noticed: <span className="font-semibold">{plainPattern(pattern)}</span>
+                  {flag === 'GREEN'
+                    ? <>Still within the healthy range, leaning towards <span className="font-semibold">{plainPattern(pattern)}</span>. Worth checking at the next visit.</>
+                    : <>Pattern noticed: <span className="font-semibold">{plainPattern(pattern)}</span></>}
                 </p>
               )}
             </div>

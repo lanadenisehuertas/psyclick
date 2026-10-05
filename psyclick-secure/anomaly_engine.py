@@ -461,13 +461,25 @@ def fuzzy_classify(t2_score, threshold_adjusted, threshold_base, psi_components,
     pai_mod  = _trimf (pai_n,  0.25, 0.50, 0.75)
     pai_high = _trapmf(pai_n,  0.50, 0.75, 1.0,  1.01)
 
+    # Fuzzy OR (max) widens the antecedents so the rule base has no gaps:
+    # "at least moderate" covers moderate and high, "not high" covers low and
+    # moderate. Without this a high index at moderate T² matched no slowing
+    # rule, and a high T² with two moderate indices matched no rule at all.
+    psi_some = max(psi_mod, psi_high)
+    pai_some = max(pai_mod, pai_high)
+    psi_not_high = max(psi_low, psi_mod)
+    pai_not_high = max(pai_low, pai_mod)
+    # Borderline evidence: moderate T², or high T² with neither index high.
+    # A high T² with a high index is left to the severe rules alone.
+    t2_border = max(t2_mod, min(t2_high, psi_not_high, pai_not_high))
+
     # Rule firing
     r1 = min(t2_high, psi_high, pai_high)
-    r2 = min(t2_high, psi_high, pai_low)
-    r3 = min(t2_high, pai_high, psi_low)
-    r4 = min(t2_mod,  psi_mod,  pai_mod)
-    r5 = min(t2_mod,  pai_mod)
-    r6 = min(t2_mod,  psi_mod)
+    r2 = min(t2_high, psi_high, pai_not_high)
+    r3 = min(t2_high, pai_high, psi_not_high)
+    r4 = min(t2_border, psi_some, pai_some)
+    r5 = min(t2_border, pai_some)
+    r6 = min(t2_border, psi_some)
     r7 = t2_low
 
     severe_strength     = max(r1, r2, r3)
