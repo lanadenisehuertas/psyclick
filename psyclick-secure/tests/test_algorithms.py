@@ -395,5 +395,123 @@ class TypingPlausibilityTests(unittest.TestCase):
         self.assertFalse(ctrl.engine.baseline.is_ready)
 
 
+class RobustAverageTests(unittest.TestCase):
+    """Skipping, idling and switching windows must not move the averages."""
+
+    @staticmethod
+    def _typing(seed=1, n=120):
+        import random
+        rng, ev, t = random.Random(seed), [], 0.0
+        for i in range(n):
+            t += max(0.05, rng.gauss(0.17, 0.05)) + (rng.uniform(1.2, 3) if rng.random() < 0.03 else 0)
+            k = "abcdefg"[i % 7]
+            ev += [{"key": k, "event": "DOWN", "time": t}, {"key": k, "event": "UP", "time": t + 0.09}]
+        return ev
+
+    @staticmethod
+    def _cut(ev):
+        """Event index of a key press that follows an ordinary (< 0.5 s) gap."""
+        downs = [i for i, e in enumerate(ev) if e["event"] == "DOWN"]
+        return next(i for p, i in zip(downs, downs[1:]) if i > 50 and ev[i]["time"] - ev[p]["time"] < 0.5)
+
+    def _close(self, a, b, tol=0.01):
+        for k in ("flight_time", "dwell_time", "typing_velocity", "error_rate", "pause_frequency"):
+            self.assertAlmostEqual(a[k], b[k], delta=max(1e-9, abs(a[k]) * tol), msg=k)
+
+    def test_time_away_is_left_out(self):
+        ev = self._typing()
+        cut = self._cut(ev)
+        away = [dict(e, time=e["time"] + (300 if i >= cut else 0)) for i, e in enumerate(ev)]
+        a, b = fe.extract_features(ev), fe.extract_features(away)
+        self._close(a, b)
+        self.assertEqual(len(b["away_gaps"]), 1)
+        self.assertGreater(b["away_gaps"][0], 299)
+
+    def test_focus_break_is_left_out(self):
+        ev = self._typing()
+        cut = self._cut(ev)
+        brk = (ev[:cut] + [{"key": None, "event": "BREAK", "time": ev[cut - 1]["time"] + 0.01}]
+               + [dict(e, time=e["time"] + 7) for e in ev[cut:]])
+        a, b = fe.extract_features(ev), fe.extract_features(brk)
+        self._close(a, b)
+        self.assertEqual(b["breaks"], 1)
+
+    def test_thinking_pauses_still_count(self):
+        ev = self._typing()
+        cut = self._cut(ev)
+        paused = [dict(e, time=e["time"] + (8 if i >= cut else 0)) for i, e in enumerate(ev)]
+        a, b = fe.extract_features(ev), fe.extract_features(paused)
+        self.assertEqual(b["away_gaps"], [])
+        pauses = lambda f: sum(1 for g in f["raw_flight_times"] if g > 1.0)
+        self.assertEqual(pauses(b), pauses(a) + 1)          # an 8 s pause is still a pause
+
+    def test_suspended_logger_drops_keys_and_marks_the_gap(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("dl_real", ROOT / "dynamics_logger.py")
+        dl = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dl)       # the real module (another test swaps in a fake)
+
+        class K:
+            def __init__(self, c):
+                self.char = c
+        lg = dl.KeyLogger(dl.HardwareAbstractionLayer())
+        lg.start_logging()
+        for c in "ab":
+            lg.on_press(K(c)); lg.on_release(K(c))
+        lg.suspend()
+        lg.on_press(K("x")); lg.on_release(K("x"))
+        lg.resume()
+        lg.on_press(K("d")); lg.on_release(K("d"))
+        data = lg.stop_logging()
+        self.assertNotIn("x", [e["key"] for e in data])
+        self.assertEqual([e["event"] for e in data].count("BREAK"), 1)
+
+
+class OverallStatusTests(unittest.TestCase):
+    def test_behaviour_alone_when_questionnaires_are_low(self):
+        self.assertEqual(db.overall_status("GREEN", 4, 3, 0), ("GREEN", []))
+        self.assertEqual(db.overall_status("RED", 4, 3, 0)[0], "RED")
+
+    def test_self_harm_answer_is_never_no_concerns(self):
+        flag, why = db.overall_status("GREEN", 6, 4, 1)
+        self.assertEqual(flag, "RED")
+        self.assertIn("self-harm", why[0])
+
+    def test_questionnaire_cut_offs(self):
+        self.assertEqual(db.overall_status("GREEN", 10, 0, 0)[0], "AMBER")
+        self.assertEqual(db.overall_status("GREEN", 0, 10, 0)[0], "AMBER")
+        self.assertEqual(db.overall_status("GREEN", 20, 0, 0)[0], "RED")
+        self.assertEqual(db.overall_status("GREEN", 0, 15, 0)[0], "RED")
+        self.assertEqual(db.overall_status("AMBER", 12, 0, 0)[0], "AMBER")   # never lowered
+
+
+class SessionQualityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import random
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from backend_controller import PsyClickController
+        import demo_simulation as ds
+        cls.ds, cls.ctrl, cls.random = ds, PsyClickController(), random
+
+    def _run(self, spec, seed=3):
+        return self.ds.run_session(self.ctrl, db, {"client": "T-Q", "phq": 3, "gad": 2, **spec},
+                                   clinician_id=1, rng=self.random.Random(seed))
+
+    def test_too_few_answers_gives_no_behavioural_verdict(self):
+        f = self._run({"skip": ["A1", "A2", "B1", "C1", "A3", "B2", "B3", "C2", "A4"]})
+        self.assertEqual(f["analysis"]["label"], "Insufficient Data")
+        self.assertIn("Only 3 written answer", f["analysis"]["rationale"])
+        self.assertEqual(f["quality"]["answers_skipped"], 9)
+
+    def test_long_wait_before_typing_is_marked_as_away(self):
+        f = self._run({"read": {"C4": 90.0}})
+        c4 = next(s for s in f["visuals"]["question_snapshots"] if s["item_id"] == "C4")
+        self.assertTrue(c4["pre_typing_away"])
+        a1 = next(s for s in f["visuals"]["question_snapshots"] if s["item_id"] == "A1")
+        self.assertFalse(a1["pre_typing_away"])
+
+
 if __name__ == "__main__":
     unittest.main()

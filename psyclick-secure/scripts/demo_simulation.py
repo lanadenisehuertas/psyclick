@@ -53,6 +53,12 @@ class FakeLogger:
         data, self.next = self.next, []
         return data
 
+    def suspend(self):
+        pass
+
+    def resume(self):
+        pass
+
 
 def keystrokes(rng, n, p, t0):
     """Key DOWN/UP events for n characters typed with profile p, starting at t0."""
@@ -62,6 +68,8 @@ def keystrokes(rng, n, p, t0):
             gap = max(0.04, rng.gauss(p["flight"], p["jitter"]))
             if rng.random() < p["pause"]:
                 gap = rng.uniform(1.2, 3.2)
+            if p.get("away") and i == n // 2:
+                gap += p["away"]                 # left the keyboard mid-answer
             t += gap
         key = "backspace" if (i > 2 and rng.random() < p["err"]) else rng.choice(LETTERS)
         dwell = max(0.03, rng.gauss(p["dwell"], 0.02))
@@ -70,11 +78,14 @@ def keystrokes(rng, n, p, t0):
     return ev, t
 
 
-def mouse_path(rng, style, t0, targets, dur_per_leg=0.55):
-    """MOVE events travelling between targets. 'restless' adds tremor and overshoot."""
+def mouse_path(rng, style, t0, targets, dur_per_leg=0.55, think=None):
+    """MOVE events travelling between targets. 'restless' adds tremor and overshoot.
+    think=(lo, hi): seconds the cursor rests before each move (reading a question)."""
     ev, t = [], t0
     x, y = targets[0]
     for tx, ty in targets[1:]:
+        if think:
+            t += rng.uniform(*think)
         steps = max(8, int(dur_per_leg * 60))
         for s in range(1, steps + 1):
             f = 0.5 - 0.5 * math.cos(math.pi * s / steps)            # ease in/out
@@ -153,9 +164,11 @@ def run_session(ctrl, db, spec, clinician_id, rng):
     ctrl.save_kbase()
     m.next, t = mouse_path(rng, "calm", t + 2, click_targets(rng, 6))
     ctrl.save_mbase()
-    m.next, t = mouse_path(rng, spec.get("phq_mouse", "calm"), t + 2, click_targets(rng, 10, 200), 0.45)
+    # phq_leg: seconds per answer click (about 0.45 s of travel per option normally)
+    m.next, t = mouse_path(rng, spec.get("phq_mouse", "calm"), t + 2, click_targets(rng, 10, 200),
+                           spec.get("phq_leg", 0.45), spec.get("phq_think", (2.0, 3.5)))
     ctrl.save_phq(spec["phq"], spec.get("item9", 0))
-    m.next, t = mouse_path(rng, spec.get("gad_mouse", "calm"), t + 2, click_targets(rng, 8, 200), 0.45)
+    m.next, t = mouse_path(rng, spec.get("gad_mouse", "calm"), t + 2, click_targets(rng, 8, 200), 0.45, (2.0, 3.5))
     ctrl.save_gad(spec["gad"])
 
     task = spec.get("task", {})

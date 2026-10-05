@@ -14,7 +14,7 @@ import ReadingHeatmap from '../report/ReadingHeatmap.jsx'
 import { collectSignals, SignalsList } from '../report/signals.jsx'
 import { KpiStrip, ProfileRadar } from '../report/overview.jsx'
 import { NormativeComparison, QuestionBreakdown, percentileText, percentileValue } from '../report/detail.jsx'
-import { HEALTHY_REF, ITEM9_LABEL, phqLabel, gadLabel, clinicalRecs } from '../report/text.js'
+import { HEALTHY_REF, HEALTHY_GAP, ITEM9_LABEL, phqLabel, gadLabel, clinicalRecs } from '../report/text.js'
 
 const FALLBACK_THRESHOLDS = { session: { p95: 77.8, p99: 114.1 }, item: { p95: 526.4, p99: 932.9 } }
 const FONT_SCALES = [0.85, 1, 1.15, 1.3]
@@ -150,7 +150,8 @@ export default function Report() {
   )
 
   const { student_id, timestamp, phq, gad, analysis, visuals } = data
-  const flag      = analysis?.flag || 'GREEN'
+  const flag      = analysis?.flag || 'GREEN'                 // overall: behaviour + questionnaires + item 9
+  const behaviourFlag = analysis?.behaviour_flag || flag      // behaviour alone
   const snapshots = visuals?.question_snapshots || []
   const domainT2  = visuals?.domain_t2 || {}
   const levelT2   = visuals?.level_t2 || {}
@@ -169,7 +170,14 @@ export default function Report() {
   const legacyScoring = thr > 0 && Math.abs(thr - sP95) > 0.5
   const thisSession = sessionId || data.session_id
 
-  const recs = clinicalRecs({ flag, label: analysis?.label || '', psi, pai, phq: phqScore, gad: gadScore, domainT2, levelT2, itemP95: iP95, item9 })
+  // Slow from the very start: no change against the own warm-up can hide it
+  const taskFlight = data.typing?.task_flight, warmFlight = data.typing?.warmup_flight
+  const slowFromStart = !insufficient && flag === 'GREEN' && taskFlight > HEALTHY_GAP.p95 && warmFlight >= 0.8 * taskFlight
+    ? { text: `But typing was slower than ${taskFlight > HEALTHY_GAP.p99 ? '99' : '95'}% of healthy adults from the very start, warm-up included, so a change against the client's own baseline cannot show it.`,
+        next: 'Ask about typing experience, energy, concentration and any motor or vision problems before ruling out general slowing.' }
+    : null
+
+  const recs = clinicalRecs({ flag: behaviourFlag, label: analysis?.label || '', psi, pai, phq: phqScore, gad: gadScore, domainT2, levelT2, itemP95: iP95, item9 })
 
   const t2Max  = Math.max(sP99 * 1.5, t2 * 1.08)
   const t2Verd = t2 <= sP95 ? ['Within the healthy range', 'text-success-ink']
@@ -262,7 +270,8 @@ export default function Report() {
               </div>
             )}
 
-            <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label} />
+            <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label}
+              behaviourFlag={behaviourFlag} reasons={analysis?.status_reasons || []} caveat={slowFromStart} />
 
             <KpiStrip t2={t2} sP95={sP95} sP99={sP99} insufficient={insufficient} phq={phqScore} gad={gadScore} item9={item9}
               snapshots={snapshots} iP95={iP95} iP99={iP99} history={history} sessionId={thisSession} />
@@ -271,6 +280,7 @@ export default function Report() {
               <Panel title="What stood out"
                 caption="Every signal in this session, most urgent first — including small ones that did not change the overall result. Small signals are where early changes show first.">
                 <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95, label: analysis?.label,
+                  quality: data.quality, typing: insufficient ? null : data.typing,
                   psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
                   snapshots, iP95, levelT2, history, sessionId: thisSession })} />
               </Panel>

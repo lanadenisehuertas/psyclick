@@ -6,11 +6,26 @@ import { FLAG_META, flagMeta } from '../lib/status.jsx'
 const EASE = [0.22, 1, 0.36, 1]
 
 // ── Status hero: the one thing to read first ────────────────────────────────
-export function StatusHero({ flag, label, confidence, pattern, children }) {
+const BEHAVIOUR_ALONE = {
+  GREEN: 'Behaviour on its own stayed within the healthy range.',
+  AMBER: 'Behaviour on its own also changed more than in most healthy adults.',
+  RED: 'Behaviour on its own also changed more than in almost all healthy adults.',
+}
+
+export function StatusHero({ flag, label, confidence, pattern, behaviourFlag, reasons = [], caveat, children }) {
   const m = flagMeta(flag, label)
   const Icon = m.icon
   const steps = ['GREEN', 'AMBER', 'RED']
-  const current = label === 'Insufficient Data' ? null : flag
+  const insufficient = label === 'Insufficient Data'
+  const current = insufficient && flag !== 'RED' ? null : flag
+  // The questionnaires or a self-harm answer raised the result above what
+  // behaviour alone showed: say so, instead of describing a behaviour change.
+  const raised = reasons.length > 0 && (behaviourFlag !== flag || insufficient)
+  const headline = raised ? reasons[0].charAt(0).toUpperCase() + reasons[0].slice(1) : m.headline
+  const meaning = raised
+    ? [reasons.length > 1 ? `Also: ${reasons.slice(1).join('; ')}.` : '',
+       insufficient ? 'Behaviour could not be assessed (not enough typing).' : BEHAVIOUR_ALONE[behaviourFlag] || ''].filter(Boolean).join(' ')
+    : m.meaning
   const sure = confidence == null ? null
     : confidence >= 0.75 ? 'High' : confidence >= 0.5 ? 'Moderate' : 'Low'
 
@@ -31,11 +46,14 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
             </span>
             <div className="min-w-0">
               <h2 id="result-heading" className={`font-display text-[28px] font-semibold leading-tight ${m.ink}`}>{m.label}</h2>
-              <p className="text-lg font-semibold text-tmain mt-0.5">{m.headline}</p>
-              <p className="text-[15px] text-tsub mt-1.5 leading-relaxed max-w-[62ch]">{m.meaning}</p>
+              <p className="text-lg font-semibold text-tmain mt-0.5">{headline}</p>
+              <p className="text-[15px] text-tsub mt-1.5 leading-relaxed max-w-[62ch]">{meaning}</p>
+              {caveat && (
+                <p className="text-[15px] text-amber-ink font-medium mt-2 leading-relaxed max-w-[62ch]">{caveat.text}</p>
+              )}
               {pattern && pattern !== 'Normal' && pattern !== 'Insufficient Data' && (
                 <p className="text-sm text-tmain mt-2">
-                  {flag === 'GREEN'
+                  {behaviourFlag === 'GREEN' || (!behaviourFlag && flag === 'GREEN')
                     ? <>Still within the healthy range, leaning towards <span className="font-semibold">{plainPattern(pattern)}</span>. Worth checking at the next visit.</>
                     : <>Pattern noticed: <span className="font-semibold">{plainPattern(pattern)}</span></>}
                 </p>
@@ -70,10 +88,10 @@ export function StatusHero({ flag, label, confidence, pattern, children }) {
             <p className="text-sm font-semibold text-[#0F2A33] mb-1.5">What to do next</p>
             <p className="text-[15px] text-tmain leading-relaxed flex gap-2">
               <ArrowRight size={18} className={`flex-shrink-0 mt-0.5 ${m.ink}`} aria-hidden="true" />
-              {m.next}
+              {caveat?.next || m.next}
             </p>
           </div>
-          {sure && (
+          {sure && !raised && (
             <div>
               <p className="text-sm font-semibold text-[#0F2A33] mb-1">How clear the pattern is</p>
               <p className="text-[15px] text-tmain"><span className="font-bold">{sure}</span> <span className="text-tsub">({Math.round(confidence * 100)}%)</span></p>

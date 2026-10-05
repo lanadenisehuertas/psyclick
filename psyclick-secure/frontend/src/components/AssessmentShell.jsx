@@ -61,6 +61,28 @@ export default function AssessmentShell({ step, children, width = 'max-w-3xl', l
   const [askEnd, setAskEnd] = useState(false)
   const [askRestart, setAskRestart] = useState(false)
 
+  // Capture listens to the whole computer. While another window has focus,
+  // tell the server to pause, so keys typed elsewhere are never recorded.
+  useEffect(() => {
+    let focused = document.hasFocus()
+    const report = (now) => {
+      if (now === focused) return
+      focused = now
+      api.assessmentFocus(now).catch(() => {})
+    }
+    const onBlur = () => report(false)
+    const onFocus = () => report(true)
+    const onVis = () => report(document.visibilityState === 'visible' && document.hasFocus())
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
+
   function endSession() {
     api.auditLog('clinician', 'Ended assessment early', 'Session discarded')
     setAskEnd(false)

@@ -93,7 +93,11 @@ export default function ClientDetail() {
             <Card className={`p-6 border-2 ${flagMeta(latest.flag, latest.label).soft}`}>
               <p className="text-sm font-semibold text-tsub uppercase tracking-wider">Latest result</p>
               <div className="mt-3"><StatusBadge flag={latest.flag} label={latest.label} size="lg" /></div>
-              <p className="mt-3 text-tmain font-semibold">{flagMeta(latest.flag, latest.label).headline}</p>
+              <p className="mt-3 text-tmain font-semibold">
+                {latest.behaviour_flag && latest.behaviour_flag !== latest.flag
+                  ? (latest.safety ? 'Self-harm answer on PHQ-9 question 9' : 'Raised by the questionnaire scores')
+                  : flagMeta(latest.flag, latest.label).headline}
+              </p>
               <p className="text-sm text-tsub mt-1">{formatTimestamp(latest.timestamp, { dateStyle: 'full', timeStyle: 'short' })}</p>
               <Button variant="secondary" size="sm" className="mt-4" iconRight={ArrowRight}
                 onClick={() => navigate(`/clients/session/${latest.session_id}`)}>Open latest report</Button>

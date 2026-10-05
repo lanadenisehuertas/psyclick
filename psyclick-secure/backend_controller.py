@@ -33,6 +33,7 @@ They are NOT recomputed from the typing-phase mouse data.
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 import os
 import sys
@@ -45,6 +46,15 @@ from anomaly_engine import AnomalyEngine
 _log = logging.getLogger(__name__)
 
 HOVER_CAP_S = 5.0   # longest single stillness credited to one word
+# Fewer typed answers than this cannot support a behavioural verdict: one or
+# two short answers are too noisy to compare with the warm-up.
+MIN_SCORED_ANSWERS = 4
+# Longer than this between a prompt appearing and the first key is time away,
+# not reading hesitation.
+PRE_TYPING_AWAY_S = 60.0
+# Answering a questionnaire faster than this per question suggests the
+# questions were not read.
+RUSHED_S_PER_ITEM = 1.5
 
 
 def _ae_scalar(ae, key):
@@ -142,6 +152,11 @@ class PsyClickController:
         self._phq_mouse_feats    = {}
         self._gad_mouse_feats    = {}
         self.kbase_problem       = None
+        # Data quality for this session (shown in the report)
+        self.phase               = "setup"
+        self._blur_started       = None
+        self._interruptions      = []     # [{"phase", "kind": "away"|"focus", "seconds"}]
+        self._questionnaire_pace = {}     # {"phq": s/item, "gad": s/item}
 
     def set_student_id(self, sid):
         self._reset_session()
@@ -238,8 +253,11 @@ class PsyClickController:
             gap = dt.iloc[i]
             if gap < 0.10:          # gap < 100 ms → normal movement, skip
                 continue
-            # Cursor was stationary at the PREVIOUS row's position
+            # Cursor was stationary at the PREVIOUS row's position. Time with
+            # the window unfocused (ending at a BREAK) is not reading.
             prev = df.iloc[i - 1]
+            if df.iloc[i].get("event") == "BREAK" or prev.get("event") == "BREAK":
+                continue
             px, py = prev["x"], prev["y"]
             # A very long stillness is more likely the hand leaving the mouse
             # than reading one word, so a single stop counts for at most 5 s.
@@ -279,6 +297,39 @@ class PsyClickController:
         gap_ms      = (first_key - first_mouse) * 1000
         return max(0.0, gap_ms)
 
+    # ── Focus: never record what is typed in other programs ──────────────────
+    def set_focus(self, focused):
+        """The PsyClick window lost or regained focus. While unfocused nothing is
+        recorded; the stretch is marked so it stays out of every measure."""
+        now = time.perf_counter()
+        if not focused and self._blur_started is None:
+            self._blur_started = now
+            self.key_logger.suspend()
+            self.mouse_logger.suspend()
+        elif focused and self._blur_started is not None:
+            self._interruptions.append({"phase": self._phase_label(), "kind": "focus",
+                                        "seconds": round(now - self._blur_started, 1)})
+            self._blur_started = None
+            self.key_logger.resume()
+            self.mouse_logger.resume()
+
+    def _phase_label(self):
+        q = self._current_question
+        return (q or {}).get("item_id") if self.phase == "writing" and q else self.phase
+
+    def _note_away(self, feats, phase):
+        for g in (feats or {}).get("away_gaps", []):
+            self._interruptions.append({"phase": phase, "kind": "away", "seconds": round(g, 1)})
+
+    @staticmethod
+    def _pace(mouse_raw, n_items):
+        """Seconds per question, from the page appearing to the last answer click."""
+        clicks = [e["time"] for e in mouse_raw or [] if e.get("event") == "CLICK"]
+        moves = [e["time"] for e in mouse_raw or [] if e.get("event") != "BREAK"]
+        if len(clicks) < n_items or not moves:
+            return None
+        return round((max(clicks) - min(moves)) / n_items, 2)
+
     # ── Calibration ───────────────────────────────────────────────────────────
     def save_kbase(self):
         """
@@ -291,6 +342,7 @@ class PsyClickController:
             # Not the person's own typing: never let it become the baseline
             return False
         feats = fe.extract_features(raw)
+        self._note_away(feats, "typing warm-up")
         if feats:
             self.session_data["kbase"] = feats
             # Seed baseline with keyboard features only
@@ -319,6 +371,7 @@ class PsyClickController:
         """
         raw   = self.mouse_logger.stop_logging()
         feats = fe.extract_mouse_features(raw)
+        self._questionnaire_pace["phq"] = self._pace(raw, 9)
         self.session_data["phq"]["score"] = total_score
         self.session_data["phq"]["item9"] = item9
         if feats:
@@ -333,6 +386,7 @@ class PsyClickController:
         """
         raw   = self.mouse_logger.stop_logging()
         feats = fe.extract_mouse_features(raw)
+        self._questionnaire_pace["gad"] = self._pace(raw, 7)
         self.session_data["gad"]["score"] = total_score
         if feats:
             self.session_data["gad"]["mouse"] = feats
@@ -377,6 +431,7 @@ class PsyClickController:
         # is kept (answer length, hover) but its timing is not scored.
         typing_issue = fe.typing_problem(key_raw)
         key_feats = {} if typing_issue else (fe.extract_features(key_raw) or {})
+        self._note_away(key_feats, question_meta.get("item_id", "?"))
 
         # ── Mouse: hover words (pre-typing window only) ───────────────────────
         hover_words       = self._map_hover_words(mouse_raw, key_raw)
@@ -436,6 +491,10 @@ class PsyClickController:
 
             # Mouse: only pre-typing signals (logically valid)
             "pre_typing_pause_ms": pre_typing_pause,   # reading latency
+            # Longer than a minute, or focus lost before typing: time away, not hesitation
+            "pre_typing_away":     bool(pre_typing_pause >= PRE_TYPING_AWAY_S * 1000
+                                        or any(e.get("event") == "BREAK" for e in mouse_raw)),
+            "away_s":              round(sum(key_feats.get("away_gaps", [])), 1),
             "question_shown_at":   question_shown_at,  # epoch s when question appeared
             "hover_words":         hover_words,         # which words triggered hesitation
             
@@ -474,6 +533,9 @@ class PsyClickController:
         # still use whatever keystroke timing exists rather than none at all.
         valid_snaps = [s for s in typed_snaps if s.get("response_len", 0) >= 20] or typed_snaps
         n_valid = len(valid_snaps)
+        # Too few answers to compare with the warm-up: no behavioural verdict
+        if n_valid < MIN_SCORED_ANSWERS:
+            valid_snaps, n_valid = [], 0
 
         # Flights from the same responses that feed the aggregate, so the
         # pause-frequency numerator and denominator describe the same typing.
@@ -524,6 +586,10 @@ class PsyClickController:
                               "responses), so psychomotor behaviour could not be assessed. Repeat the "
                               "session or rely on the questionnaire scores and clinical observation."),
             }
+            if typed_snaps and len(typed_snaps) < MIN_SCORED_ANSWERS:
+                analysis["rationale"] = (
+                    f"Only {len(typed_snaps)} written answer(s) had typing; at least {MIN_SCORED_ANSWERS} are "
+                    "needed to compare behaviour with the warm-up. Questionnaire scores remain valid.")
 
         # Domain-segmented T²
         domain_t2 = {}; domain_cnt = {}
@@ -566,6 +632,17 @@ class PsyClickController:
             "domain_t2":           domain_t2_avg,
             "level_t2":            level_t2_avg,
             "pre_typing_pauses":   pre_typing_pauses,  # reading latency per question
+        }
+        if self._blur_started is not None:      # still unfocused when the session ended
+            self.set_focus(True)
+        final["quality"] = {
+            "interruptions":   self._interruptions,
+            "answers_typed":   len(typed_snaps),
+            "answers_skipped": sum(1 for s in self._question_snapshots if s.get("key_count", 0) == 0),
+            "answers_short":   sum(1 for s in typed_snaps if s.get("response_len", 0) < 20),
+            "pace_s_per_item": self._questionnaire_pace,
+            "rushed": [k for k, v in self._questionnaire_pace.items() if v is not None and v < RUSHED_S_PER_ITEM],
+            "warmup_flight":   float(kb.get("mean_flight", 0) or 0),
         }
 
         final["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

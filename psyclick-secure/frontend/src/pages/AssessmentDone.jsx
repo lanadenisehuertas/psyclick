@@ -51,7 +51,7 @@ export default function AssessmentDone() {
             <motion.div className="mt-10 flex items-center gap-3 rounded-2xl bg-white border border-border px-5 py-4 text-left shadow-card"
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}>
               <HeartHandshake size={26} className="text-accent-ink flex-shrink-0" aria-hidden="true" />
-              <p className="text-tmain">Your answers are private and stored securely on this computer.</p>
+              <p className="text-tmain">Your answers are private. They are stored on this computer and copied to the clinic’s PsyClick cloud when online.</p>
             </motion.div>
             <div className="mt-12 pt-8 border-t border-border w-full max-w-md">
               <p className="text-sm font-semibold uppercase tracking-[0.14em] text-tsub">For the clinician</p>

@@ -114,6 +114,7 @@ export const api = {
   assessmentFinish: ()                    => post('/assessment/finish',       {}),
   auditChoice:      (label, context)      => post('/assessment/audit/choice', { label, context }),
   auditIdle:        (context)             => post('/assessment/idle',         { context }),
+  assessmentFocus:  (focused)             => post('/assessment/focus',        { focused }),
 
   // Audit
   auditLogs:        (actor = 'clinician') => get(`/audit?actor=${actor}`),

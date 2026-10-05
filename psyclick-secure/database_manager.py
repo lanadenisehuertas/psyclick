@@ -246,7 +246,8 @@ def init_db():
                 synced_at       TEXT DEFAULT NULL,
                 phq_item9       INTEGER,
                 session_uid     TEXT,
-                updated_at      TEXT
+                updated_at      TEXT,
+                quality_json    TEXT
             )
         """),
 
@@ -406,7 +407,7 @@ def init_db():
     for col, coltype in (('domain_t2_json', 'TEXT'), ('question_snapshots_json', 'TEXT'),
                          ('clinician_id', 'INTEGER'), ('flight_times_json', 'TEXT'),
                          ('synced_at', 'TEXT'), ('phq_item9', 'INTEGER'),
-                         ('session_uid', 'TEXT'), ('updated_at', 'TEXT')):
+                         ('session_uid', 'TEXT'), ('updated_at', 'TEXT'), ('quality_json', 'TEXT')):
         _add_col(conn, 'intake_sessions', col, coltype)
     for col, coltype in (('account_uid', 'TEXT'), ('updated_at', 'TEXT'), ('sync_dirty', 'INTEGER')):
         _add_col(conn, 'clinicians', col, coltype)
@@ -599,8 +600,8 @@ def save_full_intake(data):
     item9 = (data.get("phq") or {}).get("item9")
     if item9 is not None:
         _exec(conn, "UPDATE intake_sessions SET phq_item9=? WHERE session_id=?", (int(item9), session_id))
-    _exec(conn, "UPDATE intake_sessions SET session_uid=?, updated_at=? WHERE session_id=?",
-          (uuid.uuid4().hex, utc_now(), session_id))
+    _exec(conn, "UPDATE intake_sessions SET session_uid=?, updated_at=?, quality_json=? WHERE session_id=?",
+          (uuid.uuid4().hex, utc_now(), json.dumps(data.get("quality") or {}), session_id))
 
     # Per-question snapshots
     for snap in data.get("visuals", {}).get("question_snapshots", []):
@@ -1298,6 +1299,39 @@ def get_next_tester_id():
         return None
     except Exception:
         return None
+
+
+# ── Overall result ────────────────────────────────────────────────────────────
+# The stored flag describes behaviour only. The result a clinician sees must
+# also reflect what the client reported: a self-harm answer or severe
+# questionnaire scores can never sit under "No concerns".
+_RANK = {"GREEN": 0, "AMBER": 1, "RED": 2}
+
+
+def overall_status(behaviour_flag, phq, gad, item9):
+    """Return (overall_flag, reasons) combining behaviour, PHQ-9, GAD-7 and item 9."""
+    flag = behaviour_flag if behaviour_flag in _RANK else "AMBER"
+    reasons = []
+    phq, gad, item9 = int(phq or 0), int(gad or 0), int(item9 or 0)
+
+    def raise_to(level, why):
+        nonlocal flag
+        if _RANK[level] > _RANK[flag]:
+            flag = level
+        reasons.append((_RANK[level], why))
+
+    if item9 > 0:
+        raise_to("RED", "self-harm answer on PHQ-9 question 9")
+    if phq >= 20:
+        raise_to("RED", f"severe depressive symptoms (PHQ-9 {phq})")
+    elif phq >= 10:
+        raise_to("AMBER", f"PHQ-9 {phq} is at or above the screening cut-off of 10")
+    if gad >= 15:
+        raise_to("RED", f"severe anxiety symptoms (GAD-7 {gad})")
+    elif gad >= 10:
+        raise_to("AMBER", f"GAD-7 {gad} is at or above the screening cut-off of 10")
+    # The reason that decided the result comes first
+    return flag, [why for _, why in sorted(reasons, key=lambda r: -r[0])]
 
 
 # ── Cloud sync tracking ───────────────────────────────────────────────────────

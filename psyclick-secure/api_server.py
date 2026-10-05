@@ -53,7 +53,7 @@ from database_manager import (
     DatabaseUnavailableError,
     get_next_client_id,
     get_next_tester_id,
-    delete_sessions, touch_clinician,
+    delete_sessions, touch_clinician, overall_status,
 )
 from report_exporter import export_report, export_summary
 from security_manager import protect_file, create_encrypted_backup, validate_encrypted_backup
@@ -279,26 +279,20 @@ def stats():
         conn = _conn()
         c = conn.cursor()
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
-        if cid:
-            cid_filter = f" WHERE clinician_id={ph}"
-            cid_and    = f" AND clinician_id={ph}"
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions{cid_filter}", (cid,));               total  = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE timestamp>={ph}{cid_and}", (week_ago, cid)); week = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag={ph}{cid_and}", ('GREEN', cid));        normal = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag IN ({ph},{ph}){cid_and}", ('AMBER','RED',cid)); review = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(DISTINCT student_id) FROM intake_sessions{cid_filter}", (cid,));     clients = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE phq_item9 > 0{cid_and}", (cid,));     safety  = c.fetchone()[0]
-        else:
-            c.execute("SELECT COUNT(*) FROM intake_sessions");                                         total  = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE timestamp >= {ph}", (week_ago,));   week   = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag={ph}", ('GREEN',));            normal = c.fetchone()[0]
-            c.execute(f"SELECT COUNT(*) FROM intake_sessions WHERE flag IN ({ph},{ph})", ('AMBER','RED',)); review = c.fetchone()[0]
-            c.execute("SELECT COUNT(DISTINCT student_id) FROM intake_sessions");                       clients = c.fetchone()[0]
-            c.execute("SELECT COUNT(*) FROM intake_sessions WHERE phq_item9 > 0");                     safety  = c.fetchone()[0]
-        conn.close()
-        # total/week/normal/review count sessions; clients counts distinct people
-        return jsonify({"total": total, "week": week, "normal": normal, "review": review,
-                        "clients": clients, "safety": safety})
+        where = f" WHERE clinician_id={ph}" if cid else ""
+        c.execute(f"""SELECT student_id, timestamp, flag, phq_score, gad_score, phq_item9
+                      FROM intake_sessions{where}""", ((cid,) if cid else ()))
+        rows = c.fetchall(); conn.close()
+        # Counts use the overall result (behaviour, questionnaires and item 9)
+        overall = [overall_status(r[2], r[3], r[4], r[5])[0] for r in rows]
+        return jsonify({
+            "total": len(rows),
+            "week": sum(1 for r in rows if str(r[1]) >= week_ago),
+            "normal": sum(1 for f in overall if f == "GREEN"),
+            "review": sum(1 for f in overall if f in ("AMBER", "RED")),
+            "clients": len({r[0] for r in rows}),
+            "safety": sum(1 for r in rows if (r[5] or 0) > 0),
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -320,7 +314,8 @@ def recent_sessions():
         rows = c.fetchall(); conn.close()
         return jsonify([{
             "session_id": r[0], "patient_id": r[1], "timestamp": str(r[2])[:16],
-            "flag": r[3], "phq": r[4] or 0, "gad": r[5] or 0,
+            "flag": overall_status(r[3], r[4], r[5], r[9])[0], "behaviour_flag": r[3],
+            "phq": r[4] or 0, "gad": r[5] or 0,
             "psi": r[6] or 0, "pai": r[7] or 0, "label": r[8] or "",
             "safety": bool(r[9]),
         } for r in rows])
@@ -334,22 +329,21 @@ def patients():
         conn = _conn(); c = conn.cursor()
         ph = _ph()
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
-        # Status shown for a client is their LATEST session, not their worst ever
-        scope = f" AND s2.clinician_id={ph}" if cid else ""
-        where = f" WHERE s.clinician_id={ph}" if cid else ""
-        c.execute(f"""SELECT s.student_id, COUNT(*), MAX(s.timestamp),
-                             (SELECT s2.flag FROM intake_sessions s2
-                               WHERE s2.student_id = s.student_id{scope}
-                               ORDER BY s2.timestamp DESC, s2.session_id DESC LIMIT 1),
-                             MAX(CASE WHEN s.phq_item9 > 0 THEN 1 ELSE 0 END)
-                      FROM intake_sessions s{where}
-                      GROUP BY s.student_id ORDER BY MAX(s.timestamp) DESC""",
-                  ((cid, cid) if cid else ()))
+        where = f" WHERE clinician_id={ph}" if cid else ""
+        c.execute(f"""SELECT student_id, timestamp, session_id, flag, phq_score, gad_score, phq_item9
+                      FROM intake_sessions{where}
+                      ORDER BY timestamp DESC, session_id DESC""", ((cid,) if cid else ()))
         rows = c.fetchall(); conn.close()
-        return jsonify([{
-            "id": r[0], "sessions": r[1], "last_seen": str(r[2])[:16],
-            "flag": r[3], "safety": bool(r[4]),
-        } for r in rows])
+        # Status shown for a client is the overall result of their LATEST session
+        out, seen = [], {}
+        for sid, ts, _, flag, phq, gad, item9 in rows:
+            if sid not in seen:
+                seen[sid] = {"id": sid, "sessions": 0, "last_seen": str(ts)[:16],
+                             "flag": overall_status(flag, phq, gad, item9)[0], "safety": False}
+                out.append(seen[sid])
+            seen[sid]["sessions"] += 1
+            seen[sid]["safety"] = seen[sid]["safety"] or bool(item9)
+        return jsonify(out)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -366,7 +360,8 @@ def patient_sessions(patient_id):
         rows = c.fetchall(); conn.close()
         return jsonify([{
             "session_id": r[0], "timestamp": str(r[1])[:16],
-            "phq": r[2] or 0, "gad": r[3] or 0, "flag": r[4],
+            "phq": r[2] or 0, "gad": r[3] or 0,
+            "flag": overall_status(r[4], r[2], r[3], r[9])[0], "behaviour_flag": r[4],
             "label": r[5] or "", "t2": r[6] or 0,
             "psi": r[7] or 0, "pai": r[8] or 0, "safety": bool(r[9]),
         } for r in rows])
@@ -382,12 +377,14 @@ def session_detail(session_id):
         c.execute(f"""SELECT student_id,timestamp,phq_score,gad_score,
                               t2_score,t2_threshold,psi,pai,
                               fuzzy_label,fuzzy_confidence,flag,rationale,
-                              domain_t2_json,question_snapshots_json,flight_times_json,phq_item9
+                              domain_t2_json,question_snapshots_json,flight_times_json,phq_item9,
+                              quality_json,kbase_mean,task_k_mean
                       FROM intake_sessions WHERE session_id={ph} AND clinician_id={ph}""",
                   (session_id, clinician_id))
         row = c.fetchone(); conn.close()
         if not row: return jsonify({"error":"Session not found"}), 404
-        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9 = row
+        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9,qual_j,kbase_mean,task_mean = row
+        overall, reasons = overall_status(flag, phq, gad, item9)
         snaps = json.loads(snap_j or "[]")
         # Compute level_t2 from stored snapshots (not persisted separately);
         # items with no typing were not scored and are left out
@@ -406,7 +403,8 @@ def session_detail(session_id):
         return jsonify({
             "session_id": session_id, "student_id": sid, "timestamp": str(ts),
             "phq": {"score": phq or 0, "item9": item9}, "gad": {"score": gad or 0},
-            "analysis": {"flag": flag, "t2_score": t2, "t2_threshold": thr,
+            "analysis": {"flag": overall, "behaviour_flag": flag, "status_reasons": reasons,
+                         "t2_score": t2, "t2_threshold": thr,
                          "psi": psi, "pai": pai, "label": label,
                          "confidence": conf, "rationale": rat},
             "visuals": {
@@ -416,6 +414,8 @@ def session_detail(session_id):
                 "flight_times": flights_array,
                 "pause_coords": [],
             },
+            "quality": json.loads(qual_j) if qual_j else None,
+            "typing": {"warmup_flight": kbase_mean, "task_flight": task_mean},
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -467,6 +467,7 @@ def next_tester_id():
 @app.route("/api/calibration/keyboard/start", methods=["POST"])
 def kcal_start():
     controller = require_controller()
+    controller.phase = 'typing warm-up'
     if not controller.session_data.get("consent_verified"):
         return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_key_capture(calibration_mode=True)
@@ -495,6 +496,7 @@ def kcal_save():
 @app.route("/api/calibration/mouse/start", methods=["POST"])
 def mcal_start():
     controller = require_controller()
+    controller.phase = 'clicking warm-up'
     if not controller.session_data.get("consent_verified"):
         return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
@@ -510,6 +512,7 @@ def mcal_save():
 @app.route("/api/assessment/phq/start", methods=["POST"])
 def phq_start():
     controller = require_controller()
+    controller.phase = 'PHQ-9'
     if not controller.session_data.get("consent_verified"):
         return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
@@ -544,6 +547,7 @@ def phq_save():
 @app.route("/api/assessment/gad/start", methods=["POST"])
 def gad_start():
     controller = require_controller()
+    controller.phase = 'GAD-7'
     if not controller.session_data.get("consent_verified"):
         return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
@@ -562,6 +566,7 @@ def gad_save():
 @app.route("/api/assessment/emotional/start", methods=["POST"])
 def emotional_start():
     controller = require_controller()
+    controller.phase = 'writing'
     if not controller.session_data.get("consent_verified"):
         return jsonify({"success": False, "error": "Consent verification is required before capture."}), 403
     controller.start_mouse_capture()
@@ -613,6 +618,16 @@ def assessment_finish():
 def audit_choice():
     d = request.get_json() or {}
     log_audit("patient", f"Made choice: {d.get('label','')}", d.get("context",""))
+    return jsonify({"success": True})
+
+@app.route("/api/assessment/focus", methods=["POST"])
+def assessment_focus():
+    """The assessment window lost or regained focus: pause or resume capture."""
+    focused = bool((request.get_json() or {}).get("focused", True))
+    controller = require_controller()
+    controller.set_focus(focused)
+    if not focused:
+        log_audit("patient", "Assessment window lost focus", controller.session_data.get("student_id") or "")
     return jsonify({"success": True})
 
 @app.route("/api/assessment/idle", methods=["POST"])
@@ -673,9 +688,13 @@ def do_export_report():
 def do_export_summary():
     try:
         conn = _conn(); c = conn.cursor()
-        c.execute("""SELECT student_id,timestamp,flag,phq_score,gad_score,
-                            psi,pai,fuzzy_label FROM intake_sessions ORDER BY timestamp DESC""")
-        rows = c.fetchall(); conn.close()
+        # Only the signed-in account's own sessions, with the overall result
+        cid = _scoped_clinician_id()
+        c.execute(f"""SELECT student_id,timestamp,flag,phq_score,gad_score,
+                             psi,pai,fuzzy_label,phq_item9 FROM intake_sessions
+                      WHERE clinician_id={_ph()} ORDER BY timestamp DESC""", (cid,))
+        rows = [(r[0], r[1], overall_status(r[2], r[3], r[4], r[8])[0], *r[3:8]) for r in c.fetchall()]
+        conn.close()
         log_audit(g.current_user["role"], "Exported generated reports", actor_id=g.current_user["id"])
         if not rows:
             return jsonify({"success": False, "error": "No sessions to export."})

@@ -116,6 +116,13 @@ SCENARIOS = [
     ("DEMO-15", 1,  dict(phq=14, gad=19), {"task": {"err": 0.1}, "linger": LINGER_HIGH,
                                            "illustrative": dict(t2=168.0, psi=12.0, pai=210.0)},
      ("RED", "Psychomotor Agitation")),
+    # Slow from the very start: the own-baseline comparison looks normal
+    ("DEMO-16", 7,  dict(phq=6, gad=5), {"base": {"flight": 0.36, "dwell": 0.13, "jitter": 0.06}}, ("GREEN", "Normal")),
+    # Interrupted: left the keyboard for 6 minutes in one answer and 40 s in another
+    ("DEMO-17", 11, dict(phq=7, gad=8), {"task": lambda i, g, l: {"away": 360} if i == "C2" else ({"away": 40} if i == "A4" else {}),
+                                         "read": {"B3": 95.0}}, ("GREEN", "Normal")),
+    # PHQ-9 clicked through in about a second per question
+    ("DEMO-18", 13, dict(phq=0, gad=1), {"phq_leg": 0.05, "phq_think": (0.3, 0.7)}, ("GREEN", "Normal")),
 ]
 
 NOTES = {
@@ -134,6 +141,9 @@ NOTES = {
     "DEMO-13": "Some prompts left blank",
     "DEMO-14": "Restlessness, Follow up (illustrative values)",
     "DEMO-15": "Marked restlessness with severe anxiety, Review now (illustrative values)",
+    "DEMO-16": "Slow from the very start: looks normal against the own baseline, slow against healthy adults",
+    "DEMO-17": "Interrupted session: away from the keyboard, long wait before a prompt",
+    "DEMO-18": "PHQ-9 clicked through in about a second per question",
 }
 
 LEVEL_WEIGHT = {"A": 0.7, "B": 1.0, "C": 1.4}

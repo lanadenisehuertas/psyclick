@@ -1,11 +1,15 @@
 import { ShieldAlert, AlertTriangle, Eye, CheckCircle2 } from 'lucide-react'
-import { MCID, ITEM9_LABEL } from './text.js'
+import { MCID, ITEM9_LABEL, HEALTHY_GAP } from './text.js'
 
 // Everything that stood out in one session, including signals too small to
 // change the overall result. Early detection lives in these small signals.
 const LEAN = { 'Psychomotor Retardation': 'slowing', 'Psychomotor Agitation': 'restlessness', 'Mixed Disturbance': 'both slowing and restlessness' }
 
-export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, levelT2, history, sessionId }) {
+const PHASE_NAME = { 'typing warm-up': 'the typing warm-up', 'clicking warm-up': 'the clicking warm-up', 'PHQ-9': 'PHQ-9', 'GAD-7': 'GAD-7' }
+const phaseName = p => PHASE_NAME[p] || (p ? `prompt ${p}` : 'the session')
+const minutes = s => (s >= 90 ? `${(s / 60).toFixed(1)} min` : `${Math.round(s)} s`)
+
+export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, levelT2, history, sessionId, quality, typing }) {
   const out = []
   const add = (level, text) => out.push({ level, text })
 
@@ -35,14 +39,42 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
   const la = levelT2?.A || 0, lb = levelT2?.B || 0, lc = levelT2?.C || 0
   if (lc > lb && lb > la && lc > 0) add('note', 'Change grew from mild to strong prompts — a reaction to emotional load.')
 
-  // The first prompt also carries orientation time, so it is left out.
-  const pauses = (snapshots || []).slice(1).map(s => ({ id: s.item_id, p: (s.pre_typing_pause_ms || 0) / 1000 })).filter(x => x.p > 0)
+  // The first prompt also carries orientation time, so it is left out, and
+  // a minute or more before typing is time away, not hesitation.
+  const away = (snapshots || []).filter(s => s.pre_typing_away || (s.pre_typing_pause_ms || 0) >= 60000)
+  if (away.length) add('note', `No typing for over a minute before ${away.map(s => s.item_id).join(', ')} — possibly time away rather than hesitation. Ask the client what happened.`)
+  const pauses = (snapshots || []).slice(1).filter(s => !away.includes(s))
+    .map(s => ({ id: s.item_id, p: (s.pre_typing_pause_ms || 0) / 1000 })).filter(x => x.p > 0)
   if (pauses.length >= 4) {
     const sorted = [...pauses].sort((a, b) => a.p - b.p)
     const median = sorted[Math.floor(sorted.length / 2)].p
     const longest = sorted[sorted.length - 1]
     if (longest.p >= Math.max(2 * median, median + 5)) add('note', `Long hesitation before prompt ${longest.id}: ${longest.p.toFixed(1)} s, against a typical ${median.toFixed(1)} s.`)
   }
+
+  // Absolute typing speed against healthy adults. The own-baseline comparison
+  // cannot see someone who was slow from the start, warm-up included.
+  if (typing?.task_flight > HEALTHY_GAP.p95) {
+    const slowFromStart = typing.warmup_flight && typing.warmup_flight >= 0.8 * typing.task_flight
+    add('watch', `Typing in the written answers was slower than ${typing.task_flight > HEALTHY_GAP.p99 ? '99' : '95'}% of healthy adults `
+      + `(${typing.task_flight.toFixed(2)} s between keys; most healthy adults ${HEALTHY_GAP.p25.toFixed(2)}–${HEALTHY_GAP.p75.toFixed(2)} s).`
+      + (slowFromStart ? ' The warm-up was just as slow, so the comparison with the client\'s own baseline cannot show it. Consider typing experience, vision or motor problems, or general slowing.' : ''))
+  }
+
+  // Session quality: interruptions, focus, rushed questionnaires, skipped prompts
+  const q = quality || {}
+  const gaps = (q.interruptions || []).filter(x => x.kind === 'away')
+  if (gaps.length) {
+    const longest = gaps.reduce((a, b) => (b.seconds > a.seconds ? b : a))
+    add('note', `Typing stopped ${gaps.length > 1 ? `${gaps.length} times` : 'once'} for ${minutes(longest.seconds)}${gaps.length > 1 ? ' at most' : ''} (during ${phaseName(longest.phase)}). That time was left out of every average.`)
+  }
+  const focus = (q.interruptions || []).filter(x => x.kind === 'focus')
+  if (focus.length) add('note', `The PsyClick window lost focus ${focus.length > 1 ? `${focus.length} times` : 'once'} (${[...new Set(focus.map(x => phaseName(x.phase)))].join(', ')}). Nothing typed in other programs was recorded.`)
+  for (const k of q.rushed || []) {
+    const pace = q.pace_s_per_item?.[k]
+    add('watch', `${k === 'phq' ? 'PHQ-9' : 'GAD-7'} was answered in about ${pace?.toFixed(1)} s per question — check that the questions were read; the score may not reflect how the client feels.`)
+  }
+  if ((q.answers_skipped || 0) >= 4) add('note', `${q.answers_skipped} of 12 written prompts were left blank.`)
 
   const odd = (snapshots || []).filter(s => s.typing_issue)
   if (odd.length) add('watch', `Typing on ${odd.map(s => s.item_id).join(', ')} looked ${odd.some(s => s.typing_issue === 'automatic') ? 'pasted or entered by another program' : 'like a held-down key'}, so ${odd.length > 1 ? 'those prompts were' : 'that prompt was'} not scored.`)

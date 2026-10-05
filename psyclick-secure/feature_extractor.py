@@ -45,6 +45,14 @@ _MAX_SIMULTANEOUS = 0.30    # share of such presses tolerated (fast rollover, ch
 _MAX_REPEATS      = 0.40    # share of auto-repeated presses tolerated
 _DUPLICATE_S      = 0.002   # the same key event again within 2 ms is one physical event
 
+# A gap this long between key presses is time away (a break, an interruption,
+# leaving the keyboard), not typing rhythm. It is left out of every typing
+# measure so averages describe only the time the person was actually typing.
+# Thinking pauses shorter than this still count as pauses, as in the
+# normative sessions, so ordinary sessions score exactly as before.
+AWAY_S = 15.0
+BREAK = "BREAK"   # marker the loggers insert where capture was suspended (focus lost)
+
 
 def dedupe_key_events(raw_data_list):
     """
@@ -55,6 +63,9 @@ def dedupe_key_events(raw_data_list):
     out = []
     last = {}
     for e in sorted(raw_data_list or [], key=lambda e: e["time"]):
+        if e.get("event") == BREAK:
+            out.append(e)
+            continue
         k = (e.get("key"), e.get("event"))
         if k in last and e["time"] - last[k] <= _DUPLICATE_S:
             continue
@@ -103,10 +114,19 @@ def extract_features(raw_data_list):
     if isinstance(raw_data_list, dict):
         raw_data_list = raw_data_list.get("keys", [])
     raw_data_list = dedupe_key_events(raw_data_list)
-    if not raw_data_list or len(raw_data_list) < 4:
+    # Segments: a BREAK marker (capture suspended) starts a new segment, and
+    # key gaps are only measured within one segment.
+    seg, events = 0, []
+    for e in raw_data_list:
+        if e.get("event") == BREAK:
+            seg += 1
+            continue
+        events.append({**e, "seg": seg})
+    breaks = seg
+    if len(events) < 4:
         return None
 
-    df = pd.DataFrame(raw_data_list)
+    df = pd.DataFrame(events)
 
     # ── Flight Time ───────────────────────────────────────────────────────────
     downs = df[df["event"] == "DOWN"].reset_index(drop=True)
@@ -114,15 +134,20 @@ def extract_features(raw_data_list):
         return None
     downs["prev_time"]   = downs["time"].shift(1)
     downs["flight_time"] = downs["time"] - downs["prev_time"]
-    clean = downs.dropna().copy()
-    
-    # Keep ALL flights for pause frequency and raw telemetry!
-    all_flights = clean["flight_time"]
-    
-    clean = clean[clean["flight_time"] < 2.0]   # discard pauses > 2 s for mean velocity
+    same_seg = downs["seg"] == downs["seg"].shift(1)
+    measured = downs[same_seg].dropna(subset=["flight_time"]).copy()
+
+    # Time away is reported, then left out of every measure below
+    away_gaps = measured.loc[measured["flight_time"] >= AWAY_S, "flight_time"].tolist()
+    typing = measured[measured["flight_time"] < AWAY_S]
+
+    # Keep every in-rhythm flight for pause frequency and raw telemetry
+    all_flights = typing["flight_time"]
+
+    clean = typing[typing["flight_time"] < 2.0]   # discard pauses > 2 s for mean flight
     if clean.empty:
         return None
-        
+
     # Exclude Enter key for flight time to avoid cognitive submission hesitation spikes
     clean_flight = clean[~clean["key"].str.lower().isin(["enter", "return"])]
     if clean_flight.empty:
@@ -143,7 +168,9 @@ def extract_features(raw_data_list):
     mean_dwell = float(np.mean(dwell_times)) if dwell_times else 0.0
 
     # ── Typing Velocity ───────────────────────────────────────────────────────
-    total_time = float(downs["time"].iloc[-1] - downs["time"].iloc[0])
+    # Active typing time: the span of key presses minus time away and breaks
+    # (identical to first-to-last key when there was neither).
+    total_time = float(all_flights.sum())
     typing_velocity = len(clean) / total_time if total_time > 0 else 0.0
 
     # ── Error Rate ────────────────────────────────────────────────────────────
@@ -168,7 +195,10 @@ def extract_features(raw_data_list):
         # Legacy aliases so existing backend_controller code still compiles
         "mean_flight":     mean_flight,
         "std_flight":      float(clean["flight_time"].std()) if len(clean) > 1 else 0.0,
-        "raw_flight_times": all_flights.tolist() # Real data payload including true pauses
+        "raw_flight_times": all_flights.tolist(), # in-rhythm gaps, including true pauses
+        # Data quality: time away from the keyboard and suspended capture
+        "away_gaps":       [float(g) for g in away_gaps],
+        "breaks":          breaks,
     }
 
 
@@ -184,12 +214,21 @@ def extract_mouse_features(mouse_data):
         return None
 
     df = pd.DataFrame(mouse_data).sort_values("time").reset_index(drop=True)
+    resumed = None
+    if "event" in df and (df["event"] == BREAK).any():
+        resumed = (df["event"] == BREAK).shift(1, fill_value=False).cumsum()
+        keep = df["event"] != BREAK
+        df, resumed = df[keep].reset_index(drop=True), resumed[keep].reset_index(drop=True)
+        if len(df) < 10:
+            return None
 
     # ── Apply Sliding Window WMA (Stage 1) ───────────────────────────────────
     df["x"] = _sliding_wma(df["x"].values)
     df["y"] = _sliding_wma(df["y"].values)
 
     dt = df["time"].diff().replace(0, np.nan)
+    if resumed is not None:
+        dt[resumed != resumed.shift(1)] = np.nan   # first sample after a break
     dx = df["x"].diff()
     dy = df["y"].diff()
 

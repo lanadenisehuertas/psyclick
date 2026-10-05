@@ -5,8 +5,8 @@ import { CheckCircle2, AlertTriangle, AlertOctagon, HelpCircle, MinusCircle } fr
 export const FLAG_META = {
   GREEN: {
     label: 'No concerns',
-    headline: 'Typing and mouse behaviour looked typical',
-    meaning: 'This client behaved within the range seen in healthy adults during the emotional prompts.',
+    headline: 'No marked change in behaviour',
+    meaning: "During the emotional prompts, typing and mouse behaviour changed no more from the client's own warm-up than it does in healthy adults.",
     next: 'No extra follow-up is needed from this screening. Continue routine care.',
     icon: CheckCircle2,
     chip: 'bg-success/15 text-success-ink border-success/30',
@@ -57,7 +57,9 @@ export const FLAG_META = {
 }
 
 export function flagMeta(flag, label = '') {
-  if (label === 'Insufficient Data') return FLAG_META.INSUFFICIENT
+  // "Not enough data" describes behaviour; a Review now raised by the
+  // questionnaires or a self-harm answer still shows as Review now.
+  if (label === 'Insufficient Data' && flag !== 'RED') return FLAG_META.INSUFFICIENT
   return FLAG_META[flag] || FLAG_META.GREEN
 }
 

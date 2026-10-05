@@ -14,7 +14,7 @@ export const DOMAIN_TIPS = {
 // Healthy reference values (p75 / p95) used when no percentile is available
 export const HEALTHY_REF = { psi: { p75: 9.32, p95: 29.63 }, pai: { p75: 15.55, p95: 80.26 } }
 // Healthy adults' average gap between key presses (middle half, seconds)
-export const HEALTHY_GAP = { p25: 0.118, p50: 0.168, p75: 0.201 }
+export const HEALTHY_GAP = { p25: 0.118, p50: 0.168, p75: 0.201, p95: 0.253, p99: 0.294 }
 
 // Minimal clinically important differences used for "meaningful change"
 export const MCID = { phq: 5, gad: 4 }   // Löwe et al. 2004; Toussaint et al. 2020

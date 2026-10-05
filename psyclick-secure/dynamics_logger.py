@@ -85,6 +85,7 @@ class KeyLogger:
         self._is_calibration  = False
         self._logging_active  = False
         self.on_first_key     = None
+        self._suspended       = False   # PsyClick window not focused: ignore keys
         self._lock            = threading.Lock()
         self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         self.listener.daemon = True
@@ -107,7 +108,7 @@ class KeyLogger:
         return True
 
     def on_press(self, key):
-        if not self._logging_active:
+        if not self._logging_active or self._suspended:
             return
         try:
             t_raw = time.perf_counter()
@@ -124,7 +125,7 @@ class KeyLogger:
             pass
 
     def on_release(self, key):
-        if not self._logging_active:
+        if not self._logging_active or self._suspended:
             return
         try:
             t_raw = time.perf_counter()
@@ -132,6 +133,18 @@ class KeyLogger:
                 self._record(key, "UP", t_raw)
         except Exception:
             pass
+
+    def suspend(self):
+        """Stop recording while the PsyClick window is not focused (keys typed in
+        other programs are not the client's answer)."""
+        self._suspended = True
+
+    def resume(self):
+        """Record again; a BREAK marker keeps the gap out of every measure."""
+        with self._lock:
+            if self._suspended and self._logging_active:
+                self.raw_data.append({"key": None, "event": "BREAK", "time": self.hal.correct(time.perf_counter())})
+            self._suspended = False
 
     def start_logging(self, calibration_mode=False, on_first_key=None):
         with self._lock:
@@ -158,6 +171,7 @@ class MouseLogger:
         self.hal      = hal
         self.raw_data = []
         self._logging_active = False
+        self._suspended = False
         self._lock = threading.Lock()
         self.listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click)
         self.listener.daemon = True
@@ -173,7 +187,7 @@ class MouseLogger:
             self.raw_data.append({"x": x, "y": y, "event": event, "time": t_norm})
 
     def on_move(self, x, y):
-        if not self._logging_active:
+        if not self._logging_active or self._suspended:
             return
         try:
             self._record(x, y, "MOVE")
@@ -181,12 +195,21 @@ class MouseLogger:
             pass
 
     def on_click(self, x, y, button, pressed):
-        if not self._logging_active or not pressed:
+        if not self._logging_active or self._suspended or not pressed:
             return
         try:
             self._record(x, y, "CLICK")
         except Exception:
             pass
+
+    def suspend(self):
+        self._suspended = True
+
+    def resume(self):
+        with self._lock:
+            if self._suspended and self._logging_active:
+                self.raw_data.append({"x": 0, "y": 0, "event": "BREAK", "time": self.hal.correct(time.perf_counter())})
+            self._suspended = False
 
     def start_logging(self):
         with self._lock:
