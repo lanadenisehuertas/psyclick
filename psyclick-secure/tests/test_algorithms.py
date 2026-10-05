@@ -352,10 +352,29 @@ class TypingPlausibilityTests(unittest.TestCase):
         self.assertIsNone(fe.typing_problem(_typing_events(60, flight=0.17)))
 
     def test_injected_text_is_caught(self):
-        ev = _typing_events(60, flight=0.17)
-        for i, e in enumerate(ev):           # every other press lands in the same instant
-            e["time"] = (i // 4) * 0.17 + (0.0001 if e["event"] == "UP" else 0.0)
+        ev = []                               # different keys arriving in the same instant
+        for i in range(60):
+            t = (i // 3) * 0.17
+            ev += [{"key": "qwertyuiop"[i % 10], "event": "DOWN", "time": t},
+                   {"key": "qwertyuiop"[i % 10], "event": "UP", "time": t + 0.0001}]
         self.assertEqual(fe.typing_problem(ev), "automatic")
+
+    def test_doubled_hook_events_are_not_flagged_and_score_the_same(self):
+        ev = _typing_events(60, flight=0.17)
+        doubled = sorted(ev + [dict(e) for e in ev], key=lambda e: e["time"])
+        self.assertIsNone(fe.typing_problem(doubled))
+        a, b = fe.extract_features(ev), fe.extract_features(doubled)
+        for k in ("flight_time", "dwell_time", "typing_velocity", "error_rate", "pause_frequency"):
+            self.assertAlmostEqual(a[k], b[k], places=9)
+
+    def test_fast_natural_typing_passes(self):
+        import random
+        rng, ev, t = random.Random(4), [], 0.0
+        for i in range(200):   # ~110 wpm with frequent overlapping keys
+            t += max(0.004, rng.gauss(0.09, 0.05))
+            ev += [{"key": "abcdefgh"[i % 8], "event": "DOWN", "time": t},
+                   {"key": "abcdefgh"[i % 8], "event": "UP", "time": t + 0.08}]
+        self.assertIsNone(fe.typing_problem(ev))
 
     def test_held_key_is_caught(self):
         ev = [{"key": "a", "event": "DOWN", "time": 0.5 + 0.033 * i} for i in range(40)]

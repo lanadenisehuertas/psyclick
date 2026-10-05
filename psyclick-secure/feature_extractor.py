@@ -40,16 +40,34 @@ def _sliding_wma(values):
 # key auto-repeats without being released. Either one means the timing does
 # not describe the person's typing (text injected by software, or a key held
 # down), so it must not be scored or used as a baseline.
-_SIMULTANEOUS_S   = 0.005   # presses closer than this are not human
-_MAX_SIMULTANEOUS = 0.15    # share of such presses tolerated (key rollover)
-_MAX_REPEATS      = 0.30    # share of auto-repeated presses tolerated
+_SIMULTANEOUS_S   = 0.003   # presses closer than this are not human
+_MAX_SIMULTANEOUS = 0.30    # share of such presses tolerated (fast rollover, chords)
+_MAX_REPEATS      = 0.40    # share of auto-repeated presses tolerated
+_DUPLICATE_S      = 0.002   # the same key event again within 2 ms is one physical event
+
+
+def dedupe_key_events(raw_data_list):
+    """
+    Drop exact repeats of a key event (same key, same direction, within 2 ms).
+    A person cannot press the same key twice in 2 ms; such a repeat is the
+    same event delivered twice by the operating system hook.
+    """
+    out = []
+    last = {}
+    for e in sorted(raw_data_list or [], key=lambda e: e["time"]):
+        k = (e.get("key"), e.get("event"))
+        if k in last and e["time"] - last[k] <= _DUPLICATE_S:
+            continue
+        last[k] = e["time"]
+        out.append(e)
+    return out
 
 
 def typing_problem(raw_data_list):
     """Return None for plausible typing, else 'automatic' or 'held_key'."""
     if isinstance(raw_data_list, dict):
         raw_data_list = raw_data_list.get("keys", [])
-    events = sorted(raw_data_list or [], key=lambda e: e["time"])
+    events = dedupe_key_events(raw_data_list)
     downs = [e for e in events if e.get("event") == "DOWN"]
     if len(downs) < 4:
         return None
@@ -84,6 +102,7 @@ def extract_features(raw_data_list):
     """
     if isinstance(raw_data_list, dict):
         raw_data_list = raw_data_list.get("keys", [])
+    raw_data_list = dedupe_key_events(raw_data_list)
     if not raw_data_list or len(raw_data_list) < 4:
         return None
 

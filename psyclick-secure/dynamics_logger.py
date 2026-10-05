@@ -9,6 +9,7 @@ HAL sub-algorithms :
   3. Device Classification : mechanical vs membrane debounce correction
 """
 
+import threading
 import time
 from pynput import keyboard, mouse
 
@@ -66,132 +67,134 @@ class HardwareAbstractionLayer:
 
 
 # ── KEY LOGGER ────────────────────────────────────────────────────────────────
+# Each logger owns ONE operating-system hook for its whole life. Starting and
+# stopping a capture only switches recording on and off. Creating a new hook per
+# capture let two hooks run at once (two overlapping start requests, or a stop
+# that had not finished), and both wrote into the same buffer, so every key
+# press was recorded twice.
+
+_DUPLICATE_S = 0.002   # the same event again within 2 ms is the same physical event
+
+
 class KeyLogger:
-    """
-    Captures key DOWN and UP events with HAL-corrected timestamps.
-    """
+    """Captures key DOWN and UP events with HAL-corrected timestamps."""
 
     def __init__(self, hal):
         self.hal              = hal
         self.raw_data         = []
         self._is_calibration  = False
         self._logging_active  = False
-        self.listener = keyboard.Listener(
-            on_press=self.on_press,
-            on_release=self.on_release,
-        )
+        self.on_first_key     = None
+        self._lock            = threading.Lock()
+        self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        self.listener.daemon = True
         self.listener.start()
 
-    def on_press(self, key):
-        if not self._logging_active: return
-        
-        # Fire callback on first key press (when raw_data is empty)
-        if not self.raw_data and hasattr(self, 'on_first_key') and self.on_first_key:
-            try:
-                self.on_first_key()
-            except Exception:
-                pass
+    @staticmethod
+    def _name(key):
+        try:
+            return key.char
+        except AttributeError:
+            return str(key).replace("Key.", "")
 
+    def _record(self, key, event, t_raw):
+        k_char = self._name(key)
+        t_norm = self.hal.correct(t_raw)
+        last = self.raw_data[-1] if self.raw_data else None
+        if last and last["key"] == k_char and last["event"] == event and t_norm - last["time"] <= _DUPLICATE_S:
+            return False
+        self.raw_data.append({"key": k_char, "event": event, "time": t_norm})
+        return True
+
+    def on_press(self, key):
+        if not self._logging_active:
+            return
         try:
             t_raw = time.perf_counter()
-            if self._is_calibration:
-                self.hal.record_calibration_sample(t_raw)
-            t_norm = self.hal.correct(t_raw)
-            try:
-                k_char = key.char
-            except AttributeError:
-                k_char = str(key).replace("Key.", "")
-            self.raw_data.append({"key": k_char, "event": "DOWN", "time": t_norm})
+            with self._lock:
+                first = not self.raw_data
+                if self._record(key, "DOWN", t_raw) and self._is_calibration:
+                    self.hal.record_calibration_sample(t_raw)
+            if first and self.on_first_key:
+                try:
+                    self.on_first_key()
+                except Exception:
+                    pass
         except Exception:
             pass
 
     def on_release(self, key):
-        if not self._logging_active: return
+        if not self._logging_active:
+            return
         try:
-            t_norm = self.hal.correct(time.perf_counter())
-            try:
-                k_char = key.char
-            except AttributeError:
-                k_char = str(key).replace("Key.", "")
-            self.raw_data.append({"key": k_char, "event": "UP", "time": t_norm})
+            t_raw = time.perf_counter()
+            with self._lock:
+                self._record(key, "UP", t_raw)
         except Exception:
             pass
 
     def start_logging(self, calibration_mode=False, on_first_key=None):
-        # Force a clean start: stop any existing listener first
-        self.stop_logging()
-        
-        self.listener = keyboard.Listener(
-            on_press=self.on_press,
-            on_release=self.on_release,
-        )
-        self.listener.start()
-        
-        self.raw_data        = []
-        self._is_calibration = calibration_mode
-        self._logging_active = True
-        self.on_first_key = on_first_key
+        with self._lock:
+            self.raw_data        = []
+            self._is_calibration = calibration_mode
+            self.on_first_key    = on_first_key
+            self._logging_active = True
 
     def stop_logging(self):
-        self._logging_active = False
-        
-        # Explicitly stop and join the listener thread to release OS hooks
-        if hasattr(self, 'listener') and self.listener:
-            try:
-                self.listener.stop()
-                self.listener.join(timeout=0.5)
-            except Exception:
-                pass
-            self.listener = None
-
-        if self._is_calibration:
-            self.hal.finalise_calibration()
-            self._is_calibration = False
-        return self.raw_data
+        with self._lock:
+            self._logging_active = False
+            data, self.raw_data = self.raw_data, []
+            if self._is_calibration:
+                self.hal.finalise_calibration()
+                self._is_calibration = False
+        return data
 
 
 # ── MOUSE LOGGER ──────────────────────────────────────────────────────────────
 class MouseLogger:
-    """Captures MOVE and CLICK events with HAL-corrected timestamps."""
+    """Captures MOVE and CLICK events with HAL-corrected timestamps (one hook, as above)."""
 
     def __init__(self, hal):
         self.hal      = hal
         self.raw_data = []
         self._logging_active = False
+        self._lock = threading.Lock()
         self.listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click)
+        self.listener.daemon = True
         self.listener.start()
 
+    def _record(self, x, y, event):
+        t_norm = self.hal.correct(time.perf_counter())
+        with self._lock:
+            last = self.raw_data[-1] if self.raw_data else None
+            if (last and last["event"] == event and last["x"] == x and last["y"] == y
+                    and t_norm - last["time"] <= _DUPLICATE_S):
+                return
+            self.raw_data.append({"x": x, "y": y, "event": event, "time": t_norm})
+
     def on_move(self, x, y):
-        if not self._logging_active: return
+        if not self._logging_active:
+            return
         try:
-            t_norm = self.hal.correct(time.perf_counter())
-            self.raw_data.append({"x": x, "y": y, "event": "MOVE", "time": t_norm})
+            self._record(x, y, "MOVE")
         except Exception:
             pass
 
     def on_click(self, x, y, button, pressed):
-        if not self._logging_active: return
+        if not self._logging_active or not pressed:
+            return
         try:
-            if pressed:
-                t_norm = self.hal.correct(time.perf_counter())
-                self.raw_data.append({"x": x, "y": y, "event": "CLICK", "time": t_norm})
+            self._record(x, y, "CLICK")
         except Exception:
             pass
 
     def start_logging(self):
-        self.stop_logging()
-        self.listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click)
-        self.listener.start()
-        self.raw_data = []
-        self._logging_active = True
+        with self._lock:
+            self.raw_data = []
+            self._logging_active = True
 
     def stop_logging(self):
-        self._logging_active = False
-        if hasattr(self, 'listener') and self.listener:
-            try:
-                self.listener.stop()
-                self.listener.join(timeout=0.5)
-            except Exception:
-                pass
-            self.listener = None
-        return self.raw_data
+        with self._lock:
+            self._logging_active = False
+            data, self.raw_data = self.raw_data, []
+        return data
