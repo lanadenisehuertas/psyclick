@@ -1,6 +1,6 @@
 import { ShieldAlert, AlertTriangle, Eye, CheckCircle2, Info } from 'lucide-react'
 import { MCID, ITEM9_LABEL, HEALTHY_GAP, DOMAIN_NAMES } from './text.js'
-import { topicAverages, topicSignal, byTime } from './visuals.jsx'
+import { topicAverages, topicSignal, byTime, behaviourScored } from './visuals.jsx'
 
 // Everything that stood out in one session, including signals too small to
 // change the overall result. Early detection lives in these small signals.
@@ -8,6 +8,7 @@ const LEAN = { 'Psychomotor Retardation': 'slowing', 'Psychomotor Agitation': 'r
 
 const PHASE_NAME = { 'typing warm-up': 'the typing warm-up', 'clicking warm-up': 'the clicking warm-up', 'PHQ-9': 'PHQ-9', 'GAD-7': 'GAD-7' }
 const phaseName = p => PHASE_NAME[p] || (p ? `prompt ${p}` : 'the session')
+const SAME_LABEL = { 1: 'Several days', 2: 'More than half the days', 3: 'Nearly every day' }
 const minutes = s => (s >= 90 ? `${(s / 60).toFixed(1)} min` : `${Math.round(s)} s`)
 
 // Recorded reasons that can explain slow typing on their own
@@ -22,7 +23,7 @@ function slowTypingReasons(ctx) {
 
 // Statistical thresholds are set so that about 14% of the 71 healthy testers
 // get any behavioural note at all (it was 28% with 85th-percentile notes).
-export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, iP99, levelT2, history, sessionId, quality, typing, context }) {
+export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, iP99, levelT2, history, sessionId, quality, typing, context, checks }) {
   const out = []
   const add = (level, text) => out.push({ level, text })
   const ctx = context || {}
@@ -55,7 +56,11 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
   }
 
   const la = levelT2?.A || 0, lb = levelT2?.B || 0, lc = levelT2?.C || 0
-  if (lc > lb && lb > la && lc > 0) add('note', 'Change grew from mild to strong prompts — a reaction to emotional load.')
+  // Rising by chance happens for about 1 in 6 healthy adults, and the prompts
+  // always come in the same order, so the strong prompts must also be above
+  // healthy adults (3% of the healthy testers) before this is worth a note.
+  if (lc > lb && lb > la && iP95 && lc > iP95)
+    add('note', 'Change was largest on the strongest prompts, where it was above healthy adults. The prompts always come in the same order, so this also reflects time spent in the session.')
 
   // The first prompt also carries orientation time, so it is left out, and
   // a minute or more before typing is time away, not hesitation.
@@ -105,6 +110,9 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
     const pace = q.pace_s_per_item?.[k]
     add('watch', `${k === 'phq' ? 'PHQ-9' : 'GAD-7'} was answered in about ${pace?.toFixed(1)} s per question — check that the questions were read; the score may not reflect how the client feels.`)
   }
+  for (const c of checks || []) {
+    if (c.why === 'same') add('note', `Every ${c.q === 'phq' ? 'PHQ-9' : 'GAD-7'} question got the same answer (“${SAME_LABEL[c.value] || c.value}”). Check with the client that each question was read.`)
+  }
   if ((q.answers_skipped || 0) >= 4) add('note', `${q.answers_skipped} of 12 written prompts were left blank.`)
 
   const odd = (snapshots || []).filter(s => s.typing_issue)
@@ -126,7 +134,10 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
       const dp = now.phq - prev.phq, dg = now.gad - prev.gad
       if (dp >= MCID.phq) add('watch', `PHQ-9 rose ${dp} points since the previous session.`)
       if (dg >= MCID.gad) add('watch', `GAD-7 rose ${dg} points since the previous session.`)
-      if (t2 > sP95 && prev.t2 <= sP95 && now.t2 > sP95) add('watch', 'Behaviour moved above the healthy range since the previous session.')
+      // Behaviour is compared with the last visit that had a behaviour score
+      const prevScored = [...ordered.slice(0, i)].reverse().find(behaviourScored)
+      if (behaviourScored(now) && prevScored && t2 > sP95 && prevScored.t2 <= sP95 && now.t2 > sP95)
+        add('watch', `Behaviour moved above the healthy range since ${prevScored === prev ? 'the previous session' : 'the last session with a behaviour score'}.`)
     }
   }
   const order = { alert: 0, watch: 1, note: 2, context: 3 }

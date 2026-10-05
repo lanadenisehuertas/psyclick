@@ -95,6 +95,7 @@ SCENARIOS = [
     # High questionnaires, typical behaviour
     ("DEMO-07", 6,  dict(phq=16, gad=15), {}, ("GREEN", "Normal")),
     # Too little typing to score behaviour
+    ("DEMO-08", 30, dict(phq=8, gad=6), {}, ("GREEN", "Normal")),
     ("DEMO-08", 2,  dict(phq=9, gad=7), {"skip": ALL_ITEMS}, ("REPEAT", "Insufficient Data")),
     # Reaction to one topic: relationships
     ("DEMO-09", 8,  dict(phq=7, gad=9), {"task": relationships_only, "linger": LINGER_REL,
@@ -135,7 +136,7 @@ NOTES = {
     "DEMO-05": "Self-harm answer while behaviour looks typical",
     "DEMO-06": "Severe on every measure, self-harm nearly every day",
     "DEMO-07": "High questionnaire scores, typical behaviour",
-    "DEMO-08": "Not enough typing to score behaviour: Repeat session",
+    "DEMO-08": "Not enough typing to score behaviour: Repeat session (an earlier scored visit stays the behaviour comparison)",
     "DEMO-09": "Reaction concentrated on relationship prompts",
     "DEMO-10": "Reaction grows from mild to strong prompts",
     "DEMO-11": "Within the healthy range but leaning towards slowing",

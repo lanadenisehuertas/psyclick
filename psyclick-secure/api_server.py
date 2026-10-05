@@ -3,7 +3,7 @@ PsyClick API Server
 Run:  python api_server.py
 """
 
-import os, sys, json, traceback
+import os, sys, json, re, traceback
 from functools import wraps
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, request, g
@@ -54,6 +54,7 @@ from database_manager import (
     get_next_client_id,
     get_next_tester_id,
     delete_sessions, touch_clinician, overall_status,
+    code_conflicts, replace_session, questionnaire_checks, note_client_code,
 )
 from report_exporter import export_report, export_summary
 from security_manager import protect_file, create_encrypted_backup, validate_encrypted_backup
@@ -305,12 +306,14 @@ def recent_sessions():
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
         if cid:
             c.execute(f"""SELECT session_id,student_id,timestamp,flag,
-                                phq_score,gad_score,psi,pai,fuzzy_label,phq_item9
+                                phq_score,gad_score,psi,pai,fuzzy_label,phq_item9,
+                                quality_json,phq_items_json,gad_items_json
                          FROM intake_sessions WHERE clinician_id={ph}
                          ORDER BY timestamp DESC, session_id DESC LIMIT 12""", (cid,))
         else:
             c.execute("""SELECT session_id,student_id,timestamp,flag,
-                                phq_score,gad_score,psi,pai,fuzzy_label,phq_item9
+                                phq_score,gad_score,psi,pai,fuzzy_label,phq_item9,
+                                quality_json,phq_items_json,gad_items_json
                          FROM intake_sessions ORDER BY timestamp DESC, session_id DESC LIMIT 12""")
         rows = c.fetchall(); conn.close()
         return jsonify([{
@@ -319,6 +322,8 @@ def recent_sessions():
             "phq": r[4] or 0, "gad": r[5] or 0,
             "psi": r[6] or 0, "pai": r[7] or 0, "label": r[8] or "",
             "safety": bool(r[9]),
+            "check": questionnaire_checks(json.loads(r[10]) if r[10] else None, r[4], r[5],
+                                          json.loads(r[11]) if r[11] else None, json.loads(r[12]) if r[12] else None),
         } for r in rows])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -335,12 +340,14 @@ def patients():
                       FROM intake_sessions{where}
                       ORDER BY timestamp DESC, session_id DESC""", ((cid,) if cid else ()))
         rows = c.fetchall(); conn.close()
+        conflicts = code_conflicts(cid) if cid else set()
         # Status shown for a client is the overall result of their LATEST session
         out, seen = [], {}
         for sid, ts, _, flag, phq, gad, item9 in rows:
             if sid not in seen:
                 seen[sid] = {"id": sid, "sessions": 0, "last_seen": str(ts)[:16],
-                             "flag": overall_status(flag, phq, gad, item9)[0], "safety": False}
+                             "flag": overall_status(flag, phq, gad, item9)[0], "safety": False,
+                             "code_conflict": sid in conflicts}
                 out.append(seen[sid])
             seen[sid]["sessions"] += 1
             seen[sid]["safety"] = seen[sid]["safety"] or bool(item9)
@@ -355,10 +362,11 @@ def patient_sessions(patient_id):
         conn = _conn(); c = conn.cursor()
         clinician_id = _scoped_clinician_id()
         c.execute(f"""SELECT session_id,timestamp,phq_score,gad_score,flag,
-                              fuzzy_label,t2_score,psi,pai,phq_item9,context_json
+                              fuzzy_label,t2_score,psi,pai,phq_item9,context_json,device_id,first_visit
                       FROM intake_sessions WHERE student_id={ph} AND clinician_id={ph}
                       ORDER BY timestamp DESC, session_id DESC""", (patient_id, clinician_id))
         rows = c.fetchall(); conn.close()
+        conflict = patient_id in code_conflicts(clinician_id)
         return jsonify([{
             "session_id": r[0], "timestamp": str(r[1])[:16],
             "phq": r[2] or 0, "gad": r[3] or 0,
@@ -366,6 +374,7 @@ def patient_sessions(patient_id):
             "label": r[5] or "", "t2": r[6] or 0,
             "psi": r[7] or 0, "pai": r[8] or 0, "safety": bool(r[9]),
             "context": json.loads(r[10]) if r[10] else {},
+            "device": r[11], "first_visit": r[12], "code_conflict": conflict,
         } for r in rows])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -381,12 +390,13 @@ def session_detail(session_id):
                               fuzzy_label,fuzzy_confidence,flag,rationale,
                               domain_t2_json,question_snapshots_json,flight_times_json,phq_item9,
                               quality_json,kbase_mean,task_k_mean,
-                              (phq_items_json IS NOT NULL OR gad_items_json IS NOT NULL), context_json
+                              (phq_items_json IS NOT NULL OR gad_items_json IS NOT NULL), context_json,
+                              phq_items_json, gad_items_json
                       FROM intake_sessions WHERE session_id={ph} AND clinician_id={ph}""",
                   (session_id, clinician_id))
         row = c.fetchone(); conn.close()
         if not row: return jsonify({"error":"Session not found"}), 404
-        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9,qual_j,kbase_mean,task_mean,has_answers,ctx_j = row
+        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9,qual_j,kbase_mean,task_mean,has_answers,ctx_j,phq_i,gad_i = row
         overall, reasons = overall_status(flag, phq, gad, item9)
         snaps = json.loads(snap_j or "[]")
         # Compute level_t2 from stored snapshots (not persisted separately);
@@ -422,9 +432,62 @@ def session_detail(session_id):
             # The answers themselves are fetched separately, only when the clinician asks
             "answers_stored": bool(has_answers),
             "context": json.loads(ctx_j) if ctx_j else {},
+            "questionnaire_checks": questionnaire_checks(json.loads(qual_j) if qual_j else None, phq, gad,
+                                                         json.loads(phq_i) if phq_i else None,
+                                                         json.loads(gad_i) if gad_i else None),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/patients/<patient_id>/same-person", methods=["POST"])
+def confirm_same_person(patient_id):
+    """The clinician checked that a code started on two devices is one person."""
+    try:
+        cid = g.current_user["id"]
+        conn = _conn()
+        rows = _exec(conn, """SELECT session_id FROM intake_sessions WHERE student_id=? AND clinician_id=?
+                                AND first_visit=1 ORDER BY timestamp, session_id""", (patient_id, cid)).fetchall()
+        conn.close()
+        for (sid,) in rows[1:]:              # the earliest stays the first visit
+            replace_session(sid, cid, {"first_visit": 0})
+        log_audit(g.current_user["role"], "Confirmed one client on two devices", patient_id, actor_id=cid)
+        supabase_sync.request_sync()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/session/<int:session_id>/move", methods=["POST"])
+def move_sessions(session_id):
+    """Move a session, and the later sessions recorded for the same code on the
+    same device, to a new client code (they belong to a different person)."""
+    try:
+        cid = g.current_user["id"]
+        code = str((request.get_json() or {}).get("code", "")).strip().upper()
+        if not re.fullmatch(r"C-\d{3}", code):
+            return jsonify({"success": False, "error": "Use the format C- followed by three digits, e.g. C-007."}), 400
+        if get_student_session_count(code, cid):
+            return jsonify({"success": False, "error": f"{code} already has sessions. Choose an unused code."}), 400
+        conn = _conn()
+        row = _exec(conn, "SELECT student_id, device_id, timestamp FROM intake_sessions WHERE session_id=? AND clinician_id=?",
+                           (session_id, cid)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"success": False, "error": "Session not found"}), 404
+        old, dev, ts = row
+        ids = [r[0] for r in _exec(conn, """SELECT session_id FROM intake_sessions WHERE student_id=? AND clinician_id=?
+                                               AND device_id IS ? AND (timestamp > ? OR session_id=?)
+                                               ORDER BY timestamp, session_id""", (old, cid, dev, ts, session_id))]
+        conn.close()
+        for sid in ids:
+            replace_session(sid, cid, {"student_id": code, "first_visit": 1 if sid == session_id else 0})
+        note_client_code(cid, code)
+        log_audit(g.current_user["role"], "Moved sessions to a new client code", f"{old} → {code} ({len(ids)})", actor_id=cid)
+        supabase_sync.request_sync()
+        return jsonify({"success": True, "moved": len(ids), "code": code})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 @app.route("/api/session/<int:session_id>/answers")
 def session_answers(session_id):
@@ -482,6 +545,9 @@ def intake_start():
     controller.session_data["clinician_id"] = cid
     controller.session_data["consent_verified"] = True
     controller.session_data["context"] = _clean_context(d.get("context"))
+    # Started as a client with no earlier sessions known on this device; two
+    # devices doing this for one code reveals a code handed out twice offline
+    controller.session_data["first_visit"] = existing == 0
     log_audit("clinician", "Consent granted and session started", pid, actor_id=cid)
     return jsonify({"success": True, "existing_sessions": existing, "patient_id": pid})
 
@@ -491,10 +557,11 @@ def next_client_id():
     try:
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
         # Codes this clinician used on other devices must be known first
-        supabase_sync.pull_sessions_now(timeout=6)
+        checked = supabase_sync.pull_sessions_now(timeout=6)
+        enabled = supabase_sync.get_sync_status().get("enabled")
         nid = get_next_client_id(cid)
         if nid:
-            return jsonify({"success": True, "id": nid})
+            return jsonify({"success": True, "id": nid, "unchecked": bool(enabled and not checked)})
         return jsonify({"success": False, "error": "A new client code could not be created."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

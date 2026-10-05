@@ -69,6 +69,7 @@ export default function Intake() {
   const [busy, setBusy]       = useState(false)
   const [err, setErr]         = useState('')
   const [idErr, setIdErr]     = useState('')
+  const [idNote, setIdNote]   = useState('')
   const [confirm, setConfirm] = useState(null)
   const [context, setContext] = useState({})
 
@@ -76,7 +77,10 @@ export default function Intake() {
     setIdBusy(true)
     const res = await api.nextClientId(user?.id)
     setIdBusy(false)
-    if (res.success) { setNewId(res.id); setIdErr('') }
+    if (res.success) {
+      setNewId(res.id); setIdErr('')
+      setIdNote(res.unchecked ? 'Offline: codes used on your other devices could not be checked. If you also use PsyClick elsewhere, make sure this code is new there too.' : '')
+    }
     else setIdErr(res.error || 'Could not suggest a code. Type one in the format C-001.')
   }
 
@@ -122,7 +126,7 @@ export default function Intake() {
 
             {kind === 'new' ? (
               <div className="mt-5 grid sm:grid-cols-[1fr_auto] gap-3 items-start">
-                <Field label="Client code" error={idErr} hint="A code, never the client's name. PsyClick does not store names.">
+                <Field label="Client code" error={idErr} hint={idNote || "A code, never the client's name. PsyClick does not store names."}>
                   {(p) => <input {...p} className={`${inputCls} font-semibold tracking-wide`} value={newId}
                     onChange={e => { setNewId(e.target.value); setIdErr('') }} placeholder="C-001" />}
                 </Field>

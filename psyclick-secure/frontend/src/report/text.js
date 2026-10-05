@@ -128,8 +128,8 @@ export function clinicalRecs({ flag, label = '', psi = 0, pai = 0, phq = 0, gad 
 
   const la = levelT2.A || 0, lb = levelT2.B || 0, lc = levelT2.C || 0
   if (lc > lb && lb > la && lc > itemP95) {
-    recs.push({ tone: 'teal', title: 'Reaction grew with emotional load',
-      desc: 'Change rose from mild to strong prompts. The strong prompts are the most useful entry points for discussion.' })
+    recs.push({ tone: 'teal', title: 'Largest change on the strongest prompts',
+      desc: 'Change rose from mild to strong prompts and was above healthy adults on the strong ones. They come last, so tiredness can add to it; the strong prompts are still useful entry points for discussion.' })
   } else if (la > lc && la > itemP95) {
     recs.push({ tone: 'teal', title: 'Already activated at the start',
       desc: 'Change was highest on the mildest prompts. Ask about stressors before the session.' })

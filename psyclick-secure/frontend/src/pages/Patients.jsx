@@ -99,6 +99,11 @@ export default function Clients() {
                   </div>
                   {c.flag ? <StatusBadge flag={c.flag} /> : <span className="text-sm text-tsub">—</span>}
                 </div>
+                {c.code_conflict && (
+                  <p className="mt-3 mr-2 inline-flex items-center gap-1.5 rounded-full bg-amber/15 text-amber-ink text-xs font-semibold px-2.5 py-1">
+                    Check code: started on two devices
+                  </p>
+                )}
                 {c.safety && (
                   <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-coral/10 text-coral-ink text-xs font-semibold px-2.5 py-1">
                     <ShieldAlert size={13} aria-hidden="true" /> Self-harm answer on record

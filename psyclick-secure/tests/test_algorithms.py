@@ -493,6 +493,20 @@ class OverallStatusTests(unittest.TestCase):
         self.assertEqual(db.overall_status("REPEAT", 4, 3, 2)[0], "RED")
 
 
+class QuestionnaireCheckTests(unittest.TestCase):
+    def test_rushed_low_score_is_checked(self):
+        q = {"rushed": ["phq"], "pace_s_per_item": {"phq": 0.9}}
+        self.assertEqual(db.questionnaire_checks(q, 2, 3), [{"q": "phq", "why": "rushed", "pace": 0.9}])
+
+    def test_same_non_zero_answer_throughout_is_checked(self):
+        self.assertEqual(db.questionnaire_checks({}, 9, 0, [1] * 9, [0] * 7), [{"q": "phq", "why": "same", "value": 1}])
+
+    def test_forgiving(self):
+        self.assertEqual(db.questionnaire_checks({}, 0, 0, [0] * 9, [0] * 7), [])        # all "Not at all" is normal
+        self.assertEqual(db.questionnaire_checks({"rushed": ["gad"]}, 3, 12), [])         # already calls for follow-up
+        self.assertEqual(db.questionnaire_checks({}, 5, 4, [1, 1, 0, 1, 1, 0, 1, 0, 0], None), [])
+
+
 class SessionQualityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

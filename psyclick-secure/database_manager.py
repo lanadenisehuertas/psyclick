@@ -250,7 +250,9 @@ def init_db():
                 quality_json    TEXT,
                 phq_items_json  TEXT,
                 gad_items_json  TEXT,
-                context_json    TEXT
+                context_json    TEXT,
+                device_id       TEXT,
+                first_visit     INTEGER
             )
         """),
 
@@ -411,7 +413,8 @@ def init_db():
                          ('clinician_id', 'INTEGER'), ('flight_times_json', 'TEXT'),
                          ('synced_at', 'TEXT'), ('phq_item9', 'INTEGER'),
                          ('session_uid', 'TEXT'), ('updated_at', 'TEXT'), ('quality_json', 'TEXT'),
-                         ('phq_items_json', 'TEXT'), ('gad_items_json', 'TEXT'), ('context_json', 'TEXT')):
+                         ('phq_items_json', 'TEXT'), ('gad_items_json', 'TEXT'), ('context_json', 'TEXT'),
+                         ('device_id', 'TEXT'), ('first_visit', 'INTEGER')):
         _add_col(conn, 'intake_sessions', col, coltype)
     # Sessions saved before the Repeat result existed (same meaning, old flag)
     _exec(conn, "UPDATE intake_sessions SET flag='REPEAT' WHERE fuzzy_label='Insufficient Data' AND flag='AMBER'")
@@ -615,10 +618,12 @@ def save_full_intake(data):
     phq_items = (data.get("phq") or {}).get("items")
     gad_items = (data.get("gad") or {}).get("items")
     _exec(conn, """UPDATE intake_sessions SET session_uid=?, updated_at=?, quality_json=?,
-                   phq_items_json=?, gad_items_json=?, context_json=? WHERE session_id=?""",
+                   phq_items_json=?, gad_items_json=?, context_json=?, device_id=?, first_visit=?
+                   WHERE session_id=?""",
           (uuid.uuid4().hex, utc_now(), json.dumps(data.get("quality") or {}),
            json.dumps(phq_items) if phq_items else None, json.dumps(gad_items) if gad_items else None,
-           json.dumps(data.get("context") or {}), session_id))
+           json.dumps(data.get("context") or {}), get_device_id(conn),
+           None if data.get("first_visit") is None else int(bool(data.get("first_visit"))), session_id))
     conn.commit()
     note_client_code(clinician_id, data.get("student_id"))
 
@@ -1315,6 +1320,90 @@ def get_next_client_id(clinician_id=None):
         return f"C-{high + 1:03d}"
     except Exception:
         return None
+
+
+def get_device_id(conn=None):
+    """A random id for this installation (kept in the local sync state).
+    Pass the open connection when called inside a write, so it is not locked out."""
+    own = conn is None
+    conn = conn or _conn()
+    try:
+        row = _exec(conn, "SELECT value FROM sync_state WHERE key='device_id'").fetchone()
+        if row:
+            return row[0]
+        did = uuid.uuid4().hex[:12]
+        _exec(conn, "INSERT OR REPLACE INTO sync_state (key, value) VALUES ('device_id', ?)", (did,))
+        if own:
+            conn.commit()
+        return did
+    finally:
+        if own:
+            conn.close()
+
+
+def code_conflicts(clinician_id):
+    """Client codes this clinician started as a NEW client on more than one
+    device. That happens when two devices were offline and both handed out the
+    same next code, so the code may now hold two different people."""
+    conn = _conn()
+    try:
+        rows = _exec(conn, """SELECT student_id, device_id FROM intake_sessions
+                               WHERE clinician_id=? AND first_visit=1 AND device_id IS NOT NULL""",
+                     (clinician_id,)).fetchall()
+    finally:
+        conn.close()
+    devices = {}
+    for code, dev in rows:
+        devices.setdefault(code, set()).add(dev)
+    return {code for code, devs in devices.items() if len(devs) > 1}
+
+
+def replace_session(session_id, clinician_id, changes):
+    """Re-record a session with some fields changed (new client code, or
+    confirmed as the same person). Sessions sync as insert-only records, so the
+    change reaches other devices as a new record plus a deletion of the old."""
+    conn = _conn()
+    try:
+        cols = _session_columns(conn)
+        row = _exec(conn, f"SELECT {', '.join(cols)} FROM intake_sessions WHERE session_id=? AND clinician_id=?",
+                    (session_id, clinician_id)).fetchone()
+        if not row:
+            return None
+        data = {**dict(zip(cols, row)), **changes,
+                "session_uid": uuid.uuid4().hex, "updated_at": utc_now(), "synced_at": None}
+        keep = [c for c in cols if c != "session_id"]
+        new_id = _insert_returning(conn, f"INSERT INTO intake_sessions ({', '.join(keep)}) "
+                                         f"VALUES ({', '.join('?' * len(keep))})", [data[c] for c in keep])
+        qcols = [r[1] for r in _exec(conn, "PRAGMA table_info(question_snapshots)").fetchall() if r[1] != "snap_id"]
+        for q in _exec(conn, f"SELECT {', '.join(qcols)} FROM question_snapshots WHERE session_id=?",
+                       (session_id,)).fetchall():
+            d = {**dict(zip(qcols, q)), "session_id": new_id}
+            _exec(conn, f"INSERT INTO question_snapshots ({', '.join(qcols)}) VALUES ({', '.join('?' * len(qcols))})",
+                  [d[c] for c in qcols])
+        delete_sessions(conn, "session_id=?", (session_id,))
+        conn.commit()
+        return new_id
+    finally:
+        conn.close()
+
+
+def questionnaire_checks(quality, phq, gad, phq_items=None, gad_items=None):
+    """Questionnaires whose low score may not reflect how the client feels:
+    answered in about a second per question, or the same non-zero answer to
+    every question. Kept forgiving: a score that already calls for follow-up
+    is left alone, and all 'Not at all' is a normal answer unless rushed."""
+    q = quality or {}
+    rushed = set(q.get("rushed") or [])
+    pace = q.get("pace_s_per_item") or {}
+    out = []
+    for key, score, items in (("phq", phq, phq_items), ("gad", gad, gad_items)):
+        if int(score or 0) >= 10:
+            continue
+        if key in rushed:
+            out.append({"q": key, "why": "rushed", "pace": pace.get(key)})
+        elif items and len(set(items)) == 1 and items[0] > 0:
+            out.append({"q": key, "why": "same", "value": items[0]})
+    return out
 
 
 def note_client_code(clinician_id, code):

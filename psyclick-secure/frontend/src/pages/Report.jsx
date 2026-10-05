@@ -178,6 +178,21 @@ export default function Report() {
         next: 'Ask about typing experience, energy, concentration and any motor or vision problems before ruling out general slowing.' }
     : null
 
+  // A low questionnaire that may not show how the client feels: the overall
+  // result stays, but it should not read as a plain "No concerns"
+  const checks = data.questionnaire_checks || []
+  const qName = k => (k === 'phq' ? 'PHQ-9' : 'GAD-7')
+  const checkCaveat = checks.length && (flag === 'GREEN' || flag === 'REPEAT')
+    ? { text: `${checks.map(c => c.why === 'rushed'
+          ? `${qName(c.q)} was answered in about ${Number(c.pace || 0).toFixed(1)} s per question`
+          : `every ${qName(c.q)} question got the same answer`).join(' and ')}, so ${checks.length > 1 ? 'those low scores' : `the low ${qName(checks[0].q)} score`} may not show how the client feels.`
+          .replace(/^./, ch => ch.toUpperCase()),
+        next: 'Go through the questionnaire answers with the client before relying on this result.' }
+    : null
+  const caveat = slowFromStart && checkCaveat
+    ? { text: `${slowFromStart.text} ${checkCaveat.text}`, next: `${slowFromStart.next} ${checkCaveat.next}` }
+    : slowFromStart || checkCaveat
+
   const recs = clinicalRecs({ flag: behaviourFlag, label: analysis?.label || '', psi, pai, phq: phqScore, gad: gadScore, domainT2, levelT2, itemP95: iP95, item9 })
 
   const t2Max  = Math.max(sP99 * 1.5, t2 * 1.08)
@@ -273,7 +288,7 @@ export default function Report() {
             )}
 
             <StatusHero flag={flag} label={analysis?.label} confidence={insufficient ? null : analysis?.confidence} pattern={analysis?.label}
-              behaviourFlag={behaviourFlag} reasons={analysis?.status_reasons || []} caveat={slowFromStart} />
+              behaviourFlag={behaviourFlag} reasons={analysis?.status_reasons || []} caveat={caveat} />
 
             <KpiStrip t2={t2} sP95={sP95} sP99={sP99} insufficient={insufficient} phq={phqScore} gad={gadScore} item9={item9}
               snapshots={snapshots} iP95={iP95} iP99={iP99} history={history} sessionId={thisSession} />
@@ -282,7 +297,7 @@ export default function Report() {
               <Panel title="What stood out"
                 caption="Every signal in this session, most urgent first — including small ones that did not change the overall result. Small signals are where early changes show first.">
                 <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95, label: analysis?.label,
-                  quality: data.quality, typing: insufficient ? null : data.typing, context: data.context,
+                  quality: data.quality, typing: insufficient ? null : data.typing, context: data.context, checks,
                   psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
                   snapshots, iP95, iP99, levelT2, history, sessionId: thisSession })} />
               </Panel>

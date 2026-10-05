@@ -32,14 +32,44 @@ export default function ClientDetail() {
   const [askDelete, setAskDelete] = useState(false)
   const [typed, setTyped]         = useState('')
   const [deleting, setDeleting]   = useState(false)
+  const [moving, setMoving]       = useState(null)     // session to move to a new code
+  const [moveCode, setMoveCode]   = useState('')
+  const [moveErr, setMoveErr]     = useState('')
+  const [busy, setBusy]           = useState(false)
 
-  useEffect(() => {
+  function load() {
     if (!clientId) return
     api.clientSessions(clientId).then(data => {
       if (Array.isArray(data)) setSessions(data)
       else { setSessions([]); setErr(data?.error || 'Could not load this client.') }
     })
-  }, [clientId])
+  }
+  useEffect(load, [clientId])                                   // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function samePerson() {
+    setBusy(true)
+    const res = await api.samePerson(clientId)
+    setBusy(false)
+    if (res.success) { toast(`${clientId} confirmed as one client.`); load() }
+    else toast(res.error || 'That did not work. Please try again.', 'error')
+  }
+
+  async function startMove(s) {
+    setMoving(s); setMoveErr(''); setMoveCode('')
+    const res = await api.nextClientId()
+    if (res.success) setMoveCode(res.id)
+  }
+
+  async function doMove() {
+    setBusy(true)
+    const res = await api.moveSessions(moving.session_id, moveCode.trim().toUpperCase())
+    setBusy(false)
+    if (res.success) {
+      toast(`${res.moved} session${res.moved !== 1 ? 's' : ''} moved to ${res.code}.`)
+      setMoving(null)
+      load()
+    } else setMoveErr(res.error || 'The sessions could not be moved.')
+  }
 
   async function handleDelete() {
     setDeleting(true)
@@ -55,6 +85,9 @@ export default function ClientDetail() {
   const latest = list[0]
   const prev = list[1]
   const anySafety = list.some(s => s.safety)
+  const conflict = list.some(s => s.code_conflict)
+  // What a move takes along: that session and the later ones from the same device
+  const moveSet = moving ? list.filter(s => s.device === moving.device && String(s.timestamp) >= String(moving.timestamp)) : []
   const confirmMatches = typed.trim().toUpperCase() === (clientId || '').toUpperCase()
   const trend = [...list].reverse().map((s, i) => ({
     name: parseTimestamp(s.timestamp) ? formatTimestamp(s.timestamp, { month: 'short', day: 'numeric' }) : `#${i + 1}`,
@@ -86,6 +119,14 @@ export default function ClientDetail() {
           {anySafety && (
             <Alert tone="error" title="This client answered PHQ-9 question 9 (thoughts of self-harm) above 0">
               Review the sessions marked with the shield icon and follow your safety protocol.
+            </Alert>
+          )}
+
+          {conflict && (
+            <Alert tone="warning" title={`${clientId} was started as a new client on two devices`}>
+              <p>This happens when two devices were offline and both gave out the next code. If these sessions are the same person, confirm it.
+                If one first session belongs to someone else, use <strong>Move to a new code</strong> next to it; later sessions from that device move with it.</p>
+              <div className="mt-3"><Button size="sm" variant="secondary" loading={busy} onClick={samePerson}>Same person</Button></div>
             </Alert>
           )}
 
@@ -158,9 +199,9 @@ export default function ClientDetail() {
             </div>
             <ul className="divide-y divide-border">
               {list.map((s, i) => (
-                <li key={s.session_id}>
+                <li key={s.session_id} className="flex items-center">
                   <button onClick={() => navigate(`/clients/session/${s.session_id}`)}
-                    className="w-full px-6 py-4 flex flex-wrap items-center gap-4 text-left hover:bg-[#F4FAFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
+                    className="flex-1 min-w-0 px-6 py-4 flex flex-wrap items-center gap-4 text-left hover:bg-[#F4FAFB] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink">
                     <span className="w-24 text-sm font-semibold text-tsub">Session {list.length - i}</span>
                     <span className="flex-1 min-w-[180px] text-tmain">{formatTimestamp(s.timestamp, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                     <span className="text-sm text-tsub tabular-nums">PHQ-9 <strong className="text-tmain">{s.phq}</strong> · GAD-7 <strong className="text-tmain">{s.gad}</strong></span>
@@ -168,12 +209,25 @@ export default function ClientDetail() {
                     <StatusBadge flag={s.flag} label={s.label} />
                     <ArrowRight size={18} className="text-accent-ink" aria-hidden="true" />
                   </button>
+                  {conflict && s.first_visit === 1 && (
+                    <Button size="sm" variant="secondary" className="mr-6" onClick={() => startMove(s)}>Move to a new code</Button>
+                  )}
                 </li>
               ))}
             </ul>
           </Card>
         </div>
       )}
+
+      <ConfirmDialog open={!!moving} busy={busy}
+        title="Move to a new client code"
+        description={moving ? `Moves ${moveSet.length} session${moveSet.length !== 1 ? 's' : ''} recorded on that device from ${formatTimestamp(moving.timestamp, { dateStyle: 'medium' })} onwards. Nothing is deleted; the move is written to the audit log.` : ''}
+        confirmLabel="Move sessions" confirmDisabled={!/^C-\d{3}$/.test(moveCode.trim().toUpperCase())}
+        onCancel={() => setMoving(null)} onConfirm={doMove}>
+        <Field label="New client code" error={moveErr} hint="Suggested: the next unused code.">
+          {(p) => <input {...p} className={inputCls} value={moveCode} onChange={e => { setMoveCode(e.target.value); setMoveErr('') }} autoComplete="off" data-autofocus />}
+        </Field>
+      </ConfirmDialog>
 
       <PasswordDialog open={askPwd} onCancel={() => setAskPwd(false)}
         title="Confirm it's you" description="Deleting records needs your password." confirmLabel="Continue"

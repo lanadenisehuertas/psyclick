@@ -74,9 +74,11 @@ export default function Dashboard() {
   }
 
   const list = sessions || []
+  // A low result whose questionnaire may not be reliable (rushed or one answer throughout)
+  const needsCheck = s => (s.check || []).length > 0 && (s.flag === 'GREEN' || s.flag === 'REPEAT')
   const attention = list
-    .filter(s => s.safety || s.flag === 'RED' || s.flag === 'AMBER')
-    .sort((a, b) => (b.safety - a.safety) || ((b.flag === 'RED') - (a.flag === 'RED')))
+    .filter(s => s.safety || s.flag === 'RED' || s.flag === 'AMBER' || needsCheck(s))
+    .sort((a, b) => (b.safety - a.safety) || ((b.flag === 'RED') - (a.flag === 'RED')) || (needsCheck(a) - needsCheck(b)))
     .slice(0, 5)
 
   const filtered = list.filter(s => {
@@ -139,7 +141,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="font-display text-lg font-semibold text-tmain">Needs your attention</h2>
-              <p className="text-sm text-tsub">Self-harm answers first, then Review now and Follow up.</p>
+              <p className="text-sm text-tsub">Self-harm answers first, then Review now, Follow up, and questionnaires to check.</p>
             </div>
           </div>
           <div className="mt-4 space-y-2">
@@ -162,6 +164,9 @@ export default function Dashboard() {
                   <span className="inline-flex items-center gap-1 rounded-full bg-coral-ink text-white text-xs font-semibold px-2.5 py-1">
                     <ShieldAlert size={13} aria-hidden="true" /> Self-harm answer
                   </span>
+                )}
+                {needsCheck(s) && (
+                  <span className="inline-flex items-center rounded-full bg-amber/15 text-amber-ink border border-amber/40 text-xs font-semibold px-2.5 py-0.5 whitespace-nowrap">Check questionnaire</span>
                 )}
                 <StatusBadge flag={s.flag} label={s.label} />
                 <ArrowRight size={18} className="text-tsub" aria-hidden="true" />

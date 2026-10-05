@@ -220,6 +220,10 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
 // chronological once sessions arrive from other devices by sync.
 export const byTime = (a, b) => String(a.timestamp).localeCompare(String(b.timestamp)) || a.session_id - b.session_id
 
+// A session with too little typing has no behaviour score (stored as 0, which
+// must not read as "within the healthy range" in a history)
+export const behaviourScored = s => !!s && s.behaviour_flag !== 'REPEAT' && s.label !== 'Insufficient Data'
+
 // Average change per topic (the unit the healthy topic limits describe)
 export function topicAverages(snapshots) {
   const by = {}
@@ -431,6 +435,9 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
   }
   const now = ordered[idx], prev = ordered[idx - 1], first = ordered[0]
   const history = ordered.slice(0, idx + 1)
+  // Behaviour: compare with the last session that had a behaviour score
+  const prevScored = [...ordered.slice(0, idx)].reverse().find(behaviourScored)
+  const nowScored = behaviourScored(now)
 
   const rows = [
     { key: 'phq', name: 'Depression (PHQ-9)', fmt: v => v, label: phqLabel, mcid: MCID.phq },
@@ -447,8 +454,26 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
       </p>
       <div className="divide-y divide-[#E3EDF0]">
         {rows.map(r => {
-          const d = Number(now[r.key] || 0) - Number(prev[r.key] || 0)
-          const meaningful = r.mcid ? Math.abs(d) >= r.mcid : (Number(prev[r.key]) <= sessionP95) !== (Number(now[r.key]) <= sessionP95)
+          const isB = r.key === 't2'
+          const before = isB ? prevScored : prev
+          const series = isB ? history.filter(behaviourScored) : history
+          if (isB && (!nowScored || !before)) {
+            return (
+              <div key={r.key} className="py-3 grid grid-cols-[1.3fr_1fr_1.4fr_auto] gap-4 items-center">
+                <div>
+                  <p className="font-semibold text-[#0F2A33]">{r.name}</p>
+                  <p className="text-xs text-[#4A6670]">{nowScored ? r.label(Number(now.t2 || 0)) : 'not scored this visit'}</p>
+                </div>
+                <p className="font-mono text-[#4A6670]">{nowScored ? `— → ${r.fmt(Number(now.t2 || 0))}` : '—'}</p>
+                <p className="text-sm font-semibold text-[#4A6670]">
+                  {!nowScored ? 'Too little typing this visit to compare' : 'No earlier visit with a behaviour score'}
+                </p>
+                <span />
+              </div>
+            )
+          }
+          const d = Number(now[r.key] || 0) - Number(before[r.key] || 0)
+          const meaningful = r.mcid ? Math.abs(d) >= r.mcid : (Number(before[r.key]) <= sessionP95) !== (Number(now[r.key]) <= sessionP95)
           const worse = d > 0
           return (
             <div key={r.key} className="py-3 grid grid-cols-[1.3fr_1fr_1.4fr_auto] gap-4 items-center">
@@ -457,14 +482,14 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
                 <p className="text-xs text-[#4A6670]">{r.label(Number(now[r.key] || 0))}</p>
               </div>
               <p className="font-mono text-[#0F2A33]">
-                <span className="text-[#4A6670]">{r.fmt(Number(prev[r.key] || 0))}</span> → <span className="font-semibold">{r.fmt(Number(now[r.key] || 0))}</span>
+                <span className="text-[#4A6670]">{r.fmt(Number(before[r.key] || 0))}</span> → <span className="font-semibold">{r.fmt(Number(now[r.key] || 0))}</span>
               </p>
               <p className={`text-sm font-semibold ${!meaningful ? 'text-[#4A6670]' : worse ? 'text-coral-ink' : 'text-success-ink'}`}>
                 {!meaningful ? (r.mcid ? `No meaningful change (needs ±${r.mcid})` : 'Same side of the healthy limit')
                   : r.mcid ? (worse ? `Worse by ${d} — meaningful` : `Better by ${-d} — meaningful`)
                   : (worse ? 'Moved above the healthy range' : 'Returned to the healthy range')}
               </p>
-              <Spark values={history.map(s => Number(s[r.key] || 0))} current={history.length - 1} band={r.band} />
+              <Spark values={series.map(s => Number(s[r.key] || 0))} current={series.length - 1} band={r.band} />
             </div>
           )
         })}
@@ -472,6 +497,7 @@ export function ChangeSince({ sessions, sessionId, sessionP95 }) {
       <p className="mt-3 text-xs text-[#4A6670]">
         Questionnaire changes count as meaningful at 5 points for PHQ-9 and 4 for GAD-7. Behaviour is re-measured against a new
         warm-up each visit, so compare it by whether it sits inside the healthy range rather than by its exact size.
+        Visits with too little typing have no behaviour score and are skipped in the behaviour comparison.
       </p>
     </div>
   )

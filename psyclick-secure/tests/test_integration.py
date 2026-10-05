@@ -6,6 +6,7 @@ physical input device or display."""
 import os
 os.environ["PSYCLICK_SYNC_URL"] = ""   # tests never touch the cloud
 import tempfile
+import json
 import unittest
 from pathlib import Path
 
@@ -319,6 +320,48 @@ class EndToEndTests(unittest.TestCase):
         rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
         self.assertEqual(rows["C-025"]["flag"], "REPEAT")
         self.assertGreaterEqual(self.get("/api/stats").get_json()["repeat"], 1)
+
+    def test_26_code_given_out_twice_offline_can_be_resolved(self):
+        a = self.run_session("C-026", 0.16, 0.0, 0.03)["report"]["session_id"]
+        b = self.run_session("C-026", 0.16, 0.0, 0.03)["report"]["session_id"]
+        hist = {r["session_id"]: r for r in self.get("/api/patients/C-026/sessions").get_json()}
+        self.assertEqual((hist[a]["first_visit"], hist[b]["first_visit"]), (1, 0))   # same device knew the code
+        self.assertFalse(hist[a]["code_conflict"])
+        # the second one was really started as a new client on another, offline device
+        conn = db._conn()
+        conn.execute("UPDATE intake_sessions SET device_id='other-device', first_visit=1 WHERE session_id=?", (b,))
+        conn.commit(); conn.close()
+        rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
+        self.assertTrue(rows["C-026"]["code_conflict"])
+        # it belongs to someone else: move it
+        r = self.post(f"/api/session/{b}/move", code="C-926").get_json()
+        self.assertEqual((r["success"], r["moved"]), (True, 1))
+        rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
+        self.assertFalse(rows["C-026"]["code_conflict"])
+        self.assertEqual(rows["C-926"]["sessions"], 1)
+        self.assertEqual(rows["C-026"]["sessions"], 1)
+        self.assertEqual(self.post(f"/api/session/{a}/move", code="C-926").status_code, 400)  # code in use
+        # or the clinician confirms it is one person
+        moved = self.get("/api/patients/C-926/sessions").get_json()[0]["session_id"]
+        conn = db._conn()
+        conn.execute("UPDATE intake_sessions SET student_id='C-026' WHERE session_id=?", (moved,))
+        conn.commit(); conn.close()
+        self.assertTrue({r["id"]: r for r in self.get("/api/patients").get_json()}["C-026"]["code_conflict"])
+        self.assertTrue(self.post("/api/patients/C-026/same-person").get_json()["success"])
+        rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
+        self.assertFalse(rows["C-026"]["code_conflict"])
+        self.assertEqual(rows["C-026"]["sessions"], 2)
+
+    def test_27_rushed_low_questionnaire_is_listed_to_check(self):
+        sid = self.run_session("C-027", 0.16, 0.0, 0.03)["report"]["session_id"]
+        conn = db._conn()
+        conn.execute("UPDATE intake_sessions SET quality_json=? WHERE session_id=?",
+                     (json.dumps({"rushed": ["phq"], "pace_s_per_item": {"phq": 0.8}}), sid))
+        conn.commit(); conn.close()
+        detail = self.get(f"/api/session/{sid}").get_json()
+        self.assertEqual(detail["questionnaire_checks"][0]["why"], "rushed")
+        recent = {r["session_id"]: r for r in self.get("/api/sessions/recent").get_json()}
+        self.assertEqual(recent[sid]["check"][0]["q"], "phq")
 
     def test_10_logout_revokes_token(self):
         tok = self.c.post("/api/login", json={"id": str(self.admin_id), "password": "CorrectHorse!2026"}).get_json()["token"]
