@@ -4,16 +4,9 @@ import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 import AssessmentShell, { StepHeading, useStepStart } from '../components/AssessmentShell.jsx'
 import Questionnaire from '../components/Questionnaire.jsx'
+import { GAD7_ITEMS } from '../lib/questionnaires.js'
 
-const QUESTIONS = [
-  'Feeling nervous, anxious, or on edge',
-  'Not being able to stop or control worrying',
-  'Worrying too much about different things',
-  'Trouble relaxing',
-  'Being so restless that it is hard to sit still',
-  'Becoming easily annoyed or irritable',
-  'Feeling afraid, as if something awful might happen',
-]
+const QUESTIONS = GAD7_ITEMS
 
 export default function GAD7() {
   const navigate = useNavigate()
@@ -27,7 +20,7 @@ export default function GAD7() {
   async function submit(answers) {
     const score = answers.reduce((s, a) => s + a, 0)
     setBusy(true); setErr('')
-    const res = await api.gadSave(score)
+    const res = await api.gadSave(score, answers)
     setBusy(false)
     if (res?.success === false) { setErr(res.error || 'Your answers could not be saved. Please try again.'); return }
     setGadScore(score)

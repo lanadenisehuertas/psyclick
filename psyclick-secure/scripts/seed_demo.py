@@ -82,10 +82,10 @@ SCENARIOS = [
     ("DEMO-03", 1,  dict(phq=17, gad=12, item9=1), {"task": SLOW_MARK, "linger": LINGER_HIGH,
                                                      "read": {"C4": 24.0, "C1": 17.5}}, ("RED", "Psychomotor Retardation")),
     # Improving with care
-    ("DEMO-04", 84, dict(phq=19, gad=16, item9=2), {"task": MIXED_MARK, "linger": LINGER_HIGH,
+    ("DEMO-04", 84, dict(phq=19, gad=16, item9=2), {"task": MIXED_MARK, "linger": LINGER_HIGH, "context": {"keyboard": "laptop"},
                                                      "phq_mouse": "restless", "gad_mouse": "restless"}, ("RED", "Mixed Disturbance")),
-    ("DEMO-04", 42, dict(phq=13, gad=10), {"task": SLOW_MILD}, ("AMBER", "Psychomotor Retardation")),
-    ("DEMO-04", 4,  dict(phq=6, gad=5), {}, ("GREEN", "Normal")),
+    ("DEMO-04", 42, dict(phq=13, gad=10), {"task": SLOW_MILD, "context": {"keyboard": "laptop"}}, ("AMBER", "Psychomotor Retardation")),
+    ("DEMO-04", 4,  dict(phq=6, gad=5), {"context": {"keyboard": "desktop"}}, ("GREEN", "Normal")),
     # Self-harm answer while behaviour looks typical
     ("DEMO-05", 5,  dict(phq=8, gad=6, item9=1), {"linger": LINGER_LOW}, ("GREEN", "Normal")),
     # Severe on every measure, self-harm nearly every day
@@ -95,7 +95,7 @@ SCENARIOS = [
     # High questionnaires, typical behaviour
     ("DEMO-07", 6,  dict(phq=16, gad=15), {}, ("GREEN", "Normal")),
     # Too little typing to score behaviour
-    ("DEMO-08", 2,  dict(phq=9, gad=7), {"skip": ALL_ITEMS}, ("AMBER", "Insufficient Data")),
+    ("DEMO-08", 2,  dict(phq=9, gad=7), {"skip": ALL_ITEMS}, ("REPEAT", "Insufficient Data")),
     # Reaction to one topic: relationships
     ("DEMO-09", 8,  dict(phq=7, gad=9), {"task": relationships_only, "linger": LINGER_REL,
                                          "read": {"C2": 26.0, "B2": 15.0}}, (None, None)),
@@ -108,16 +108,18 @@ SCENARIOS = [
     ("DEMO-12", 15, dict(phq=12, gad=14), {"task": ERRATIC, "phq_mouse": "restless", "gad_mouse": "restless"},
      ("AMBER", "Mixed Disturbance")),
     # Some prompts left blank
-    ("DEMO-13", 20, dict(phq=5, gad=10), {"skip": ["B2", "C2", "C3"], "linger": LINGER_LOW}, ("GREEN", "Normal")),
+    ("DEMO-13", 20, dict(phq=5, gad=10), {"skip": ["B2", "C2", "C3"], "linger": LINGER_LOW,
+                                          "context": {"language": "mixed", "age_band": "18-64"}}, ("GREEN", "Normal")),
     # Restlessness (illustrative values, see the module docstring)
     ("DEMO-14", 10, dict(phq=8, gad=13), {"task": {"err": 0.08}, "linger": LINGER_LOW,
-                                          "illustrative": dict(t2=96.0, psi=9.0, pai=96.0)},
+                                          "illustrative": dict(t2=72.0, psi=9.0, pai=70.0)},
      ("AMBER", "Psychomotor Agitation")),
     ("DEMO-15", 1,  dict(phq=14, gad=19), {"task": {"err": 0.1}, "linger": LINGER_HIGH,
                                            "illustrative": dict(t2=168.0, psi=12.0, pai=210.0)},
      ("RED", "Psychomotor Agitation")),
     # Slow from the very start: the own-baseline comparison looks normal
-    ("DEMO-16", 7,  dict(phq=6, gad=5), {"base": {"flight": 0.36, "dwell": 0.13, "jitter": 0.06}}, ("GREEN", "Normal")),
+    ("DEMO-16", 7,  dict(phq=6, gad=5), {"base": {"flight": 0.36, "dwell": 0.13, "jitter": 0.06},
+                                         "context": {"typing": "rarely", "age_band": "65plus"}}, ("GREEN", "Normal")),
     # Interrupted: left the keyboard for 6 minutes in one answer and 40 s in another
     ("DEMO-17", 11, dict(phq=7, gad=8), {"task": lambda i, g, l: {"away": 360} if i == "C2" else ({"away": 40} if i == "A4" else {}),
                                          "read": {"B3": 95.0}}, ("GREEN", "Normal")),
@@ -129,19 +131,19 @@ NOTES = {
     "DEMO-01": "Healthy and stable over two visits",
     "DEMO-02": "Early warning: behaviour shifts while questionnaires stay low",
     "DEMO-03": "Worsening across three visits, ends in Review now with a self-harm answer",
-    "DEMO-04": "Improving with care: Review now, then Follow up, then No concerns",
+    "DEMO-04": "Improving with care: Review now, then Follow up, then No concerns (laptop, then a desktop keyboard)",
     "DEMO-05": "Self-harm answer while behaviour looks typical",
     "DEMO-06": "Severe on every measure, self-harm nearly every day",
     "DEMO-07": "High questionnaire scores, typical behaviour",
-    "DEMO-08": "Not enough typing to score behaviour",
+    "DEMO-08": "Not enough typing to score behaviour: Repeat session",
     "DEMO-09": "Reaction concentrated on relationship prompts",
     "DEMO-10": "Reaction grows from mild to strong prompts",
     "DEMO-11": "Within the healthy range but leaning towards slowing",
     "DEMO-12": "Error-heavy, erratic typing (mixed pattern)",
-    "DEMO-13": "Some prompts left blank",
+    "DEMO-13": "Some prompts left blank; answered in Tagalog and English",
     "DEMO-14": "Restlessness, Follow up (illustrative values)",
     "DEMO-15": "Marked restlessness with severe anxiety, Review now (illustrative values)",
-    "DEMO-16": "Slow from the very start: looks normal against the own baseline, slow against healthy adults",
+    "DEMO-16": "Slow from the very start: looks normal against the own baseline, slow against healthy adults (rarely types, 65 or older)",
     "DEMO-17": "Interrupted session: away from the keyboard, long wait before a prompt",
     "DEMO-18": "PHQ-9 clicked through in about a second per question",
 }

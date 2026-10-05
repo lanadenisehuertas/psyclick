@@ -278,6 +278,19 @@ def pull_now(timeout=8):
     return bool(done.get('ok'))
 
 
+def pull_sessions_now(timeout=6):
+    """Download accounts and sessions now (e.g. before suggesting a new client
+    code, so codes used on other devices are known). Returns True when done."""
+    url = _load_sync_url()
+    if not url or not _is_online(url):
+        return False
+    done = {}
+    t = threading.Thread(target=lambda: done.setdefault('ok', _sync_once(url, pull_only=True)), daemon=True)
+    t.start()
+    t.join(timeout)
+    return bool(done.get('ok'))
+
+
 def get_sync_status():
     try:
         from database_manager import get_unsynced_count

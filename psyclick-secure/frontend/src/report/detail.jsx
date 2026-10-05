@@ -1,4 +1,6 @@
 import { ScaleBar } from '../components/ReportParts.jsx'
+import { topicAverages } from './visuals.jsx'
+import { DOMAIN_NAMES } from './text.js'
 
 // ── Population comparison (specialist detail) ───────────────────────────────
 const NORM_LABELS = {
@@ -87,17 +89,13 @@ export function NormativeComparison({ metrics, loading }) {
 }
 
 // ── Question-by-question breakdown (specialist detail) ──────────────────────
-const ITEM_FLAG = {
-  GREEN:   { label: 'Typical',    cls: 'bg-success/15 text-success-ink' },
-  AMBER:   { label: 'Elevated',   cls: 'bg-amber/15 text-amber-ink' },
-  RED:     { label: 'High',       cls: 'bg-coral/15 text-coral-ink' },
-  NO_DATA: { label: 'Not scored', cls: 'bg-border/60 text-tsub' },
-}
-
 export function QuestionBreakdown({ snapshots, itemP95 }) {
-  const flagged   = snapshots.filter(s => s.flag === 'RED' || s.flag === 'AMBER')
-  const redItems  = snapshots.filter(s => s.flag === 'RED').map(s => s.item_id).join(', ')
-  const ambItems  = snapshots.filter(s => s.flag === 'AMBER').map(s => s.item_id).join(', ')
+  // Healthy limits describe topic averages; a single prompt is compared with
+  // the client's own other prompts instead.
+  const topics    = topicAverages(snapshots)
+  const above     = topics.filter(t => itemP95 && t.avg > itemP95)
+  const scoredT2  = snapshots.filter(s => s.flag !== 'NO_DATA').map(s => Number(s.t2_score || 0)).sort((a, b) => a - b)
+  const ownMedian = scoredT2.length ? scoredT2[Math.floor(scoredT2.length / 2)] : 0
   const maxT2Snap = snapshots.reduce((best, s) => (s.t2_score || 0) > (best.t2_score || 0) ? s : best, snapshots[0])
   const maxPauseSnap = snapshots.reduce((best, s) => (s.pre_typing_pause_ms || 0) > (best.pre_typing_pause_ms || 0) ? s : best, snapshots[0])
   const allHovers = snapshots.flatMap(s => s.hover_words || [])
@@ -107,15 +105,11 @@ export function QuestionBreakdown({ snapshots, itemP95 }) {
     <div>
       <div className="grid sm:grid-cols-3 gap-4 text-sm mb-5">
         <div className="rounded-xl bg-[#F7FAFA] p-4">
-          <p className="text-xs font-semibold text-tsub uppercase tracking-wide mb-1">Prompts above typical</p>
-          {flagged.length === 0 ? (
-            <p className="text-success-ink font-semibold">None — all prompts typical</p>
+          <p className="text-xs font-semibold text-tsub uppercase tracking-wide mb-1">Topics above healthy adults</p>
+          {above.length === 0 ? (
+            <p className="text-success-ink font-semibold">None — every topic average in the healthy range</p>
           ) : (
-            <>
-              <p className="font-semibold text-tmain">{flagged.length} of {snapshots.length} prompts</p>
-              {redItems && <p className="text-coral-ink mt-0.5">High: {redItems}</p>}
-              {ambItems && <p className="text-amber-ink">Elevated: {ambItems}</p>}
-            </>
+            <p className="font-semibold text-coral-ink">{above.map(t => `${DOMAIN_NAMES[t.gid]} (${Math.round(t.avg)})`).join(', ')}</p>
           )}
         </div>
         <div className="rounded-xl bg-[#F7FAFA] p-4">
@@ -135,7 +129,7 @@ export function QuestionBreakdown({ snapshots, itemP95 }) {
           <caption className="sr-only">Biometric results for each prompt</caption>
           <thead>
             <tr className="bg-[#F7FAFA] text-tsub text-xs font-semibold uppercase tracking-wide">
-              {['Prompt', 'Topic', 'Level', 'Change (T²)', 'PSI', 'PAI', 'Key gap', 'Pause', 'Word read longest', 'Result', 'What it suggests'].map(h => (
+              {['Prompt', 'Topic', 'Level', 'Change (T²)', 'PSI', 'PAI', 'Key gap', 'Pause', 'Word read longest', 'Compared with own prompts'].map(h => (
                 <th key={h} scope="col" className="px-2.5 py-3 text-left whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -144,40 +138,29 @@ export function QuestionBreakdown({ snapshots, itemP95 }) {
             {snapshots.map((snap, i) => {
               const lv     = snap.level || 'A'
               const noData = snap.flag === 'NO_DATA'
-              const f      = ITEM_FLAG[snap.flag] || ITEM_FLAG.GREEN
               const psi_v  = Number(snap.psi || 0)
               const pai_v  = Number(snap.pai || 0)
               const t2v    = Number(snap.t2_score || 0)
               const topHW  = (snap.hover_words || [])[0]
-              let interp
-              if (snap.flag === 'RED') {
-                interp = psi_v > pai_v * 1.2 ? 'Marked slowing on this prompt'
-                  : pai_v > psi_v * 1.2 ? 'Marked restlessness on this prompt'
-                  : 'Marked change — slowing and restlessness'
-              } else if (snap.flag === 'AMBER') {
-                interp = `Some change on a ${lv === 'C' ? 'strong' : lv === 'B' ? 'moderate' : 'mild'} prompt`
-              } else if (noData) {
-                interp = 'No typing captured'
-              } else {
-                interp = 'Typical'
-              }
+              const kind = psi_v > pai_v * 1.2 ? 'mostly slowing' : pai_v > psi_v * 1.2 ? 'mostly restlessness' : 'slowing and restlessness'
+              const interp = noData ? (snap.typing_issue ? 'Not scored (typing looked automatic)' : 'No typing captured')
+                : ownMedian > 0 && t2v >= 3 * ownMedian && t2v > 10 ? `Well above the client's other prompts (${kind})`
+                : ownMedian > 0 && t2v >= 1.5 * ownMedian && t2v > 10 ? 'Above the client\'s other prompts'
+                : 'Like the client\'s other prompts'
               return (
                 <tr key={i} className={`border-t border-border/60 ${i % 2 === 1 ? 'bg-[#FAFCFC]' : 'bg-white'}`}>
                   <td className="px-2.5 py-2.5 font-bold text-tmain">{snap.item_id || '—'}</td>
                   <td className="px-2.5 py-2.5 text-tsub max-w-[120px] truncate" title={snap.group_name || ''}>{snap.group_name?.split(':')[1]?.trim() || '—'}</td>
                   <td className="px-2.5 py-2.5 font-semibold text-tmain">{lv}</td>
-                  <td className={`px-2.5 py-2.5 tabular-nums ${!noData && itemP95 && t2v > itemP95 ? 'text-coral-ink font-semibold' : 'text-tmain'}`}>{noData ? '—' : t2v.toFixed(1)}</td>
+                  <td className="px-2.5 py-2.5 tabular-nums text-tmain">{noData ? '—' : t2v.toFixed(1)}</td>
                   <td className="px-2.5 py-2.5 tabular-nums text-tsub">{noData ? '—' : psi_v.toFixed(1)}</td>
                   <td className="px-2.5 py-2.5 tabular-nums text-tsub">{noData ? '—' : pai_v.toFixed(1)}</td>
                   <td className="px-2.5 py-2.5 tabular-nums text-tsub whitespace-nowrap">{noData ? '—' : `${Math.round((snap.flight_time || 0) * 1000)} ms`}</td>
-                  <td className="px-2.5 py-2.5 tabular-nums text-tsub whitespace-nowrap">{(Math.round(snap.pre_typing_pause_ms || 0) / 1000).toFixed(1)} s</td>
+                  <td className="px-2.5 py-2.5 tabular-nums text-tsub whitespace-nowrap">{snap.pre_typing_away ? 'away?' : `${(Math.round(snap.pre_typing_pause_ms || 0) / 1000).toFixed(1)} s`}</td>
                   <td className="px-2.5 py-2.5 text-tmain max-w-[120px] truncate">
                     {topHW ? <span className="font-medium">&ldquo;{topHW.word}&rdquo;</span> : <span className="text-tsub">—</span>}
                   </td>
-                  <td className="px-2.5 py-2.5">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${f.cls}`}>{f.label}</span>
-                  </td>
-                  <td className="px-2.5 py-2.5 text-tsub min-w-[150px]">{interp}</td>
+                  <td className="px-2.5 py-2.5 text-tsub min-w-[170px]">{interp}</td>
                 </tr>
               )
             })}
@@ -186,10 +169,65 @@ export function QuestionBreakdown({ snapshots, itemP95 }) {
       </div>
       {itemP95 && (
         <p className="text-xs text-tsub mt-3">
-          A single prompt counts as above typical when its change is higher than in 95% of healthy adults (T² &gt; {itemP95.toFixed(0)}).
+          Healthy adults are compared on topic averages (above typical when higher than in 95% of healthy adults, T² &gt; {itemP95.toFixed(0)}).
+          A single prompt varies too much for that comparison, so it is compared with this client's own other prompts.
         </p>
       )}
     </div>
   )
 }
 
+
+// Cursor movement while answering each questionnaire, next to the clicking
+// warm-up. Descriptive only: there is no healthy reference for these ratios
+// yet, and they are not part of the result. (The questionnaire movements also
+// feed the session baseline, so the main score hardly reflects them.)
+const CURSOR_ROWS = [
+  { key: 'jerk',            label: 'Jerkiness',          hint: 'sudden changes of speed' },
+  { key: 'path_entropy',    label: 'Direction changes',  hint: 'how scattered the path was' },
+  { key: 'pause_frequency', label: 'Stops per second',   hint: 'cursor halts over 0.5 s' },
+  { key: 'velocity',        label: 'Speed',              hint: 'pixels per second' },
+]
+
+export function CursorComparison({ cursor }) {
+  const w = cursor?.warmup
+  const cols = [['phq', 'PHQ-9'], ['gad', 'GAD-7']].filter(([k]) => cursor?.[k])
+  if (!w || !cols.length) return <p className="text-sm text-tsub">Cursor movement was not recorded for this session.</p>
+  const ratio = (v, b) => (b > 0 ? v / b : null)
+  return (
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide text-tsub border-b border-border">
+              <th className="px-2.5 py-2 font-semibold">Measure</th>
+              <th className="px-2.5 py-2 font-semibold">Clicking warm-up</th>
+              {cols.map(([k, name]) => <th key={k} className="px-2.5 py-2 font-semibold">{name} (vs warm-up)</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {CURSOR_ROWS.map(r => (
+              <tr key={r.key} className="border-b border-border/60">
+                <td className="px-2.5 py-2.5"><span className="font-semibold text-tmain">{r.label}</span><span className="block text-xs text-tsub">{r.hint}</span></td>
+                <td className="px-2.5 py-2.5 tabular-nums text-tmain">{Number(w[r.key] || 0).toFixed(r.key === 'velocity' || r.key === 'jerk' ? 0 : 2)}</td>
+                {cols.map(([k]) => {
+                  const v = Number(cursor[k][r.key] || 0), x = ratio(v, Number(w[r.key] || 0))
+                  return (
+                    <td key={k} className="px-2.5 py-2.5 tabular-nums text-tmain">
+                      {v.toFixed(r.key === 'velocity' || r.key === 'jerk' ? 0 : 2)}
+                      {x != null && <span className="text-tsub"> (×{x.toFixed(2)})</span>}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-tsub mt-3 max-w-[80ch]">
+        Description only. Answering a questionnaire is a different task from clicking circles, and there is no healthy reference for these ratios yet,
+        so they are not part of the result. Compare them across this client's sessions: a ratio that grows from visit to visit is worth asking about.
+      </p>
+    </div>
+  )
+}

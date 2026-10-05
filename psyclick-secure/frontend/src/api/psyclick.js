@@ -89,8 +89,8 @@ export const api = {
   sessionDetail:    (sid)                 => get(`/session/${sid}`),
 
   // Intake
-  intakeStart:      (patient_id, clinician_id, consent, consent_version = '1.0') =>
-    post('/intake/start', { patient_id, clinician_id, consent, consent_version }),
+  intakeStart:      (patient_id, clinician_id, consent, consent_version = '1.0', context = {}) =>
+    post('/intake/start', { patient_id, clinician_id, consent, consent_version, context }),
 
   // Auto-ID generation (clients only)
   nextClientId:     (clinician_id)        => get(`/next-client-id${clinician_id ? `?clinician_id=${clinician_id}` : ''}`),
@@ -105,12 +105,13 @@ export const api = {
   phqStart:         ()                    => post('/assessment/phq/start',    {}),
   phqSave:          (score, items)        => post('/assessment/phq/save',     { score, items }),
   gadStart:         ()                    => post('/assessment/gad/start',    {}),
-  gadSave:          (score)               => post('/assessment/gad/save',     { score }),
+  gadSave:          (score, items)        => post('/assessment/gad/save',     { score, items }),
+  sessionAnswers:   (sessionId)           => get(`/session/${sessionId}/answers`),
   emotionalStart:   ()                    => post('/assessment/emotional/start', {}),
   questionSet:      (question)            => post('/assessment/question/set', { question }),
   wordBoxes:        (boxes)               => post('/assessment/word-boxes',   { boxes }),
-  questionSnapshot: (question, response, qi, total) =>
-                                             post('/assessment/question/snapshot', { question, response, qi, total }),
+  questionSnapshot: (question, response, qi, total, metrics) =>
+                                             post('/assessment/question/snapshot', { question, response, qi, total, metrics }),
   assessmentFinish: ()                    => post('/assessment/finish',       {}),
   auditChoice:      (label, context)      => post('/assessment/audit/choice', { label, context }),
   auditIdle:        (context)             => post('/assessment/idle',         { context }),

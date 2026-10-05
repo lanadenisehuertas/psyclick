@@ -27,6 +27,7 @@ export default function Clients() {
     RED: list.filter(c => c.flag === 'RED').length,
     AMBER: list.filter(c => c.flag === 'AMBER').length,
     GREEN: list.filter(c => c.flag === 'GREEN').length,
+    REPEAT: list.filter(c => c.flag === 'REPEAT').length,
     SAFETY: list.filter(c => c.safety).length,
   }
   counts.ATTENTION = counts.RED + counts.AMBER
@@ -42,6 +43,7 @@ export default function Clients() {
     { value: 'ALL', label: 'All', count: counts.ALL },
     { value: 'RED', label: 'Review now', count: counts.RED },
     { value: 'AMBER', label: 'Follow up', count: counts.AMBER },
+    { value: 'REPEAT', label: 'Repeat', count: counts.REPEAT },
     { value: 'GREEN', label: 'No concerns', count: counts.GREEN },
     { value: 'SAFETY', label: 'Self-harm answer', icon: ShieldAlert, count: counts.SAFETY },
   ]

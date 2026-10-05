@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { motion, MotionConfig } from 'motion/react'
-import { ArrowLeft, FileDown, Lock, Users, ListChecks, ShieldAlert, Plus, FolderOpen } from 'lucide-react'
+import { ArrowLeft, FileDown, Lock, Users, ListChecks, ShieldAlert, Plus, FolderOpen, MousePointer2 } from 'lucide-react'
 import Sidebar from '../components/Sidebar.jsx'
 import { StatusHero, Section, Collapsible, ScaleBar, ResultCard } from '../components/ReportParts.jsx'
 import { useToast } from '../components/ui.jsx'
@@ -9,14 +9,15 @@ import { formatTimestamp } from '../lib/status.jsx'
 import { api } from '../api/psyclick.js'
 import { useApp } from '../context/AppContext.jsx'
 import InfoTooltip from '../report/InfoTooltip.jsx'
-import { SessionTrace, TopicGrid, RhythmChart, ChangeSince } from '../report/visuals.jsx'
+import { SessionTrace, TopicGrid, RhythmChart, ChangeSince, topicAverages } from '../report/visuals.jsx'
 import ReadingHeatmap from '../report/ReadingHeatmap.jsx'
+import { QuestionnaireAnswers } from '../report/answers.jsx'
 import { collectSignals, SignalsList } from '../report/signals.jsx'
 import { KpiStrip, ProfileRadar } from '../report/overview.jsx'
-import { NormativeComparison, QuestionBreakdown, percentileText, percentileValue } from '../report/detail.jsx'
-import { HEALTHY_REF, HEALTHY_GAP, ITEM9_LABEL, phqLabel, gadLabel, clinicalRecs } from '../report/text.js'
+import { NormativeComparison, QuestionBreakdown, CursorComparison, percentileText, percentileValue } from '../report/detail.jsx'
+import { HEALTHY_REF, HEALTHY_GAP, ITEM9_LABEL, DOMAIN_NAMES, phqLabel, gadLabel, clinicalRecs } from '../report/text.js'
 
-const FALLBACK_THRESHOLDS = { session: { p95: 77.8, p99: 114.1 }, item: { p95: 526.4, p99: 932.9 } }
+const FALLBACK_THRESHOLDS = { session: { p95: 59.1, p99: 86.5 }, item: { p95: 420.2, p99: 733.3 } }
 const FONT_SCALES = [0.85, 1, 1.15, 1.3]
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
 const wait = ms => new Promise(r => setTimeout(r, ms))
@@ -205,7 +206,8 @@ export default function Report() {
   const slow = indexCard('psi', psi)
   const rest = indexCard('pai', pai)
   const scoredItems = snapshots.filter(s => s.flag !== 'NO_DATA')
-  const aboveItems  = scoredItems.filter(s => Number(s.t2_score) > iP95)
+  const topics      = topicAverages(snapshots)
+  const aboveTopics = topics.filter(t => t.avg > iP95)
 
   return (
     <MotionConfig reducedMotion="user">
@@ -280,9 +282,9 @@ export default function Report() {
               <Panel title="What stood out"
                 caption="Every signal in this session, most urgent first — including small ones that did not change the overall result. Small signals are where early changes show first.">
                 <SignalsList signals={collectSignals({ item9, phq: phqScore, gad: gadScore, t2: insufficient ? 0 : t2, sP95, label: analysis?.label,
-                  quality: data.quality, typing: insufficient ? null : data.typing,
+                  quality: data.quality, typing: insufficient ? null : data.typing, context: data.context,
                   psiPct: insufficient ? null : normComp?.psi?.pct, paiPct: insufficient ? null : normComp?.pai?.pct,
-                  snapshots, iP95, levelT2, history, sessionId: thisSession })} />
+                  snapshots, iP95, iP99, levelT2, history, sessionId: thisSession })} />
               </Panel>
               <Panel title="Profile against healthy adults"
                 caption="Each corner is one score, ranked against healthy adults. The further out, the more unusual.">
@@ -295,9 +297,9 @@ export default function Report() {
             {snapshots.length > 0 && (
               <Panel title="The session, prompt by prompt" info="Trace"
                 caption={insufficient ? 'Too little typing was captured to score the prompts.'
-                  : aboveItems.length
-                    ? `${aboveItems.length} of ${scoredItems.length} prompts rose above the healthy range: ${aboveItems.map(s => s.item_id).join(', ')}. Hover a prompt to read it.`
-                    : `All ${scoredItems.length} scored prompts stayed in the healthy range. Hover a prompt to read it.`}>
+                  : aboveTopics.length
+                    ? `${aboveTopics.map(t => DOMAIN_NAMES[t.gid]).join(', ')} averaged above healthy adults (coloured lines). Single prompts vary more, so read the topic lines, not single dots. Hover a prompt to read it.`
+                    : `Every topic averaged within the healthy range (coloured lines). Hover a prompt to read it.`}>
                 <SessionTrace snapshots={snapshots} itemP95={iP95} itemP99={iP99} />
               </Panel>
             )}
@@ -315,7 +317,7 @@ export default function Report() {
               {snapshots.length > 0 && (
                 <Panel title="Where the change happened" info="Grid"
                   caption="Rows are topics, columns are how emotionally strong the prompt was.">
-                  <TopicGrid snapshots={snapshots} itemP95={iP95} />
+                  <TopicGrid snapshots={snapshots} itemP95={iP95} itemP99={iP99} />
                 </Panel>
               )}
               <div className="grid gap-4">
@@ -388,13 +390,20 @@ export default function Report() {
 
             {/* Specialist tables */}
             <div className="space-y-3">
+              {thisSession && <QuestionnaireAnswers sessionId={thisSession} stored={data.answers_stored} />}
               <Collapsible icon={Users} forceOpen={printing} title="Comparison with healthy adults"
                 summary="Every score ranked against the healthy reference group, with z-scores.">
                 <NormativeComparison metrics={normComp} loading={normLoading} />
               </Collapsible>
+              {data.quality?.cursor?.warmup && (
+                <Collapsible icon={MousePointer2} forceOpen={printing} title="Cursor during the questionnaires"
+                  summary="Described next to the clicking warm-up. No healthy reference yet, so not part of the result.">
+                  <CursorComparison cursor={data.quality.cursor} />
+                </Collapsible>
+              )}
               {snapshots.length > 0 && (
                 <Collapsible icon={ListChecks} forceOpen={printing} title="Prompt-by-prompt table"
-                  summary={`${snapshots.length} prompts · ${aboveItems.length} above the healthy range`}>
+                  summary={`${snapshots.length} prompts · ${scoredItems.length} scored · ${aboveTopics.length} of ${topics.length} topics above healthy adults`}>
                   <QuestionBreakdown snapshots={snapshots} itemP95={iP95} />
                 </Collapsible>
               )}

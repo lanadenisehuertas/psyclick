@@ -1,5 +1,6 @@
-import { ShieldAlert, AlertTriangle, Eye, CheckCircle2 } from 'lucide-react'
-import { MCID, ITEM9_LABEL, HEALTHY_GAP } from './text.js'
+import { ShieldAlert, AlertTriangle, Eye, CheckCircle2, Info } from 'lucide-react'
+import { MCID, ITEM9_LABEL, HEALTHY_GAP, DOMAIN_NAMES } from './text.js'
+import { topicAverages, topicSignal, byTime } from './visuals.jsx'
 
 // Everything that stood out in one session, including signals too small to
 // change the overall result. Early detection lives in these small signals.
@@ -9,9 +10,22 @@ const PHASE_NAME = { 'typing warm-up': 'the typing warm-up', 'clicking warm-up':
 const phaseName = p => PHASE_NAME[p] || (p ? `prompt ${p}` : 'the session')
 const minutes = s => (s >= 90 ? `${(s / 60).toFixed(1)} min` : `${Math.round(s)} s`)
 
-export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, levelT2, history, sessionId, quality, typing }) {
+// Recorded reasons that can explain slow typing on their own
+function slowTypingReasons(ctx) {
+  return [
+    ctx.typing === 'rarely' && 'the client rarely types',
+    ctx.condition && 'a condition affecting typing',
+    ctx.age_band === '65plus' && 'age 65 or older',
+    ctx.keyboard === 'other' && 'an unusual keyboard',
+  ].filter(Boolean)
+}
+
+// Statistical thresholds are set so that about 14% of the 71 healthy testers
+// get any behavioural note at all (it was 28% with 85th-percentile notes).
+export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPct, snapshots, iP95, iP99, levelT2, history, sessionId, quality, typing, context }) {
   const out = []
   const add = (level, text) => out.push({ level, text })
+  const ctx = context || {}
 
   if (item9 > 0) add('alert', `Thoughts of self-harm reported on PHQ-9 question 9 (“${ITEM9_LABEL[item9]}”).`)
 
@@ -26,15 +40,19 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
 
   const idx = (pct, what) => {
     if (pct == null) return
-    if (pct >= 95) add('watch', `${what} higher than ${pct >= 99.5 ? 'almost all' : `${Math.round(pct)}% of`} healthy adults.`)
-    else if (pct >= 85) add('note', `${what} higher than ${Math.round(pct)}% of healthy adults.`)
+    if (pct >= 99) add('watch', `${what} higher than ${pct >= 99.5 ? 'almost all' : `${Math.round(pct)}% of`} healthy adults.`)
+    else if (pct >= 95) add('note', `${what} higher than ${Math.round(pct)}% of healthy adults.`)
   }
   idx(psiPct, 'Slowing')
   idx(paiPct, 'Restlessness')
 
-  const scored = (snapshots || []).filter(s => s.flag !== 'NO_DATA')
-  const above = scored.filter(s => Number(s.t2_score) > iP95)
-  if (above.length) add(above.length >= 3 ? 'watch' : 'note', `${above.length} prompt${above.length > 1 ? 's' : ''} rose above the healthy range: ${above.map(s => s.item_id).join(', ')}.`)
+  // Healthy limits describe topic averages, so topics (not single prompts) are compared
+  const topics = topicSignal(topicAverages(snapshots), iP95, iP99 ?? Infinity)
+  if (topics.flagged) {
+    const list = (topics.far.length ? topics.far : topics.above).map(t => DOMAIN_NAMES[t.gid]).join(', ')
+    add(topics.far.length ? 'watch' : 'note',
+      `${topics.above.length > 1 ? 'Topics' : 'Topic'} averaging ${topics.far.length ? 'far ' : ''}above healthy adults: ${list}.`)
+  }
 
   const la = levelT2?.A || 0, lb = levelT2?.B || 0, lc = levelT2?.C || 0
   if (lc > lb && lb > la && lc > 0) add('note', 'Change grew from mild to strong prompts — a reaction to emotional load.')
@@ -49,17 +67,30 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
     const sorted = [...pauses].sort((a, b) => a.p - b.p)
     const median = sorted[Math.floor(sorted.length / 2)].p
     const longest = sorted[sorted.length - 1]
-    if (longest.p >= Math.max(2 * median, median + 5)) add('note', `Long hesitation before prompt ${longest.id}: ${longest.p.toFixed(1)} s, against a typical ${median.toFixed(1)} s.`)
+    if (longest.p >= Math.max(3 * median, median + 10)) add('note', `Long hesitation before prompt ${longest.id}: ${longest.p.toFixed(1)} s, against a typical ${median.toFixed(1)} s.`)
   }
 
   // Absolute typing speed against healthy adults. The own-baseline comparison
   // cannot see someone who was slow from the start, warm-up included.
   if (typing?.task_flight > HEALTHY_GAP.p95) {
     const slowFromStart = typing.warmup_flight && typing.warmup_flight >= 0.8 * typing.task_flight
-    add('watch', `Typing in the written answers was slower than ${typing.task_flight > HEALTHY_GAP.p99 ? '99' : '95'}% of healthy adults `
+    const known = slowTypingReasons(ctx)
+    // A known reason for slow typing makes this context, not a warning
+    add(known.length ? 'note' : 'watch', `Typing in the written answers was slower than ${typing.task_flight > HEALTHY_GAP.p99 ? '99' : '95'}% of healthy adults `
       + `(${typing.task_flight.toFixed(2)} s between keys; most healthy adults ${HEALTHY_GAP.p25.toFixed(2)}–${HEALTHY_GAP.p75.toFixed(2)} s).`
-      + (slowFromStart ? ' The warm-up was just as slow, so the comparison with the client\'s own baseline cannot show it. Consider typing experience, vision or motor problems, or general slowing.' : ''))
+      + (known.length ? ` Recorded at intake: ${known.join(', ')}, which can explain it.`
+        : slowFromStart ? ' The warm-up was just as slow, so the comparison with the client\'s own baseline cannot show it. Consider typing experience, vision or motor problems, or general slowing.' : ''))
   }
+
+  // Context recorded at intake: how far each comparison applies
+  if (ctx.age_band && ctx.age_band !== '18-64')
+    add('context', `The client is ${ctx.age_band === 'under18' ? 'under 18' : '65 or older'}; the healthy reference group is aged 18–64, so the comparisons with healthy adults are only a rough guide. The comparison with the client's own warm-up still applies.`)
+  if (ctx.condition)
+    add('context', 'A condition affecting typing or mouse use was recorded. Slowing and restlessness may come from it rather than from mood, so give the questionnaires and the conversation more weight.')
+  if (ctx.language === 'tagalog' || ctx.language === 'mixed')
+    add('context', `The written answers were in ${ctx.language === 'tagalog' ? 'Tagalog' : 'Tagalog and English'} while the prompts are in English. Translating or switching language can slow typing and add corrections (a known limitation of this study), so treat small typing changes with care.`)
+  if (ctx.keyboard === 'other')
+    add('context', 'A keyboard other than a desktop or laptop keyboard was used; key timing on it may differ from the healthy reference.')
 
   // Session quality: interruptions, focus, rushed questionnaires, skipped prompts
   const q = quality || {}
@@ -79,26 +110,26 @@ export function collectSignals({ item9, phq, gad, t2, sP95, label, psiPct, paiPc
   const odd = (snapshots || []).filter(s => s.typing_issue)
   if (odd.length) add('watch', `Typing on ${odd.map(s => s.item_id).join(', ')} looked ${odd.some(s => s.typing_issue === 'automatic') ? 'pasted or entered by another program' : 'like a held-down key'}, so ${odd.length > 1 ? 'those prompts were' : 'that prompt was'} not scored.`)
 
-  const words = {}
-  ;(snapshots || []).forEach(s => (s.hover_words || []).forEach(h => {
-    const k = String(h.word).toLowerCase().replace(/[^a-z'’-]/g, '')
-    if (k.length > 3) words[k] = (words[k] || 0) + (h.dwell_ms || 0)
-  }))
-  const topWord = Object.entries(words).sort((a, b) => b[1] - a[1])[0]
-  if (topWord && topWord[1] >= 1500) add('note', `The cursor lingered longest on “${topWord[0]}” (${(topWord[1] / 1000).toFixed(1)} s).`)
+  // (The word the cursor rested on longest is shown in the attention heatmap;
+  // it is a conversation starter, not an alert, so it is not listed here.)
 
   if (history && history.length > 1) {
-    const ordered = [...history].sort((a, b) => a.session_id - b.session_id)
+    const ordered = [...history].sort(byTime)
     const i = ordered.findIndex(s => String(s.session_id) === String(sessionId))
     if (i > 0) {
       const prev = ordered[i - 1], now = ordered[i]
+      // Each session has its own warm-up baseline, so a new keyboard does not
+      // distort this session's scores; raw typing speeds across sessions do differ.
+      const kPrev = prev.context?.keyboard, kNow = (ctx.keyboard || now.context?.keyboard)
+      if (kPrev && kNow && kPrev !== kNow)
+        add('context', `A different keyboard was used than last session (${kPrev} → ${kNow}). Scores compare each session with its own warm-up, so they still compare; raw typing speeds between sessions do not.`)
       const dp = now.phq - prev.phq, dg = now.gad - prev.gad
       if (dp >= MCID.phq) add('watch', `PHQ-9 rose ${dp} points since the previous session.`)
       if (dg >= MCID.gad) add('watch', `GAD-7 rose ${dg} points since the previous session.`)
       if (t2 > sP95 && prev.t2 <= sP95 && now.t2 > sP95) add('watch', 'Behaviour moved above the healthy range since the previous session.')
     }
   }
-  const order = { alert: 0, watch: 1, note: 2 }
+  const order = { alert: 0, watch: 1, note: 2, context: 3 }
   return out.sort((a, b) => order[a.level] - order[b.level])
 }
 
@@ -106,9 +137,11 @@ const STYLE = {
   alert: { icon: ShieldAlert,   cls: 'text-coral-ink',  label: 'Act now',      row: 'bg-[#FBEDEC] border-[#F3C9C6]', chip: 'bg-coral-ink text-white' },
   watch: { icon: AlertTriangle, cls: 'text-amber-ink',  label: 'Watch',        row: 'bg-[#FEF5E6] border-[#F6DDB0]', chip: 'bg-[#FCE3B6] text-amber-ink' },
   note:  { icon: Eye,           cls: 'text-peri-ink',   label: 'Worth noting', row: 'bg-[#EEF3FB] border-[#D6E2F4]', chip: 'bg-[#DCE6F6] text-peri-ink' },
+  context: { icon: Info,        cls: 'text-tsub',       label: 'Context',      row: 'bg-[#F5F8F9] border-[#E1E9EC]', chip: 'bg-[#E6EDF0] text-tsub' },
 }
 
 export function SignalsList({ signals }) {
+  const nothing = !signals.some(s => s.level !== 'context')
   if (!signals.length) {
     return (
       <p className="flex items-center gap-2 text-success-ink font-semibold">
@@ -118,6 +151,11 @@ export function SignalsList({ signals }) {
   }
   return (
     <ul className="grid gap-2">
+      {nothing && (
+        <li className="flex items-center gap-2 text-success-ink font-semibold mb-1">
+          <CheckCircle2 size={20} aria-hidden="true" /> Nothing stood out in this session.
+        </li>
+      )}
       {signals.map((s, i) => {
         const st = STYLE[s.level]
         return (

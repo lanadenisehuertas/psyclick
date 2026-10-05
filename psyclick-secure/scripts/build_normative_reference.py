@@ -6,10 +6,13 @@ Usage:
 Method
 ------
 1. Capture-failure exclusion: sessions whose mean inter-key interval
-   (task flight_time_mean or calibration kbase_mean) is below 30 ms are
+   (task flight_time_mean or calibration kbase_mean) is below 80 ms are
    dropped. Sustained human inter-key intervals are well above this
-   (Dhakal et al., 2018, CHI: 136M keystrokes, fastest typists ~120 ms), so
-   such values indicate a logging failure, not behaviour.
+   (Dhakal et al., 2018, CHI: 136M keystrokes, fastest typists ~120 ms).
+   Lower means came from a capture fault that recorded each key press twice
+   (two keyboard hooks writing one buffer): half the gaps were ~0, the mean
+   halved and the gap variability rose to 1.3-2x the mean. All but three of
+   the excluded sessions come from one session block (2026-05-05).
 2. Independence: one session per tester (the earliest valid one). Repeat
    sessions are not independent and carry practice effects.
 3. Healthy reference: testers screening positive on PHQ-9 >= 10
@@ -35,7 +38,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats.mstats import hdquantiles
 
-MIN_IKI_S = 0.03
+MIN_IKI_S = 0.08
 SCREEN_CUTOFF = 10
 METRICS = ["t2_score", "psi", "pai", "phq_score", "gad_score", "flight_time_mean"]
 QUANTILES = [0.05, 0.25, 0.50, 0.75, 0.95, 0.99]
@@ -100,7 +103,8 @@ def main(csv_path):
             "item": {
                 "p95": item_p95, "p99": item_p99,
                 "n_values": len(item_t2),
-                "note": "Pooled per-domain mean item T² (4 per tester).",
+                "note": "Pooled per-topic (domain) mean of the item T² values, 4 topics per tester. "
+                        "Applies to topic averages, not to single prompts.",
             },
             "psi_p99": metrics["psi"]["quantiles_hd"]["p99"],
             "pai_p99": metrics["pai"]["quantiles_hd"]["p99"],

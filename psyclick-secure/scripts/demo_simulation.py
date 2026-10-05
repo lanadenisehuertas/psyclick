@@ -143,6 +143,20 @@ def reading_mouse(rng, boxes, t0, linger, read_s):
     return ev
 
 
+def item_answers(rng, total, n, last=None):
+    """Answers 0-3 for n questions that add up to total (the last one fixed when given)."""
+    answers = [0] * n
+    free = list(range(n - 1)) if last is not None else list(range(n))
+    if last is not None:
+        answers[-1] = last
+    left = total - sum(answers)
+    while left > 0:
+        i = rng.choice([j for j in free if answers[j] < 3])
+        answers[i] += 1
+        left -= 1
+    return answers
+
+
 def run_session(ctrl, db, spec, clinician_id, rng):
     """
     Drive PsyClickController through one full session.
@@ -156,6 +170,7 @@ def run_session(ctrl, db, spec, clinician_id, rng):
     ctrl.set_student_id(spec["client"])
     ctrl.session_data["clinician_id"] = clinician_id
     ctrl.session_data["consent_verified"] = True
+    ctrl.session_data["context"] = dict(spec.get("context") or {})
 
     base = {**CALM, **spec.get("base", {})}
     t = 1000.0
@@ -167,9 +182,9 @@ def run_session(ctrl, db, spec, clinician_id, rng):
     # phq_leg: seconds per answer click (about 0.45 s of travel per option normally)
     m.next, t = mouse_path(rng, spec.get("phq_mouse", "calm"), t + 2, click_targets(rng, 10, 200),
                            spec.get("phq_leg", 0.45), spec.get("phq_think", (2.0, 3.5)))
-    ctrl.save_phq(spec["phq"], spec.get("item9", 0))
+    ctrl.save_phq(spec["phq"], spec.get("item9", 0), item_answers(rng, spec["phq"], 9, spec.get("item9", 0)))
     m.next, t = mouse_path(rng, spec.get("gad_mouse", "calm"), t + 2, click_targets(rng, 8, 200), 0.45, (2.0, 3.5))
-    ctrl.save_gad(spec["gad"])
+    ctrl.save_gad(spec["gad"], item_answers(rng, spec["gad"], 7))
 
     task = spec.get("task", {})
     for item_id, gid, level, dom, prompt in QUESTIONS:

@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, AlertOctagon, HelpCircle, MinusCircle } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, AlertOctagon, MinusCircle, RotateCcw } from 'lucide-react'
 
 // One vocabulary for session outcomes across the app. Every status carries an
 // icon and words, so meaning never depends on colour alone.
@@ -36,16 +36,18 @@ export const FLAG_META = {
     ink: 'text-coral-ink',
     solid: 'bg-coral',
   },
-  INSUFFICIENT: {
-    label: 'Not enough data',
+  // Too little typing to assess behaviour, and nothing in the questionnaires
+  // that needs follow-up. Not a finding: the session should be repeated.
+  REPEAT: {
+    label: 'Repeat session',
     headline: 'Not enough typing to assess behaviour',
-    meaning: 'Too little keyboard activity was captured to compare against the baseline.',
+    meaning: 'Too little keyboard activity was captured to compare against the warm-up. The questionnaire scores did not need follow-up on their own.',
     next: 'Repeat the session, or rely on the questionnaires and your clinical observation.',
-    icon: HelpCircle,
-    chip: 'bg-amber/15 text-amber-ink border-amber/40',
-    soft: 'bg-amber/10 border-amber/40',
-    ink: 'text-amber-ink',
-    solid: 'bg-amber',
+    icon: RotateCcw,
+    chip: 'bg-peri/15 text-peri-ink border-peri/40',
+    soft: 'bg-peri/10 border-peri/40',
+    ink: 'text-peri-ink',
+    solid: 'bg-peri',
   },
   NO_DATA: {
     label: 'Not scored',
@@ -57,9 +59,9 @@ export const FLAG_META = {
 }
 
 export function flagMeta(flag, label = '') {
-  // "Not enough data" describes behaviour; a Review now raised by the
-  // questionnaires or a self-harm answer still shows as Review now.
-  if (label === 'Insufficient Data' && flag !== 'RED') return FLAG_META.INSUFFICIENT
+  // A session with too little typing is Repeat unless the questionnaires or a
+  // self-harm answer raised it (then it shows as Follow up / Review now).
+  if (flag === 'REPEAT') return FLAG_META.REPEAT
   return FLAG_META[flag] || FLAG_META.GREEN
 }
 

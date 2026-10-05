@@ -1,7 +1,8 @@
 import { motion } from 'motion/react'
 import { Activity, CloudRain, Wind, MessagesSquare, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react'
 import { EASE } from '../components/ui.jsx'
-import { MCID, ITEM9_LABEL, phqLabel, gadLabel } from './text.js'
+import { MCID, ITEM9_LABEL, DOMAIN_NAMES, phqLabel, gadLabel } from './text.js'
+import { topicAverages, topicSignal, byTime } from './visuals.jsx'
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
 // Severity: 0 in range · 1 mild / worth noting · 2 watch · 3 high · 4 act now
@@ -45,17 +46,17 @@ function pctLabel(p) {
 function Spark({ values, limit, color }) {
   const W = 120, H = 44, P = 4
   if (!values.length) return null
-  const max = Math.max(limit * 1.15, ...values)
+  const max = Math.max(limit ? limit * 1.15 : 0, ...values, 1)
   const x = i => P + (i * (W - 2 * P)) / Math.max(1, values.length - 1)
   const y = v => H - P - (v / max) * (H - 2 * P)
   const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
   return (
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-      <rect x={P} y={y(limit)} width={W - 2 * P} height={H - P - y(limit)} rx="3" fill="#FFFFFF" opacity=".75" />
-      <line x1={P} x2={W - P} y1={y(limit)} y2={y(limit)} stroke="#B83A38" strokeOpacity=".5" strokeDasharray="3 3" />
+      {limit && <rect x={P} y={y(limit)} width={W - 2 * P} height={H - P - y(limit)} rx="3" fill="#FFFFFF" opacity=".75" />}
+      {limit && <line x1={P} x2={W - P} y1={y(limit)} y2={y(limit)} stroke="#B83A38" strokeOpacity=".5" strokeDasharray="3 3" />}
       <motion.path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
         initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1, ease: EASE, delay: 0.2 }} />
-      {values.map((v, i) => v > limit && <circle key={i} cx={x(i)} cy={y(v)} r="2.8" fill="#B83A38" />)}
+      {limit && values.map((v, i) => v > limit && <circle key={i} cx={x(i)} cy={y(v)} r="2.8" fill="#B83A38" />)}
     </svg>
   )
 }
@@ -132,7 +133,7 @@ function Kpi({ k, i }) {
 
 // ── Headline numbers, most urgent first ─────────────────────────────────────
 export function KpiStrip({ t2, sP95, sP99, insufficient, phq, gad, item9, snapshots, iP95, iP99, history, sessionId }) {
-  const ordered = Array.isArray(history) ? [...history].sort((a, b) => a.session_id - b.session_id) : null
+  const ordered = Array.isArray(history) ? [...history].sort(byTime) : null
   const idx = ordered ? ordered.findIndex(s => String(s.session_id) === String(sessionId)) : -1
   const prev = idx > 0 ? ordered[idx - 1] : null
   const first = idx === 0
@@ -140,14 +141,17 @@ export function KpiStrip({ t2, sP95, sP99, insufficient, phq, gad, item9, snapsh
 
   const scored = (snapshots || []).filter(s => s.flag !== 'NO_DATA')
   const vals = scored.map(s => Number(s.t2_score) || 0)
-  const nHigh = vals.filter(v => v > iP99).length
-  const nAbove = vals.filter(v => v > iP95).length
-  const nIn = vals.length - nAbove
+  // Topics, not single prompts, are compared with the healthy topic limits
+  const topicList = topicAverages(snapshots)
+  const ts = topicSignal(topicList, iP95, iP99)
+  const nHigh = ts.far.length
+  const nAbove = ts.above.length
+  const nIn = topicList.length - nAbove
 
   const t2Level = insufficient ? 1 : t2 > sP99 ? 3 : t2 > sP95 ? 2 : t2 > 0.8 * sP95 ? 1 : 0
   const phqLevel = item9 > 0 ? 4 : phq >= 15 ? 3 : phq >= 10 ? 2 : phq >= 5 ? 1 : 0
   const gadLevel = gad >= 15 ? 3 : gad >= 10 ? 2 : gad >= 5 ? 1 : 0
-  const promptLevel = insufficient || !vals.length ? 0 : nHigh ? 3 : nAbove >= 3 ? 2 : nAbove ? 1 : 0
+  const promptLevel = insufficient || !topicList.length ? 0 : nHigh ? 3 : ts.flagged ? 2 : nAbove ? 1 : 0
 
   const cards = [
     {
@@ -155,7 +159,7 @@ export function KpiStrip({ t2, sP95, sP99, insufficient, phq, gad, item9, snapsh
       title: 'Behaviour change', tech: insufficient ? 'Typing & mouse vs. own warm-up (T²)' : `T² vs. own warm-up · healthy limit ${Math.round(sP95)}`,
       value: insufficient ? '—' : Math.round(t2), suffix: '',
       verdict: insufficient ? 'Not enough typing to score' : t2 > sP99 ? 'Much higher than healthy adults' : t2 > sP95 ? 'Higher than most healthy adults' : 'Within the healthy range',
-      visual: insufficient ? null : <Spark values={vals} limit={iP95} color={TINT.cyan.stroke} />,
+      visual: insufficient ? null : <Spark values={vals} color={TINT.cyan.stroke} />,
       delta: insufficient ? <span className="text-tsub">Repeat the behavioural part</span> : delta('t2', null),
     },
     {
@@ -175,12 +179,12 @@ export function KpiStrip({ t2, sP95, sP99, insufficient, phq, gad, item9, snapsh
     },
     {
       key: 'prompts', tint: 'deep', icon: MessagesSquare, level: promptLevel,
-      title: 'Prompts that stood out', tech: 'Written answers above the healthy range',
-      value: insufficient || !vals.length ? '—' : nAbove, suffix: insufficient || !vals.length ? '' : `of ${vals.length}`,
-      verdict: insufficient || !vals.length ? 'Not scored' : !nAbove ? 'All within the healthy range'
-        : [nHigh && `${nHigh} far above`, nAbove - nHigh && `${nAbove - nHigh} above`].filter(Boolean).join(', ') + ' the range',
+      title: 'Topics that stood out', tech: 'Topic averages above healthy adults',
+      value: insufficient || !topicList.length ? '—' : nAbove, suffix: insufficient || !topicList.length ? '' : `of ${topicList.length}`,
+      verdict: insufficient || !topicList.length ? 'Not scored' : !nAbove ? 'All within the healthy range'
+        : (ts.far.length ? ts.far : ts.above).map(t => DOMAIN_NAMES[t.gid]).join(', '),
       visual: insufficient || !vals.length ? null : (
-        <Segments label={`${nIn} within, ${nAbove - nHigh} above, ${nHigh} far above`}
+        <Segments label={`${nIn} topics within, ${nAbove - nHigh} above, ${nHigh} far above`}
           parts={[{ n: nIn, color: '#8FB3E3' }, { n: nAbove - nHigh, color: '#F5A623' }, { n: nHigh, color: '#E0605E' }]} />
       ),
       delta: <span className="text-tsub">See the session trace below</span>,

@@ -88,7 +88,14 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
   })
 
   const h = hover != null ? snaps[hover] : null
-  const dotFill = v => v > itemP99 ? C.coral : v > itemP95 ? C.amber : '#3D5FA8'
+  // The healthy limits describe a topic's average, not a single prompt (one
+  // prompt varies far more), so prompts are drawn neutral and each topic's
+  // average is compared with the limit.
+  spans.forEach(sp => {
+    const v = vals.slice(sp.start, sp.end + 1).filter(x => x != null)
+    sp.avg = v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
+  })
+  const topicTone = v => v > itemP99 ? C.coral : v > itemP95 ? C.amber : '#127552'
 
   return (
     <div ref={ref} className="relative">
@@ -97,7 +104,7 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
           <ChartPaper x={M.l} y={M.t} w={pw} h={plotH} id="trace" />
           {/* healthy band */}
           <rect x={M.l} y={yAt(itemP95)} width={pw} height={yAt(0) - yAt(itemP95)} fill={C.band} opacity="0.7" />
-          <text x={M.l + 8} y={yAt(0) - 8} fontSize="11" fill={C.teal} fontWeight="600">Healthy range</text>
+          <text x={M.l + 8} y={yAt(0) - 8} fontSize="11" fill={C.teal} fontWeight="600">Healthy range for a topic average</text>
           <line x1={M.l} x2={M.l + pw} y1={yAt(itemP99)} y2={yAt(itemP99)} stroke={C.coral} strokeDasharray="5 4" strokeWidth="1.2" />
           <text x={M.l + pw - 6} y={yAt(itemP99) - 6} fontSize="11" fill={C.coral} textAnchor="end">Higher than 99% of healthy adults</text>
 
@@ -143,9 +150,19 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
             return v == null ? (
               <circle key={i} cx={xAt(i)} cy={yAt(0) - 10} r="5" fill="#fff" stroke={C.muted} strokeWidth="1.5" strokeDasharray="2 2" />
             ) : (
-              <circle key={i} cx={xAt(i)} cy={yAt(v)} r={active ? 8 : 6} fill={dotFill(v)} stroke="#fff" strokeWidth="2" />
+              <circle key={i} cx={xAt(i)} cy={yAt(v)} r={active ? 8 : 6} fill="#3D5FA8" stroke="#fff" strokeWidth="2" />
             )
           })}
+
+          {/* topic averages against the healthy topic limits */}
+          {spans.map((sp, k) => sp.avg != null && (
+            <g key={`avg${k}`}>
+              <line x1={M.l + step * sp.start + 6} x2={M.l + step * (sp.end + 1) - 6} y1={yAt(sp.avg)} y2={yAt(sp.avg)}
+                stroke={topicTone(sp.avg)} strokeWidth="3" strokeLinecap="round" strokeDasharray="1 0" />
+              <text x={M.l + step * (sp.end + 1) - 8} y={yAt(sp.avg) - 6} fontSize="10.5" fill={topicTone(sp.avg)} textAnchor="end"
+                fontFamily={FONT_MONO} fontWeight="600">avg {Math.round(sp.avg)}</text>
+            </g>
+          ))}
 
           {/* x labels */}
           {snaps.map((s, i) => (
@@ -159,13 +176,16 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
           <text x={M.l} y={pTop - 30} fontSize="12" fill={C.ink} fontWeight="600">Pause before typing</text>
           <text x={M.l + 132} y={pTop - 30} fontSize="11" fill={C.sub}>seconds from seeing the prompt to the first key</text>
           <line x1={M.l} x2={M.l + pw} y1={pTop + pauseH} y2={pTop + pauseH} stroke={C.gridMajor} />
-          {pauses.map((p, i) => (
-            <g key={i}>
-              <line x1={xAt(i)} x2={xAt(i)} y1={pTop + pauseH} y2={pAt(p)} stroke={C.sub} strokeWidth="2" />
-              <circle cx={xAt(i)} cy={pAt(p)} r="3.5" fill={C.ink} />
-              <text x={xAt(i)} y={pAt(p) - 7} fontSize="10" fill={C.sub} textAnchor="middle" fontFamily={FONT_MONO}>{p.toFixed(1)}</text>
-            </g>
-          ))}
+          {pauses.map((p, i) => {
+            const away = snaps[i].pre_typing_away
+            return (
+              <g key={i}>
+                <line x1={xAt(i)} x2={xAt(i)} y1={pTop + pauseH} y2={pAt(p)} stroke={away ? C.muted : C.sub} strokeWidth="2" strokeDasharray={away ? '3 3' : undefined} />
+                <circle cx={xAt(i)} cy={pAt(p)} r="3.5" fill={away ? '#fff' : C.ink} stroke={away ? C.muted : undefined} />
+                <text x={xAt(i)} y={pAt(p) - 7} fontSize="10" fill={C.sub} textAnchor="middle" fontFamily={FONT_MONO}>{away ? 'away?' : p.toFixed(1)}</text>
+              </g>
+            )
+          })}
 
           {/* hit areas */}
           {snaps.map((s, i) => (
@@ -196,13 +216,38 @@ export function SessionTrace({ snapshots, itemP95, itemP99 }) {
   )
 }
 
+// Sessions in the order they happened. Local session ids are not
+// chronological once sessions arrive from other devices by sync.
+export const byTime = (a, b) => String(a.timestamp).localeCompare(String(b.timestamp)) || a.session_id - b.session_id
+
+// Average change per topic (the unit the healthy topic limits describe)
+export function topicAverages(snapshots) {
+  const by = {}
+  ;(snapshots || []).forEach(s => {
+    if (s.flag === 'NO_DATA') return
+    ;(by[s.group_id] = by[s.group_id] || []).push(Number(s.t2_score || 0))
+  })
+  return Object.entries(by).map(([gid, v]) => ({ gid: Number(gid), avg: v.reduce((a, b) => a + b, 0) / v.length, n: v.length }))
+}
+
+// A topic result worth listing: two topics above the healthy 95th percentile,
+// or one well above it (half-way to the 99th), or any above the 99th. On the
+// 71 healthy testers this rule fires for about 10% (a single topic above the
+// 95th fires for 13%).
+export function topicSignal(topics, p95, p99) {
+  const above = topics.filter(t => t.avg > p95)
+  const far = topics.filter(t => t.avg > p99)
+  const strong = topics.filter(t => t.avg > (p95 + p99) / 2)
+  return { above, far, flagged: far.length > 0 || strong.length > 0 || above.length >= 2 }
+}
+
 // ── 2. Topic × strength map ──────────────────────────────────────────────────
 function mix(a, b, t) {
   const pa = a.match(/\w\w/g).map(x => parseInt(x, 16)), pb = b.match(/\w\w/g).map(x => parseInt(x, 16))
   return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('')
 }
 
-export function TopicGrid({ snapshots, itemP95 }) {
+export function TopicGrid({ snapshots, itemP95, itemP99 = Infinity }) {
   const [mode, setMode] = useState('change')
   const cells = useMemo(() => {
     const m = {}
@@ -217,10 +262,15 @@ export function TopicGrid({ snapshots, itemP95 }) {
   const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null
   const pauseMax = Math.max(10, ...Object.values(cells).map(c => avg(c.pause) || 0))
 
+  // Single cells hold one or two prompts, so they are shaded relative to each
+  // other; only the topic average (right column) is compared with healthy adults.
+  const changeMax = Math.max(1, ...Object.values(cells).map(c => avg(c.change) || 0))
+  const topicAvg = g => avg((snapshots || []).filter(s => s.group_id === g && s.flag !== 'NO_DATA').map(s => Number(s.t2_score || 0)))
+
   function cellStyle(v) {
     if (v == null) return { background: 'transparent', color: C.muted }
     let bg
-    if (mode === 'change') bg = v > itemP95 ? mix('F6D9D6', 'B83A38', Math.min(1, (v - itemP95) / itemP95)) : mix('EEF9F6', '3D5FA8', Math.min(1, v / itemP95) * 0.9)
+    if (mode === 'change') bg = mix('EEF9F6', '3D5FA8', Math.min(1, v / changeMax) * 0.9)
     else bg = mix('EEF9F6', '0F2A33', Math.min(1, v / pauseMax) * 0.85)
     const dark = parseInt(bg.slice(1, 3), 16) * 0.3 + parseInt(bg.slice(3, 5), 16) * 0.59 + parseInt(bg.slice(5, 7), 16) * 0.11 < 140
     return { background: bg, color: dark ? '#fff' : C.ink }
@@ -241,6 +291,7 @@ export function TopicGrid({ snapshots, itemP95 }) {
           <tr>
             <th className="text-left text-xs font-semibold text-[#4A6670] font-normal pb-1 w-[34%]"><span className="sr-only">Topic</span></th>
             {['A', 'B', 'C'].map(l => <th key={l} scope="col" className="text-sm font-semibold text-[#0F2A33] pb-1">{LEVEL_NAMES[l]}<span className="block text-xs font-normal text-[#4A6670]">prompts</span></th>)}
+            {mode === 'change' && <th scope="col" className="text-sm font-semibold text-[#0F2A33] pb-1">Topic<span className="block text-xs font-normal text-[#4A6670]">average</span></th>}
           </tr>
         </thead>
         <tbody>
@@ -263,14 +314,27 @@ export function TopicGrid({ snapshots, itemP95 }) {
                   </td>
                 )
               })}
+              {mode === 'change' && (() => {
+                const t = topicAvg(g)
+                const above = t != null && t > itemP95
+                return (
+                  <td className="h-[60px] rounded-lg text-center align-middle font-mono text-[15px] font-semibold"
+                    style={t == null ? { border: `1px dashed ${C.gridMajor}`, color: C.muted }
+                      : above ? { background: mix('F6D9D6', 'B83A38', Math.min(1, (t - itemP95) / itemP95)), color: t > itemP99 ? '#fff' : C.ink }
+                      : { background: '#E6F7EF', color: '#127552' }}>
+                    {t == null ? <span className="text-xs font-sans font-normal">not scored</span> : Math.round(t)}
+                    {t != null && <span className="block text-[10px] font-sans font-semibold">{t > itemP99 ? 'far above healthy' : above ? 'above healthy' : 'healthy range'}</span>}
+                  </td>
+                )
+              })()}
             </tr>
           ))}
         </tbody>
       </table>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-[#4A6670]">
         {mode === 'change' ? (<>
-          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#EEF9F6,#3D5FA8)' }} />within healthy range</span>
-          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#F6D9D6,#B83A38)' }} />above healthy range (&gt; {Math.round(itemP95)})</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#EEF9F6,#3D5FA8)' }} />more change than the client's other prompts = darker</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#F6D9D6,#B83A38)' }} />topic average above healthy adults (&gt; {Math.round(itemP95)})</span>
         </>) : (
           <span className="inline-flex items-center gap-1.5"><span className="w-8 h-2.5 rounded-sm" style={{ background: 'linear-gradient(90deg,#EEF9F6,#0F2A33)' }} />longer pause = darker</span>
         )}
@@ -355,7 +419,7 @@ function Spark({ values, current, band, w = 160, h = 40 }) {
 
 export function ChangeSince({ sessions, sessionId, sessionP95 }) {
   if (!sessions) return <p className="text-sm text-[#4A6670]">Loading earlier sessions…</p>
-  const ordered = [...sessions].sort((a, b) => a.session_id - b.session_id)
+  const ordered = [...sessions].sort(byTime)
   const idx = ordered.findIndex(s => String(s.session_id) === String(sessionId))
   if (idx <= 0) {
     return (

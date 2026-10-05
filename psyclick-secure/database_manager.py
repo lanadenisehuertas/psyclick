@@ -6,7 +6,7 @@ This version uses ONLY local SQLite database.
 No network connections, no configuration files, no external dependencies.
 Perfect for air-gapped clinical environments and demo deployments.
 """
-import sqlite3, math, json, os, sys, time, hashlib, secrets, threading, uuid
+import sqlite3, math, json, os, re, sys, time, hashlib, secrets, threading, uuid
 import logging
 from datetime import datetime, timedelta
 
@@ -247,7 +247,10 @@ def init_db():
                 phq_item9       INTEGER,
                 session_uid     TEXT,
                 updated_at      TEXT,
-                quality_json    TEXT
+                quality_json    TEXT,
+                phq_items_json  TEXT,
+                gad_items_json  TEXT,
+                context_json    TEXT
             )
         """),
 
@@ -407,8 +410,11 @@ def init_db():
     for col, coltype in (('domain_t2_json', 'TEXT'), ('question_snapshots_json', 'TEXT'),
                          ('clinician_id', 'INTEGER'), ('flight_times_json', 'TEXT'),
                          ('synced_at', 'TEXT'), ('phq_item9', 'INTEGER'),
-                         ('session_uid', 'TEXT'), ('updated_at', 'TEXT'), ('quality_json', 'TEXT')):
+                         ('session_uid', 'TEXT'), ('updated_at', 'TEXT'), ('quality_json', 'TEXT'),
+                         ('phq_items_json', 'TEXT'), ('gad_items_json', 'TEXT'), ('context_json', 'TEXT')):
         _add_col(conn, 'intake_sessions', col, coltype)
+    # Sessions saved before the Repeat result existed (same meaning, old flag)
+    _exec(conn, "UPDATE intake_sessions SET flag='REPEAT' WHERE fuzzy_label='Insufficient Data' AND flag='AMBER'")
     for col, coltype in (('account_uid', 'TEXT'), ('updated_at', 'TEXT'), ('sync_dirty', 'INTEGER')):
         _add_col(conn, 'clinicians', col, coltype)
     # Every account and session needs an identity that is unique across
@@ -448,33 +454,39 @@ def _load_normative_reference():
 _LEGACY_SEED_COUNT = 102   # count stamped by the superseded hard-coded seed
 
 
+def _reference_signature(ref):
+    t = ref.get("thresholds", {}).get("session", {})
+    return f'reference:{ref.get("counts", {}).get("healthy_reference_testers")}:{round(t.get("p95", 0), 3)}'
+
+
 def _seed_normative_stats():
     """
     Seed normative_stats from normative_reference.json (healthy tester
     population: one valid session per tester, PHQ-9 and GAD-7 < 10; see the
     build script for the method).
 
-    Runs when the table is empty, and replaces the superseded hard-coded
-    102-session seed. Statistics recomputed locally from collected normative
-    sessions are never overwritten.
+    Re-seeds whenever the shipped reference changes, so an updated reference
+    reaches existing installs. Statistics an administrator recomputed locally
+    from collected normative sessions are kept.
     """
     ref = _load_normative_reference()
     if not ref:
         return
+    sig = _reference_signature(ref)
     try:
         conn = _conn()
-        rows = _exec(conn, "SELECT count FROM normative_stats").fetchall()
-        legacy = bool(rows) and all(r[0] == _LEGACY_SEED_COUNT for r in rows)
-        if rows and not legacy:
+        row = _exec(conn, "SELECT value FROM sync_state WHERE key='normative_source'").fetchone()
+        source = row[0] if row else None
+        if source == "local" or source == sig:
             conn.close()
-            return  # populated from real data — don't overwrite
-        if legacy:
-            _exec(conn, "DELETE FROM normative_stats")
+            return
+        _exec(conn, "DELETE FROM normative_stats")
         for metric, m in ref["metrics"].items():
             _exec(conn, """
                 INSERT OR REPLACE INTO normative_stats (metric, norm_mean, norm_sd, count)
                 VALUES (?, ?, ?, ?)
             """, (metric, m["mean"], m["sd"], m["n"]))
+        _exec(conn, "INSERT OR REPLACE INTO sync_state (key, value) VALUES ('normative_source', ?)", (sig,))
         conn.commit()
         conn.close()
         logger.info(f'[DB] Seeded normative_stats from {ref["counts"]["healthy_reference_testers"]} healthy testers.')
@@ -600,8 +612,15 @@ def save_full_intake(data):
     item9 = (data.get("phq") or {}).get("item9")
     if item9 is not None:
         _exec(conn, "UPDATE intake_sessions SET phq_item9=? WHERE session_id=?", (int(item9), session_id))
-    _exec(conn, "UPDATE intake_sessions SET session_uid=?, updated_at=?, quality_json=? WHERE session_id=?",
-          (uuid.uuid4().hex, utc_now(), json.dumps(data.get("quality") or {}), session_id))
+    phq_items = (data.get("phq") or {}).get("items")
+    gad_items = (data.get("gad") or {}).get("items")
+    _exec(conn, """UPDATE intake_sessions SET session_uid=?, updated_at=?, quality_json=?,
+                   phq_items_json=?, gad_items_json=?, context_json=? WHERE session_id=?""",
+          (uuid.uuid4().hex, utc_now(), json.dumps(data.get("quality") or {}),
+           json.dumps(phq_items) if phq_items else None, json.dumps(gad_items) if gad_items else None,
+           json.dumps(data.get("context") or {}), session_id))
+    conn.commit()
+    note_client_code(clinician_id, data.get("student_id"))
 
     # Per-question snapshots
     for snap in data.get("visuals", {}).get("question_snapshots", []):
@@ -833,36 +852,46 @@ def get_normative_count():
         return 0
 
 
+# Same rules as scripts/build_normative_reference.py: capture faults out, one
+# session per tester, healthy (PHQ-9 and GAD-7 below 10) only.
+MIN_HUMAN_IKI_S = 0.08
+
+
 def compute_normative_stats():
     conn = _conn()
-    # Exclude cold-start artifacts (first-session EWMA warm-up, T² > 10x its
-    # threshold), mirroring how the 102-session seed population was built.
-    # Without this, recomputing would overwrite the seed with contaminated stats.
     rows = _exec(conn, """
-        SELECT t2_score, psi, pai, phq_score, gad_score, flight_time_mean
+        SELECT tester_id, timestamp, t2_score, psi, pai, phq_score, gad_score, flight_time_mean, kbase_mean
         FROM normative_sessions
-        WHERE t2_threshold IS NULL OR t2_threshold <= 0
-           OR t2_score <= 10 * t2_threshold
-    """).fetchall()
+        WHERE COALESCE(flight_time_mean, 0) >= ? AND COALESCE(kbase_mean, 0) >= ?
+          -- first-session EWMA cold-start artifacts (T² > 10x its threshold)
+          AND (t2_threshold IS NULL OR t2_threshold <= 0 OR t2_score <= 10 * t2_threshold)
+        ORDER BY timestamp, id
+    """, (MIN_HUMAN_IKI_S, MIN_HUMAN_IKI_S)).fetchall()
     conn.close()
-    if not rows:
+    first = {}
+    for r in rows:
+        first.setdefault(r[0], r)
+    healthy = [r for r in first.values() if (r[5] or 0) < 10 and (r[6] or 0) < 10]
+    if not healthy:
         return False
 
-    n    = len(rows)
+    n    = len(healthy)
     cols = ['t2_score', 'psi', 'pai', 'phq_score', 'gad_score', 'flight_time_mean']
     stats = {}
-    for i, col in enumerate(cols):
-        vals = [float(r[i] or 0) for r in rows]
+    for i, col in enumerate(cols, start=2):
+        vals = [float(r[i] or 0) for r in healthy]
         mean = sum(vals) / n
         sd   = math.sqrt(sum((v - mean) ** 2 for v in vals) / (n - 1)) if n > 1 else 1.0
         stats[col] = (mean, max(sd, 0.0001), n)
 
     conn = _conn()
+    _exec(conn, "DELETE FROM normative_stats")
     for metric, (mean, sd, count) in stats.items():
         _exec(conn, """
             INSERT OR REPLACE INTO normative_stats (metric, norm_mean, norm_sd, count)
             VALUES (?,?,?,?)
         """, (metric, mean, sd, count))
+    _exec(conn, "INSERT OR REPLACE INTO sync_state (key, value) VALUES ('normative_source', 'local')")
     conn.commit()
     conn.close()
     return True
@@ -1262,26 +1291,44 @@ def has_active_consent(patient_id, clinician_id):
 
 # ── Auto-ID generation ────────────────────────────────────────────────────────
 
+def _code_number(code):
+    m = re.fullmatch(r"C-(\d+)", str(code or ""))
+    return int(m.group(1)) if m else 0
+
+
 def get_next_client_id(clinician_id=None):
-    """Return first unused client ID C-001 … C-100 for this clinician."""
+    """
+    Next client code for this clinician: one past the highest code ever used.
+    Codes are never reused, even after a client is deleted, so a code cannot
+    end up joining two different people's histories on different devices.
+    """
     try:
         conn = _conn()
         if clinician_id:
-            rows = _exec(conn,
-                "SELECT DISTINCT student_id FROM intake_sessions WHERE clinician_id=?",
-                (clinician_id,)).fetchall()
+            rows = _exec(conn, "SELECT DISTINCT student_id FROM intake_sessions WHERE clinician_id=?",
+                         (clinician_id,)).fetchall()
         else:
-            rows = _exec(conn,
-                "SELECT DISTINCT student_id FROM intake_sessions").fetchall()
+            rows = _exec(conn, "SELECT DISTINCT student_id FROM intake_sessions").fetchall()
+        mark = _exec(conn, "SELECT value FROM sync_state WHERE key=?", (f"client_code_high:{clinician_id}",)).fetchone()
         conn.close()
-        used = {r[0] for r in rows}
-        for i in range(1, 101):
-            candidate = f"C-{i:03d}"
-            if candidate not in used:
-                return candidate
-        return None
+        high = max([_code_number(r[0]) for r in rows] + [int(mark[0]) if mark else 0])
+        return f"C-{high + 1:03d}"
     except Exception:
         return None
+
+
+def note_client_code(clinician_id, code):
+    """Remember the highest code used so deleting a client never frees it."""
+    n = _code_number(code)
+    if not n:
+        return
+    conn = _conn()
+    key = f"client_code_high:{clinician_id}"
+    row = _exec(conn, "SELECT value FROM sync_state WHERE key=?", (key,)).fetchone()
+    if not row or int(row[0]) < n:
+        _exec(conn, "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?,?)", (key, str(n)))
+        conn.commit()
+    conn.close()
 
 
 def get_next_tester_id():
@@ -1305,11 +1352,16 @@ def get_next_tester_id():
 # The stored flag describes behaviour only. The result a clinician sees must
 # also reflect what the client reported: a self-harm answer or severe
 # questionnaire scores can never sit under "No concerns".
-_RANK = {"GREEN": 0, "AMBER": 1, "RED": 2}
+# REPEAT: too little typing to assess behaviour. It is not a finding, so it
+# sits below Follow up; the questionnaires can still raise the result.
+_RANK = {"GREEN": 0, "REPEAT": 0.5, "AMBER": 1, "RED": 2}
 
 
 def overall_status(behaviour_flag, phq, gad, item9):
-    """Return (overall_flag, reasons) combining behaviour, PHQ-9, GAD-7 and item 9."""
+    """Return (overall_flag, reasons) combining behaviour, PHQ-9, GAD-7 and item 9.
+
+    A session with too little typing is REPEAT unless a questionnaire or a
+    self-harm answer needs follow-up on its own."""
     flag = behaviour_flag if behaviour_flag in _RANK else "AMBER"
     reasons = []
     phq, gad, item9 = int(phq or 0), int(gad or 0), int(item9 or 0)
@@ -1512,6 +1564,8 @@ def apply_remote_session(session_uid, data, deleted_at):
                   (session_uid, str(deleted_at)))
         elif not local and not _exec(conn, "SELECT 1 FROM sync_tombstones WHERE session_uid=?",
                                      (session_uid,)).fetchone():
+            if data.get("fuzzy_label") == "Insufficient Data" and data.get("flag") == "AMBER":
+                data = {**data, "flag": "REPEAT"}       # uploaded by an older build
             cols = [c for c in _session_columns(conn) if c in data and c not in _SESSION_LOCAL_ONLY]
             sid = _insert_returning(conn, f"INSERT INTO intake_sessions ({', '.join(cols)}, synced_at) "
                                           f"VALUES ({', '.join('?' * len(cols))}, ?)",

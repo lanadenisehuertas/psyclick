@@ -17,7 +17,7 @@ export function StatusHero({ flag, label, confidence, pattern, behaviourFlag, re
   const Icon = m.icon
   const steps = ['GREEN', 'AMBER', 'RED']
   const insufficient = label === 'Insufficient Data'
-  const current = insufficient && flag !== 'RED' ? null : flag
+  const current = flag === 'REPEAT' ? null : flag
   // The questionnaires or a self-harm answer raised the result above what
   // behaviour alone showed: say so, instead of describing a behaviour change.
   const raised = reasons.length > 0 && (behaviourFlag !== flag || insufficient)

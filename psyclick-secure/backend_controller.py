@@ -103,6 +103,14 @@ def _flatten_analysis(analysis):
     }
 
 
+def _cursor_summary(m):
+    """The cursor measures worth showing a clinician, rounded."""
+    return {"velocity": round(float(m.get("cursor_velocity", 0) or 0), 1),
+            "jerk": round(float(m.get("jerk", 0) or 0), 1),
+            "path_entropy": round(float(m.get("path_entropy", 0) or 0), 3),
+            "pause_frequency": round(float(m.get("pause_frequency", 0) or 0), 3)}
+
+
 class PsyClickController:
 
     def __init__(self):
@@ -157,6 +165,7 @@ class PsyClickController:
         self._blur_started       = None
         self._interruptions      = []     # [{"phase", "kind": "away"|"focus", "seconds"}]
         self._questionnaire_pace = {}     # {"phq": s/item, "gad": s/item}
+        self._item_visits        = {}     # item_id -> keys, hover and reading pause across visits
 
     def set_student_id(self, sid):
         self._reset_session()
@@ -363,7 +372,7 @@ class PsyClickController:
         return feats is not None
 
     # ── PHQ-9 / GAD-7 (mouse valid — client clicking Likert buttons) ─────────
-    def save_phq(self, total_score, item9=None):
+    def save_phq(self, total_score, item9=None, items=None):
         """
         PHQ-9 complete. Mouse was running during Likert selection — valid signal.
         Extract and cache; feed cursor features into EWMA baseline.
@@ -374,13 +383,14 @@ class PsyClickController:
         self._questionnaire_pace["phq"] = self._pace(raw, 9)
         self.session_data["phq"]["score"] = total_score
         self.session_data["phq"]["item9"] = item9
+        self.session_data["phq"]["items"] = list(items) if items else None
         if feats:
             self.session_data["phq"]["mouse"] = feats
             self._phq_mouse_feats            = feats
             # PHQ mouse data is real — feed into baseline
             self.engine.update_baseline(feats)
 
-    def save_gad(self, total_score):
+    def save_gad(self, total_score, items=None):
         """
         GAD-7 complete. Same as PHQ-9 — Likert clicking, valid mouse signal.
         """
@@ -388,6 +398,7 @@ class PsyClickController:
         feats = fe.extract_mouse_features(raw)
         self._questionnaire_pace["gad"] = self._pace(raw, 7)
         self.session_data["gad"]["score"] = total_score
+        self.session_data["gad"]["items"] = list(items) if items else None
         if feats:
             self.session_data["gad"]["mouse"] = feats
             self._gad_mouse_feats            = feats
@@ -398,126 +409,134 @@ class PsyClickController:
     def set_current_question(self, question_meta):
         self._current_question = question_meta
 
-    def save_question_snapshot(self, question_meta, response_text):
+    def save_question_snapshot(self, question_meta, response_text, client_metrics=None):
         """
-        Called when client submits each emotional response question.
+        Called each time the client leaves a written prompt (Next or Previous).
 
-        Keyboard features:   flight_time, dwell_time, typing_velocity,
-                             error_rate, pause_frequency — PRIMARY T² inputs.
+        Keyboard features (flight, dwell, velocity, errors, pauses) are the T²
+        inputs. Reading signals come from the browser when it sends them
+        (client_metrics): the pause from the prompt appearing to the first key,
+        and how long the cursor rested on each word, both measured in page
+        coordinates and the page clock, so they work at any display scaling and
+        for keyboard-only users. Without them the system-wide mouse log is used.
 
-        Mouse features used: ONLY hover_words (pre-typing reading window)
-                             and pre_typing_pause_ms (time from page shown
-                             to first keypress — cognitive approach latency).
-
-        Mouse features NOT used: cursor_velocity, jerk, path_entropy during
-                             the typing window — these are ~0 because the
-                             client's hand is on the keyboard, not the mouse.
-                             Including them would contaminate the T² vector
-                             with noise and weaken construct validity.
-
-        T² vector for emotional task questions uses keyboard features + the
-        PHQ/GAD-derived mouse baseline (which was established when mouse use
-        was genuine).
+        A prompt can be visited more than once (Previous, then Next again).
+        Every visit's typing belongs to that prompt, so the visits are scored
+        together, joined by a break so the time between visits is not a pause;
+        the first visit's reading pause is kept, hover time adds up, and the
+        final answer length is used.
         """
         key_raw   = self.key_logger.stop_logging()
         mouse_raw = self.mouse_logger.stop_logging()
+        item_id = question_meta.get("item_id", "?")
+        cm = client_metrics or {}
 
-        # A single item is scored against the healthy item-level cut-offs
-        # (one short response is far noisier than the session aggregate).
+        # This visit's own typing: injected / held keys are not the person's
+        visit_issue = fe.typing_problem(key_raw)
+        visit_keys = [] if visit_issue else key_raw
+        self._note_away(fe.extract_features(visit_keys) if visit_keys else None, item_id)
+
+        # Reading signals for this visit
+        if cm.get("pre_typing_ms") is not None:
+            visit_pause = max(0.0, float(cm.get("pre_typing_ms") or 0))
+            visit_away = bool(cm.get("pre_typing_away")) or visit_pause >= PRE_TYPING_AWAY_S * 1000
+            visit_hover = [h for h in (cm.get("hover_words") or []) if h.get("word")]
+        else:
+            visit_pause = self._pre_typing_pause_ms(mouse_raw, key_raw)
+            visit_away = bool(visit_pause >= PRE_TYPING_AWAY_S * 1000
+                              or any(e.get("event") == "BREAK" for e in mouse_raw))
+            visit_hover = self._map_hover_words(mouse_raw, key_raw)
+
+        # Merge with earlier visits of the same prompt
+        prev = self._item_visits.get(item_id)
+        if prev is None:
+            prev = self._item_visits[item_id] = {"keys": [], "hover": {}, "visits": 0, "issues": set(),
+                                                 "pause": visit_pause, "away": visit_away,
+                                                 "has_keys_pause": bool(visit_keys)}
+        else:
+            # The reading pause belongs to the first visit that led to typing
+            if not prev["has_keys_pause"] and visit_keys:
+                prev["pause"], prev["away"], prev["has_keys_pause"] = visit_pause, visit_away, True
+        prev["visits"] += 1
+        if visit_issue:
+            prev["issues"].add(visit_issue)
+        if visit_keys:
+            if prev["keys"]:
+                prev["keys"].append({"key": None, "event": fe.BREAK, "time": visit_keys[0]["time"] - 1e-6})
+            prev["keys"].extend(visit_keys)
+        for h in visit_hover:
+            w = prev["hover"].setdefault(h["word"], {"word": h["word"], "dwell_ms": 0.0, "hover_count": 0,
+                                                     "x": h.get("x", 0), "y": h.get("y", 0)})
+            w["dwell_ms"] += float(h.get("dwell_ms") or 0)
+            w["hover_count"] += int(h.get("hover_count") or 1)
+
+        # Score everything typed on this prompt
         self.engine.set_task("task_3_item")
-
-        # ── Keyboard features (primary) ───────────────────────────────────────
-        # Injected or auto-repeated keys are not the person's typing: the item
-        # is kept (answer length, hover) but its timing is not scored.
-        typing_issue = fe.typing_problem(key_raw)
-        key_feats = {} if typing_issue else (fe.extract_features(key_raw) or {})
-        self._note_away(key_feats, question_meta.get("item_id", "?"))
-
-        # ── Mouse: hover words (pre-typing window only) ───────────────────────
-        hover_words       = self._map_hover_words(mouse_raw, key_raw)
-        pre_typing_pause  = self._pre_typing_pause_ms(mouse_raw, key_raw)
-        question_shown_at = min(e["time"] for e in mouse_raw) if mouse_raw else 0.0
-
-        # ── T² feature vector: keyboard-only for the task phase ───────────────
-        # We do NOT include cursor_velocity/jerk/path_entropy from the typing
-        # window. Instead, those slots retain the PHQ/GAD baseline values so
-        # the T² comparison is against the same feature space.
+        key_feats = (fe.extract_features(prev["keys"]) or {}) if prev["keys"] else {}
         phq_m = self._phq_mouse_feats
         gad_m = self._gad_mouse_feats
-        # Average mouse baseline from PHQ and GAD (both used mouse genuinely)
+        # The written part has no meaningful mouse data (hands on the keyboard):
+        # the mouse slots keep the questionnaire values so T² compares like with like.
         avg_mouse = {
             "path_entropy":   (phq_m.get("path_entropy",0)    + gad_m.get("path_entropy",0))    / 2,
             "cursor_velocity":(phq_m.get("cursor_velocity",0) + gad_m.get("cursor_velocity",0)) / 2,
             "jerk":           (phq_m.get("jerk",0)            + gad_m.get("jerk",0))            / 2,
-            "pause_frequency": key_feats.get("pause_frequency", 0.0),  # keystroke pauses (valid)
+            "pause_frequency": key_feats.get("pause_frequency", 0.0),
         }
+        # Analyse only (never update the baseline), and never score an empty vector
+        analysis = self.engine.analyse({**key_feats, **avg_mouse}) if key_feats else {}
 
-        combined = {**key_feats, **avg_mouse}
-
-        # Assessment phase: analyse only — do NOT update baseline.
-        # Calibration (kbase, mbase, PHQ, GAD) built the baseline; updating
-        # here would pull μ toward the assessment data, collapsing diff → 0
-
-        # No keystrokes for this item (skipped / pasted): there is nothing to
-        # score. Analysing the all-zero keyboard vector would fabricate a
-        # large T² and contaminate the domain/level averages.
-        analysis = self.engine.analyse(combined) if key_feats else {}
+        typing_issue = None
+        if prev["issues"] and not key_feats:
+            typing_issue = "automatic" if "automatic" in prev["issues"] else "held_key"
+        hover_words = sorted(prev["hover"].values(), key=lambda d: d["dwell_ms"], reverse=True)
 
         snap = {
-            "item_id":           question_meta.get("item_id", "?"),
+            "item_id":           item_id,
             "group_id":          question_meta.get("group_id", 0),
             "level":             question_meta.get("level", "A"),
             "domain_label":      question_meta.get("domain_label", "unknown"),
             "group_name":        question_meta.get("group_name", ""),
             "level_name":        question_meta.get("level_name", ""),
             "prompt":            question_meta.get("prompt", ""),
-            "response_len":      len(response_text),
+            "response_len":      len(response_text),          # the final answer
             "key_count":         key_feats.get("key_count", 0),
             "typing_issue":      typing_issue,
+            "visits":            prev["visits"],
 
-            # T² results — use _ae_scalar so nested clinical engine dicts become floats
             "t2_score":          _ae_scalar(analysis, "t2_score"),
             "psi":               _ae_scalar(analysis, "psi"),
             "pai":               _ae_scalar(analysis, "pai"),
             "flag":              (analysis or {}).get("flag", "GREEN") if key_feats else "NO_DATA",
             "confidence":        float((analysis or {}).get("confidence", 0.0)),
 
-            # Keyboard biomarkers (primary — client typing)
             "flight_time":       key_feats.get("flight_time", 0.0),
             "dwell_time":        key_feats.get("dwell_time", 0.0),
             "typing_velocity":   key_feats.get("typing_velocity", 0.0),
             "error_rate":        key_feats.get("error_rate", 0.0),
             "raw_flights":       key_feats.get("raw_flight_times", []),
 
-            # Mouse: only pre-typing signals (logically valid)
-            "pre_typing_pause_ms": pre_typing_pause,   # reading latency
-            # Longer than a minute, or focus lost before typing: time away, not hesitation
-            "pre_typing_away":     bool(pre_typing_pause >= PRE_TYPING_AWAY_S * 1000
-                                        or any(e.get("event") == "BREAK" for e in mouse_raw)),
+            "pre_typing_pause_ms": prev["pause"],
+            "pre_typing_away":     bool(prev["away"]),
             "away_s":              round(sum(key_feats.get("away_gaps", [])), 1),
-            "question_shown_at":   question_shown_at,  # epoch s when question appeared
-            "hover_words":         hover_words,         # which words triggered hesitation
-            
-            # Mouse: NOT from the typing window (stored as 0 to be honest)
-            "pause_freq":        0.0,   # not meaningful during typing
-            "cursor_velocity":   0.0,   # not meaningful during typing
-            "jerk":              0.0,   # not meaningful during typing
-            "path_entropy":      0.0,   # not meaningful during typing
-            "pause_coords":      [],    # not meaningful during typing
+            "hover_words":         hover_words,
+            "reading_source":      "browser" if cm.get("pre_typing_ms") is not None else "system",
+
+            # Not measured during typing (hands on the keyboard)
+            "pause_freq":        0.0,
+            "cursor_velocity":   0.0,
+            "jerk":              0.0,
+            "path_entropy":      0.0,
+            "pause_coords":      [],
         }
-        # Revisiting an item (Previous / Next) must not count it twice. Keep the
-        # attempt with the most keystroke evidence; the latest answer length wins.
-        for i, prev in enumerate(self._question_snapshots):
-            if prev.get("item_id") == snap["item_id"]:
-                if snap.get("key_count", 0) < prev.get("key_count", 0):
-                    prev["response_len"] = snap["response_len"]
-                else:
-                    self._question_snapshots[i] = snap
+        for i, old in enumerate(self._question_snapshots):
+            if old.get("item_id") == item_id:
+                self._question_snapshots[i] = snap
                 break
         else:
             self._question_snapshots.append(snap)
 
-        # Restart for next question
+        # Restart for the next prompt
         self.key_logger.start_logging()
         self.mouse_logger.start_logging()
 
@@ -581,7 +600,7 @@ class PsyClickController:
                                            "jerk", "pause_frequency")}
             analysis = {
                 "t2_score": 0.0, "t2_threshold": 0.0, "psi": 0.0, "pai": 0.0,
-                "flag": "AMBER", "label": "Insufficient Data", "confidence": 0.0,
+                "flag": "REPEAT", "label": "Insufficient Data", "confidence": 0.0,
                 "rationale": ("Not enough keyboard data was captured (calibration or emotional-task "
                               "responses), so psychomotor behaviour could not be assessed. Repeat the "
                               "session or rely on the questionnaire scores and clinical observation."),
@@ -643,6 +662,12 @@ class PsyClickController:
             "pace_s_per_item": self._questionnaire_pace,
             "rushed": [k for k, v in self._questionnaire_pace.items() if v is not None and v < RUSHED_S_PER_ITEM],
             "warmup_flight":   float(kb.get("mean_flight", 0) or 0),
+            # Descriptive only (no healthy reference yet): cursor movement while
+            # answering each questionnaire next to the clicking warm-up. These
+            # questionnaire movements also feed the baseline, so T² hardly sees them.
+            "cursor": {name: _cursor_summary(m) for name, m in
+                       (("warmup", self.session_data.get("mbase")), ("phq", self._phq_mouse_feats),
+                        ("gad", self._gad_mouse_feats)) if m and m.get("cursor_velocity")},
         }
 
         final["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

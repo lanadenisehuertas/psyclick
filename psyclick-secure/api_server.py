@@ -290,6 +290,7 @@ def stats():
             "week": sum(1 for r in rows if str(r[1]) >= week_ago),
             "normal": sum(1 for f in overall if f == "GREEN"),
             "review": sum(1 for f in overall if f in ("AMBER", "RED")),
+            "repeat": sum(1 for f in overall if f == "REPEAT"),
             "clients": len({r[0] for r in rows}),
             "safety": sum(1 for r in rows if (r[5] or 0) > 0),
         })
@@ -354,7 +355,7 @@ def patient_sessions(patient_id):
         conn = _conn(); c = conn.cursor()
         clinician_id = _scoped_clinician_id()
         c.execute(f"""SELECT session_id,timestamp,phq_score,gad_score,flag,
-                              fuzzy_label,t2_score,psi,pai,phq_item9
+                              fuzzy_label,t2_score,psi,pai,phq_item9,context_json
                       FROM intake_sessions WHERE student_id={ph} AND clinician_id={ph}
                       ORDER BY timestamp DESC, session_id DESC""", (patient_id, clinician_id))
         rows = c.fetchall(); conn.close()
@@ -364,6 +365,7 @@ def patient_sessions(patient_id):
             "flag": overall_status(r[4], r[2], r[3], r[9])[0], "behaviour_flag": r[4],
             "label": r[5] or "", "t2": r[6] or 0,
             "psi": r[7] or 0, "pai": r[8] or 0, "safety": bool(r[9]),
+            "context": json.loads(r[10]) if r[10] else {},
         } for r in rows])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -378,12 +380,13 @@ def session_detail(session_id):
                               t2_score,t2_threshold,psi,pai,
                               fuzzy_label,fuzzy_confidence,flag,rationale,
                               domain_t2_json,question_snapshots_json,flight_times_json,phq_item9,
-                              quality_json,kbase_mean,task_k_mean
+                              quality_json,kbase_mean,task_k_mean,
+                              (phq_items_json IS NOT NULL OR gad_items_json IS NOT NULL), context_json
                       FROM intake_sessions WHERE session_id={ph} AND clinician_id={ph}""",
                   (session_id, clinician_id))
         row = c.fetchone(); conn.close()
         if not row: return jsonify({"error":"Session not found"}), 404
-        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9,qual_j,kbase_mean,task_mean = row
+        sid,ts,phq,gad,t2,thr,psi,pai,label,conf,flag,rat,dom_j,snap_j,flight_j,item9,qual_j,kbase_mean,task_mean,has_answers,ctx_j = row
         overall, reasons = overall_status(flag, phq, gad, item9)
         snaps = json.loads(snap_j or "[]")
         # Compute level_t2 from stored snapshots (not persisted separately);
@@ -416,11 +419,52 @@ def session_detail(session_id):
             },
             "quality": json.loads(qual_j) if qual_j else None,
             "typing": {"warmup_flight": kbase_mean, "task_flight": task_mean},
+            # The answers themselves are fetched separately, only when the clinician asks
+            "answers_stored": bool(has_answers),
+            "context": json.loads(ctx_j) if ctx_j else {},
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/session/<int:session_id>/answers")
+def session_answers(session_id):
+    """Item-by-item questionnaire answers. Only for the clinician who ran the
+    session, only when they ask, and every viewing is audited."""
+    try:
+        ph = _ph()
+        conn = _conn(); c = conn.cursor()
+        c.execute(f"""SELECT student_id, phq_items_json, gad_items_json FROM intake_sessions
+                      WHERE session_id={ph} AND clinician_id={ph}""", (session_id, g.current_user["id"]))
+        row = c.fetchone(); conn.close()
+        if not row:
+            return jsonify({"error": "Session not found"}), 404
+        log_audit(g.current_user["role"], "Viewed questionnaire answers",
+                  f"{row[0]} · session {session_id}", actor_id=g.current_user["id"])
+        return jsonify({"phq": json.loads(row[1]) if row[1] else None,
+                        "gad": json.loads(row[2]) if row[2] else None})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ─── Intake ────────────────────────────────────────────────────────────────────
+# Session context the clinician may record at intake (all optional). It does
+# not change any score; the report uses it to say how far each comparison holds.
+CONTEXT_FIELDS = {
+    "age_band":  {"under18", "18-64", "65plus"},
+    "keyboard":  {"desktop", "laptop", "other"},
+    "typing":    {"daily", "sometimes", "rarely"},
+    "language":  {"english", "tagalog", "mixed"},
+}
+
+
+def _clean_context(raw):
+    if not isinstance(raw, dict):
+        return {}
+    ctx = {k: raw[k] for k, allowed in CONTEXT_FIELDS.items() if raw.get(k) in allowed}
+    if raw.get("condition") is True:
+        ctx["condition"] = True
+    return ctx
+
+
 @app.route("/api/intake/start", methods=["POST"])
 def intake_start():
     d   = request.get_json() or {}
@@ -437,6 +481,7 @@ def intake_start():
     controller.set_student_id(pid)
     controller.session_data["clinician_id"] = cid
     controller.session_data["consent_verified"] = True
+    controller.session_data["context"] = _clean_context(d.get("context"))
     log_audit("clinician", "Consent granted and session started", pid, actor_id=cid)
     return jsonify({"success": True, "existing_sessions": existing, "patient_id": pid})
 
@@ -445,10 +490,12 @@ def intake_start():
 def next_client_id():
     try:
         cid = _scoped_clinician_id(request.args.get("clinician_id"))
+        # Codes this clinician used on other devices must be known first
+        supabase_sync.pull_sessions_now(timeout=6)
         nid = get_next_client_id(cid)
         if nid:
             return jsonify({"success": True, "id": nid})
-        return jsonify({"success": False, "error": "All client IDs C-001 to C-100 are taken."})
+        return jsonify({"success": False, "error": "A new client code could not be created."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -540,7 +587,7 @@ def phq_save():
                 or sum(items) != score):
             return jsonify({"success": False, "error": "PHQ-9 answers must be nine values from 0 to 3 that add up to the total."}), 400
         item9 = items[8]
-    require_controller().save_phq(score, item9)
+    require_controller().save_phq(score, item9, items)
     return jsonify({"success": True})
 
 # ─── GAD-7 ─────────────────────────────────────────────────────────────────────
@@ -559,7 +606,12 @@ def gad_save():
     score = _questionnaire_score(21)
     if score is None:
         return jsonify({"success": False, "error": "GAD-7 total must be an integer from 0 to 21."}), 400
-    require_controller().save_gad(score)
+    items = (request.get_json() or {}).get("items")
+    if items is not None and (not isinstance(items, list) or len(items) != 7
+                              or any(isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 3 for v in items)
+                              or sum(items) != score):
+        return jsonify({"success": False, "error": "GAD-7 answers must be seven values from 0 to 3 that add up to the total."}), 400
+    require_controller().save_gad(score, items)
     return jsonify({"success": True})
 
 # ─── Emotional Task ────────────────────────────────────────────────────────────
@@ -597,7 +649,9 @@ def word_boxes():
 def question_snapshot():
     d = request.get_json() or {}
     log_audit("patient", "Clicked Next", f"Q{d.get('qi',0)+1} of {d.get('total',0)}")
-    require_controller().save_question_snapshot(d.get("question", {}), d.get("response", ""))
+    metrics = d.get("metrics")
+    require_controller().save_question_snapshot(d.get("question", {}), d.get("response", ""),
+                                                metrics if isinstance(metrics, dict) else None)
     return jsonify({"success": True})
 
 @app.route("/api/assessment/finish", methods=["POST"])

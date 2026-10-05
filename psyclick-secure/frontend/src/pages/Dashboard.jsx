@@ -43,6 +43,7 @@ function StatCard({ label, value, detail, onClick, delay, alert, tint = 'mint', 
 const FILTERS = [
   { value: 'ALL', label: 'All' },
   { value: 'ATTENTION', label: 'Needs attention' },
+  { value: 'REPEAT', label: 'To repeat' },
   { value: 'GREEN', label: 'No concerns' },
 ]
 
@@ -80,7 +81,9 @@ export default function Dashboard() {
 
   const filtered = list.filter(s => {
     const q = !query || s.patient_id?.toLowerCase().includes(query.trim().toLowerCase())
-    const f = filter === 'ALL' || (filter === 'GREEN' ? s.flag === 'GREEN' : (s.flag !== 'GREEN' || s.safety))
+    const f = filter === 'ALL' || (filter === 'GREEN' ? s.flag === 'GREEN'
+      : filter === 'REPEAT' ? s.flag === 'REPEAT'
+      : (s.flag === 'RED' || s.flag === 'AMBER' || s.safety))
     return q && f
   })
 
@@ -124,7 +127,8 @@ export default function Dashboard() {
         <StatCard tint="cyan" icon={CalendarDays} label="Sessions this week" value={stats?.week}
           detail="In the last 7 days" onClick={() => navigate('/clients')} delay={0.1} />
         <StatCard tint="peri" icon={AlertTriangle} label="Need follow-up" value={stats?.review}
-          detail="Sessions marked Follow up or Review now" onClick={() => setFilter('ATTENTION')} delay={0.15} />
+          detail={stats?.repeat ? `Follow up or Review now · ${stats.repeat} more to repeat (too little typing)` : 'Sessions marked Follow up or Review now'}
+          onClick={() => setFilter('ATTENTION')} delay={0.15} />
         <StatCard alert tint="deep" icon={ShieldAlert} label="Self-harm answers" value={stats?.safety ?? 0}
           detail="PHQ-9 question 9 answered above 0" onClick={() => navigate('/clients', { state: { filterFlag: 'SAFETY' } })} delay={0.2} />
       </div>

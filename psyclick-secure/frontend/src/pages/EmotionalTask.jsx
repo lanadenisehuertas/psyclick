@@ -59,6 +59,17 @@ const QUESTIONS = [
 
 const IDLE_MS = 30_000          // reflection pauses are normal; only log long idles
 const SHORT_ANSWER = 20         // answers below this are excluded from the main score
+const HOVER_MIN_MS = 100        // a cursor rest this long over a word counts as reading it
+const HOVER_CAP_MS = 5000       // one rest counts for at most 5 s (hand off the mouse)
+const AWAY_MS = 60_000          // this long before the first key is time away, not hesitation
+
+// Reading measures taken in the page itself: page coordinates and the page
+// clock, so they hold at any display scaling, on any monitor, and for
+// keyboard-only users (the pause no longer depends on the mouse moving).
+function newVisit() {
+  return { shownAt: performance.now(), firstKeyAt: null, blurredMs: 0, blurAt: null, lostFocus: false,
+           lastMoveAt: null, lastWord: null, lastKeyAt: 0, hover: {} }
+}
 
 export default function EmotionalTask() {
   const navigate = useNavigate()
@@ -70,6 +81,7 @@ export default function EmotionalTask() {
   const wordRefs    = useRef([])
   const idleTimer   = useRef(null)
   const textareaRef = useRef(null)
+  const visit       = useRef(newVisit())
 
   const q = QUESTIONS[qi]
   const total = QUESTIONS.length
@@ -81,34 +93,78 @@ export default function EmotionalTask() {
 
   useEffect(() => {
     api.questionSet(q)
+    visit.current = newVisit()
     resetIdle()
     setNotice('')
     const t = setTimeout(() => textareaRef.current?.focus(), 120)
     return () => clearTimeout(t)
   }, [qi]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Screen positions of each prompt word, so hover/hesitation can be mapped
+  // Cursor rests over prompt words, and time the window was not focused
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const words = q.prompt.split(' ')
-      const boxes = wordRefs.current.filter(Boolean).map((el, wi) => {
-        const r = el.getBoundingClientRect()
-        // pynput reports screen coordinates: add the window position and chrome offsets
-        const dpr = window.devicePixelRatio || 1
-        const vOffset = window.outerHeight - window.innerHeight
-        const hOffset = (window.outerWidth - window.innerWidth) / 2
-        return {
-          word: words[wi] || '',
-          x1: Math.round(window.screenX + (hOffset + r.left - 20) * dpr),
-          y1: Math.round(window.screenY + (vOffset + r.top - 20) * dpr),
-          x2: Math.round(window.screenX + (hOffset + r.right + 20) * dpr),
-          y2: Math.round(window.screenY + (vOffset + r.bottom + 20) * dpr),
-        }
-      })
-      if (boxes.length) api.wordBoxes(boxes)
-    }, 400)   // after the entrance animation settles
-    return () => clearTimeout(timer)
-  }, [qi]) // eslint-disable-line react-hooks/exhaustive-deps
+    const credit = (v, now) => {
+      // the cursor sat still on lastWord since lastMoveAt; typing in between means it was not reading
+      if (v.lastWord == null || v.lastMoveAt == null || v.lastKeyAt > v.lastMoveAt) return
+      const gap = now - v.lastMoveAt
+      if (gap < HOVER_MIN_MS) return
+      const h = v.hover[v.lastWord] || (v.hover[v.lastWord] = { word: v.lastWord, dwell_ms: 0, hover_count: 0 })
+      h.dwell_ms += Math.min(gap, HOVER_CAP_MS)
+      h.hover_count += 1
+    }
+    const onMove = e => {
+      const v = visit.current, now = performance.now()
+      credit(v, now)
+      v.lastMoveAt = now
+      const el = e.target?.closest?.('[data-word]')
+      v.lastWord = el ? el.dataset.word : null
+    }
+    const onBlur = () => {
+      const v = visit.current, now = performance.now()
+      credit(v, now)
+      v.lastWord = null
+      if (v.blurAt == null) v.blurAt = now
+    }
+    const onFocus = () => {
+      const v = visit.current
+      if (v.blurAt != null) {
+        if (v.firstKeyAt == null) { v.blurredMs += performance.now() - v.blurAt; v.lostFocus = true }
+        v.blurAt = null
+      }
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [])
+
+  function onTypingKey() {
+    const v = visit.current, now = performance.now()
+    if (v.firstKeyAt == null) {
+      v.firstKeyAt = now
+      // reading up to the first key counts on the word the cursor rests on
+      if (v.lastWord != null && v.lastMoveAt != null && now - v.lastMoveAt >= HOVER_MIN_MS) {
+        const h = v.hover[v.lastWord] || (v.hover[v.lastWord] = { word: v.lastWord, dwell_ms: 0, hover_count: 0 })
+        h.dwell_ms += Math.min(now - v.lastMoveAt, HOVER_CAP_MS)
+        h.hover_count += 1
+      }
+    }
+    v.lastKeyAt = now
+    resetIdle()
+  }
+
+  function visitMetrics() {
+    const v = visit.current
+    const pause = v.firstKeyAt == null ? null : Math.max(0, v.firstKeyAt - v.shownAt - v.blurredMs)
+    return {
+      pre_typing_ms: pause,
+      pre_typing_away: v.lostFocus || (pause != null && pause >= AWAY_MS),
+      hover_words: Object.values(v.hover).map(h => ({ ...h, dwell_ms: Math.round(h.dwell_ms) })),
+    }
+  }
 
   useEffect(() => () => clearTimeout(idleTimer.current), [])
 
@@ -130,7 +186,7 @@ export default function EmotionalTask() {
   }
 
   async function saveSnapshot() {
-    try { await api.questionSnapshot(q, response, qi, total) } catch (_) { /* keep the client moving */ }
+    try { await api.questionSnapshot(q, response, qi, total, visitMetrics()) } catch (_) { /* keep the client moving */ }
   }
 
   async function goPrevious() {
@@ -171,7 +227,7 @@ export default function EmotionalTask() {
           <div className="bg-white rounded-3xl border border-border shadow-card p-8">
             <p className="text-2xl font-semibold leading-relaxed text-tmain text-center" id="prompt-text">
               {q.prompt.split(' ').map((word, wi) => (
-                <span key={`${qi}-${wi}`} ref={el => { wordRefs.current[wi] = el }} className="mr-1.5 inline-block">{word}</span>
+                <span key={`${qi}-${wi}`} ref={el => { wordRefs.current[wi] = el }} data-word={word} className="mr-1.5 inline-block">{word}</span>
               ))}
             </p>
             <textarea
@@ -181,7 +237,7 @@ export default function EmotionalTask() {
               value={response}
               maxLength={800}
               onChange={e => { updateResponse(e.target.value); if (notice) setNotice('') }}
-              onKeyDown={resetIdle}
+              onKeyDown={onTypingKey}
               onPaste={blockPaste}
               onDrop={blockPaste}
               spellCheck={false}

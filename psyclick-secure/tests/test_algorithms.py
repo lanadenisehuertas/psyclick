@@ -220,7 +220,9 @@ class NormativeReferenceTests(unittest.TestCase):
 
     def test_reference_population_is_consistent(self):
         c = self.ref["counts"]
-        self.assertEqual(c["healthy_reference_testers"], 83)
+        self.assertEqual(c["healthy_reference_testers"], 71)
+        # no session with humanly impossible typing (doubled-keystroke capture fault)
+        self.assertTrue(all(x >= 0.08 for x in self.ref["metrics"]["flight_time_mean"]["values"]))
         for m in self.ref["metrics"].values():
             v = np.array(m["values"])
             self.assertEqual(len(v), m["n"])
@@ -286,16 +288,17 @@ class NormativeStatsTests(unittest.TestCase):
     def test_seed_population_is_present(self):
         stats = db.get_normative_stats()["stats"]
         self.assertEqual(set(stats), {"t2_score", "psi", "pai", "phq_score", "gad_score", "flight_time_mean"})
-        self.assertTrue(all(s["count"] == 83 for s in stats.values()))
+        self.assertTrue(all(s["count"] == 71 for s in stats.values()))
 
-    def test_legacy_seed_is_replaced(self):
+    def test_outdated_seed_is_replaced(self):
         conn = sqlite3.connect(db.DB_NAME)
         conn.execute("DELETE FROM normative_stats")
-        conn.execute("INSERT INTO normative_stats (metric, norm_mean, norm_sd, count) VALUES ('t2_score', 20.79, 26.48, 102)")
+        conn.execute("DELETE FROM sync_state WHERE key='normative_source'")
+        conn.execute("INSERT INTO normative_stats (metric, norm_mean, norm_sd, count) VALUES ('t2_score', 19.66, 24.87, 83)")
         conn.commit(); conn.close()
         db._seed_normative_stats()
         stats = db.get_normative_stats()["stats"]
-        self.assertEqual(stats["t2_score"]["count"], 83)
+        self.assertEqual(stats["t2_score"]["count"], 71)
         self.assertEqual(len(stats), 6)
 
     def test_recompute_excludes_cold_start_artifacts(self):
@@ -306,7 +309,7 @@ class NormativeStatsTests(unittest.TestCase):
                 "INSERT INTO normative_sessions (tester_id,t2_score,t2_threshold,psi,pai,phq_score,gad_score,"
                 "kbase_mean,kbase_std,flight_time_mean,domain_t2_json,level_t2_json) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (tid, t2, 15.5073, 1.0, 1.0, 3, 3, 0.1, 0.1, 0.1, "{}", "{}"))
+                (tid, t2, 15.5073, 1.0, 1.0, 3, 3, 0.15, 0.1, 0.15, "{}", "{}"))
         conn.commit(); conn.close()
         self.assertTrue(db.compute_normative_stats())
         t2 = db.get_normative_stats()["stats"]["t2_score"]
@@ -484,6 +487,11 @@ class OverallStatusTests(unittest.TestCase):
         self.assertEqual(db.overall_status("GREEN", 0, 15, 0)[0], "RED")
         self.assertEqual(db.overall_status("AMBER", 12, 0, 0)[0], "AMBER")   # never lowered
 
+    def test_too_little_typing_is_repeat_unless_questionnaires_need_follow_up(self):
+        self.assertEqual(db.overall_status("REPEAT", 4, 3, 0), ("REPEAT", []))
+        self.assertEqual(db.overall_status("REPEAT", 12, 3, 0)[0], "AMBER")
+        self.assertEqual(db.overall_status("REPEAT", 4, 3, 2)[0], "RED")
+
 
 class SessionQualityTests(unittest.TestCase):
     @classmethod
@@ -511,6 +519,51 @@ class SessionQualityTests(unittest.TestCase):
         self.assertTrue(c4["pre_typing_away"])
         a1 = next(s for s in f["visuals"]["question_snapshots"] if s["item_id"] == "A1")
         self.assertFalse(a1["pre_typing_away"])
+
+
+class RevisitAndBrowserMetricsTests(unittest.TestCase):
+    """A prompt visited twice is scored on all its typing; browser timing wins."""
+
+    @classmethod
+    def setUpClass(cls):
+        import random
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from backend_controller import PsyClickController
+        import demo_simulation as ds
+        cls.ds, cls.random = ds, random
+        cls.ctrl = PsyClickController()
+        # calibrate through a full simulated session first (baseline ready)
+        ds.run_session(cls.ctrl, db, {"client": "T-R", "phq": 2, "gad": 2}, clinician_id=1, rng=random.Random(2))
+        cls.ctrl.set_student_id("T-R2")
+        k, m = ds.FakeLogger(), ds.FakeLogger()
+        cls.ctrl.key_logger, cls.ctrl.mouse_logger = k, m
+        rng = random.Random(4)
+        k.next, _ = ds.keystrokes(rng, 150, ds.CALM, 10.0); cls.ctrl.save_kbase()
+        m.next, _ = ds.mouse_path(rng, "calm", 50.0, ds.click_targets(rng, 6)); cls.ctrl.save_mbase()
+        cls.k, cls.m, cls.rng = k, m, rng
+        cls.meta = {"item_id": "B3", "group_id": 2, "level": "B", "prompt": "How did you react?"}
+
+    def test_two_visits_are_scored_together(self):
+        k, m = self.k, self.m
+        k.next, t = self.ds.keystrokes(self.rng, 60, self.ds.CALM, 100.0)
+        self.ctrl.save_question_snapshot(self.meta, "x" * 50,
+                                         {"pre_typing_ms": 4200, "pre_typing_away": False,
+                                          "hover_words": [{"word": "react?", "dwell_ms": 900, "hover_count": 2}]})
+        k.next, _ = self.ds.keystrokes(self.rng, 40, self.ds.CALM, t + 120.0)
+        self.ctrl.save_question_snapshot(self.meta, "x" * 80,
+                                         {"pre_typing_ms": 1500, "pre_typing_away": False,
+                                          "hover_words": [{"word": "react?", "dwell_ms": 300, "hover_count": 1}]})
+        snaps = [s for s in self.ctrl._question_snapshots if s["item_id"] == "B3"]
+        self.assertEqual(len(snaps), 1)
+        b3 = snaps[0]
+        self.assertEqual(b3["visits"], 2)
+        self.assertGreaterEqual(b3["key_count"], 95)           # both visits' keys
+        self.assertEqual(b3["response_len"], 80)                # final answer
+        self.assertEqual(b3["pre_typing_pause_ms"], 4200)       # first reading
+        self.assertEqual(b3["hover_words"][0]["dwell_ms"], 1200)
+        self.assertEqual(b3["reading_source"], "browser")
+        self.assertEqual(b3["away_s"], 0)                       # the 2 min between visits is not a pause
 
 
 if __name__ == "__main__":

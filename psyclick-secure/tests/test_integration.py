@@ -105,10 +105,12 @@ class EndToEndTests(unittest.TestCase):
         return self.c.get(path, headers=self.h)
 
     phq_items = [1, 1, 0, 1, 1, 0, 0, 0, 0]
+    gad_items = [1, 1, 1, 0, 0, 0, 0]
 
-    def run_session(self, patient, flight, pause_p, backspace_p, text_len=60, typed=lambda qi: True, response="x" * 80):
+    def run_session(self, patient, flight, pause_p, backspace_p, text_len=60, typed=lambda qi: True, response="x" * 80,
+                    context=None):
         back = api_server.back
-        r = self.post("/api/intake/start", patient_id=patient, consent=True)
+        r = self.post("/api/intake/start", patient_id=patient, consent=True, context=context or {})
         self.assertTrue(r.get_json()["success"], r.get_json())
         back.key_logger.script = typing(self.rng, 70, 0.16, 0.07, 0.03)
         self.post("/api/calibration/keyboard/start"); self.post("/api/calibration/keyboard/save")
@@ -116,7 +118,7 @@ class EndToEndTests(unittest.TestCase):
         self.post("/api/calibration/mouse/start"); self.post("/api/calibration/mouse/save")
         back.mouse_logger.script = mouse(self.rng, 140, 180)
         self.post("/api/assessment/phq/start"); self.post("/api/assessment/phq/save", score=4, items=self.phq_items)
-        self.post("/api/assessment/gad/start"); self.post("/api/assessment/gad/save", score=3)
+        self.post("/api/assessment/gad/start"); self.post("/api/assessment/gad/save", score=3, items=self.gad_items)
         back.mouse_logger.script = []
         self.post("/api/assessment/emotional/start")
         for qi, q in enumerate(QUESTIONS):
@@ -167,7 +169,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertTrue(cmp["available"])
         self.assertIn("t2_score", cmp["metrics"])
         m = cmp["metrics"]["t2_score"]
-        self.assertEqual(m["count"], 83)
+        self.assertEqual(m["count"], 71)
         self.assertTrue(0.0 <= m["pct"] <= 100.0)
 
     def test_06_normative_baseline_is_loaded_by_the_engine(self):
@@ -210,7 +212,7 @@ class EndToEndTests(unittest.TestCase):
     def test_13_no_typing_is_reported_as_insufficient_not_disturbed(self):
         a = self.run_session("C-013", 0.16, 0.0, 0.03, typed=lambda qi: False)["report"]["analysis"]
         self.assertEqual(a["label"], "Insufficient Data")
-        self.assertEqual(a["flag"], "AMBER")
+        self.assertEqual(a["flag"], "REPEAT")
         self.assertEqual(a["t2_score"], 0.0)
 
     def test_14_questionnaire_scores_are_validated(self):
@@ -274,6 +276,49 @@ class EndToEndTests(unittest.TestCase):
         self.run_session("C-020", 0.16, 0.0, 0.03)
         rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
         self.assertEqual(rows["C-020"]["flag"], "GREEN")
+
+    def test_21_item_answers_are_stored_for_the_clinician_only(self):
+        rep = self.run_session("C-021", 0.16, 0.0, 0.03)["report"]
+        sid = rep["session_id"]
+        detail = self.get(f"/api/session/{sid}").get_json()
+        self.assertTrue(detail["answers_stored"])
+        self.assertNotIn("items", detail["phq"])               # not sent with the report
+        ans = self.get(f"/api/session/{sid}/answers").get_json()
+        self.assertEqual(ans, {"phq": self.phq_items, "gad": self.gad_items})
+        self.assertTrue(any(a == "Viewed questionnaire answers" and f"session {sid}" in d
+                            for _, _, a, d in db.get_audit_logs()))
+        # another clinician cannot open them, not even an admin
+        ok, other, err = db.register_clinician("Dr. Other", "AnotherHorse!2026", role="admin")
+        self.assertTrue(ok, err)
+        tok = self.c.post("/api/login", json={"id": str(other), "password": "AnotherHorse!2026"}).get_json()["token"]
+        r = self.c.get(f"/api/session/{sid}/answers", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r.status_code, 404)
+
+    def test_22_gad_items_must_match_total(self):
+        self.post("/api/intake/start", patient_id="C-022", consent=True)
+        self.assertEqual(self.post("/api/assessment/gad/save", score=5, items=[1, 1, 1, 0, 0, 0, 0]).status_code, 400)
+        self.assertEqual(self.post("/api/assessment/gad/save", score=3, items=[1, 1, 1, 0, 0, 0]).status_code, 400)
+        self.assertEqual(self.post("/api/assessment/gad/save", score=4, items=[4, 0, 0, 0, 0, 0, 0]).status_code, 400)
+
+    def test_23_context_is_kept_and_cleaned(self):
+        rep = self.run_session("C-023", 0.16, 0.0, 0.03,
+                               context={"age_band": "65plus", "language": "mixed", "keyboard": "piano", "condition": True})["report"]
+        detail = self.get(f"/api/session/{rep['session_id']}").get_json()
+        self.assertEqual(detail["context"], {"age_band": "65plus", "language": "mixed", "condition": True})
+        hist = self.get("/api/patients/C-023/sessions").get_json()
+        self.assertEqual(hist[0]["context"]["language"], "mixed")
+
+    def test_24_cursor_comparison_is_recorded(self):
+        rep = self.run_session("C-024", 0.16, 0.0, 0.03)["report"]
+        cur = self.get(f"/api/session/{rep['session_id']}").get_json()["quality"]["cursor"]
+        self.assertEqual(set(cur), {"warmup", "phq", "gad"})
+        self.assertGreater(cur["warmup"]["velocity"], 0)
+
+    def test_25_too_little_typing_is_repeat_not_follow_up(self):
+        self.run_session("C-025", 0.16, 0.0, 0.03, typed=lambda qi: False)
+        rows = {r["id"]: r for r in self.get("/api/patients").get_json()}
+        self.assertEqual(rows["C-025"]["flag"], "REPEAT")
+        self.assertGreaterEqual(self.get("/api/stats").get_json()["repeat"], 1)
 
     def test_10_logout_revokes_token(self):
         tok = self.c.post("/api/login", json={"id": str(self.admin_id), "password": "CorrectHorse!2026"}).get_json()["token"]

@@ -12,9 +12,9 @@ export const DOMAIN_TIPS = {
 }
 
 // Healthy reference values (p75 / p95) used when no percentile is available
-export const HEALTHY_REF = { psi: { p75: 9.32, p95: 29.63 }, pai: { p75: 15.55, p95: 80.26 } }
+export const HEALTHY_REF = { psi: { p75: 8.11, p95: 30.13 }, pai: { p75: 11.74, p95: 48.12 } }
 // Healthy adults' average gap between key presses (middle half, seconds)
-export const HEALTHY_GAP = { p25: 0.118, p50: 0.168, p75: 0.201, p95: 0.253, p99: 0.294 }
+export const HEALTHY_GAP = { p25: 0.161, p50: 0.172, p75: 0.210, p95: 0.259, p99: 0.295 }
 
 // Minimal clinically important differences used for "meaningful change"
 export const MCID = { phq: 5, gad: 4 }   // Löwe et al. 2004; Toussaint et al. 2020
@@ -31,7 +31,7 @@ export const GLOSSARY = {
     title: 'Overall behaviour change (Hotelling T²)',
     what: "How far the client's typing and mouse rhythm moved from their own calm warm-up while answering the emotional prompts.",
     flag: 'The green zone is where 95 of 100 healthy adults fall. Above it means a larger shift than most healthy people show.',
-    how: 'Multivariate distance from the within-session baseline: T² = Δxᵀ·S⁻¹·Δx. Cut-offs are Harrell-Davis estimates from 83 healthy adults.',
+    how: 'Multivariate distance from the within-session baseline: T² = Δxᵀ·S⁻¹·Δx. Cut-offs are Harrell-Davis estimates from 71 healthy adults.',
   },
   PSI: {
     title: 'Slowing (Psychomotor Slowing Index)',
@@ -66,7 +66,7 @@ export const GLOSSARY = {
   Rhythm: {
     title: 'Typing rhythm',
     what: 'How long the client waited between key presses while writing.',
-    flag: 'Most healthy adults average 0.12–0.20 s between keys. A long tail to the right means frequent pauses.',
+    flag: 'Most healthy adults average 0.16–0.21 s between keys. A long tail to the right means frequent pauses.',
     how: 'All key-to-key gaps from the written answers, grouped into 50 ms bins. Gaps over 1 s are collected in the last bar.',
   },
 }

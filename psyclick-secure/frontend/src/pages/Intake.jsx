@@ -23,6 +23,36 @@ const RECORDED = [
 
 const ID_RE = /^C-\d{3}$/
 
+// Optional context. It changes no score; the report uses it to say how far
+// each comparison holds (the healthy reference group is adults aged 18–64).
+const CONTEXT_CHOICES = [
+  { key: 'age_band', label: 'Age group', options: [{ value: 'under18', label: 'Under 18' }, { value: '18-64', label: '18–64' }, { value: '65plus', label: '65 or older' }] },
+  { key: 'keyboard', label: 'Keyboard used today', options: [{ value: 'desktop', label: 'Desktop' }, { value: 'laptop', label: 'Laptop' }, { value: 'other', label: 'Other' }] },
+  { key: 'typing',   label: 'How often the client types', options: [{ value: 'daily', label: 'Every day' }, { value: 'sometimes', label: 'Sometimes' }, { value: 'rarely', label: 'Rarely' }] },
+  { key: 'language', label: 'Language of the written answers', options: [{ value: 'english', label: 'English' }, { value: 'tagalog', label: 'Tagalog' }, { value: 'mixed', label: 'Both' }] },
+]
+
+function ChoiceRow({ label, options, value, onChange }) {
+  return (
+    <div role="radiogroup" aria-label={label}>
+      <p className="text-sm font-semibold text-tmain mb-1.5">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map(o => {
+          const on = value === o.value
+          return (
+            <button key={o.value} type="button" role="radio" aria-checked={on} onClick={() => onChange(on ? undefined : o.value)}
+              className={`h-9 px-3.5 rounded-lg border text-sm font-semibold cursor-pointer transition-colors
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-ink
+                ${on ? 'border-accent-ink bg-accent-ink text-white' : 'border-border bg-white text-tsub hover:text-tmain hover:border-accent/50'}`}>
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function Intake() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -40,6 +70,7 @@ export default function Intake() {
   const [err, setErr]         = useState('')
   const [idErr, setIdErr]     = useState('')
   const [confirm, setConfirm] = useState(null)
+  const [context, setContext] = useState({})
 
   async function suggestId() {
     setIdBusy(true)
@@ -62,7 +93,7 @@ export default function Intake() {
     if (kind === 'new' && !ID_RE.test(clientId)) { setIdErr('Use the format C- followed by three digits, e.g. C-007.'); return }
     if (blocker) return
     setErr(''); setBusy(true)
-    const res = await api.intakeStart(clientId, user?.id, consent, '1.0')
+    const res = await api.intakeStart(clientId, user?.id, consent, '1.0', context)
     setBusy(false)
     if (!res.success) { setErr(res.error || 'The session could not be started. Please try again.'); return }
     if (!force && kind === 'new' && res.existing_sessions > 0) {
@@ -154,6 +185,24 @@ export default function Intake() {
               <span className="text-[15px] text-tmain">
                 <span className="font-semibold">The client understands and agrees</span> to this recording for today's session.
               </span>
+            </label>
+          </Card>
+
+          {/* 3 — Context (optional) */}
+          <Card className="p-6">
+            <h2 className="font-display text-lg font-semibold text-tmain flex items-center gap-2"><span className="step-dot">3</span> About today <span className="text-sm font-medium text-tsub">(optional)</span></h2>
+            <p className="text-tsub mt-1.5">Nothing here changes the scores. It tells the report how far each comparison applies to this client.</p>
+            <div className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-4">
+              {CONTEXT_CHOICES.map(c => (
+                <ChoiceRow key={c.key} label={c.label} options={c.options} value={context[c.key]}
+                  onChange={v => setContext(x => { const n = { ...x }; if (v) n[c.key] = v; else delete n[c.key]; return n })} />
+              ))}
+            </div>
+            <label className="mt-4 flex items-start gap-3 rounded-xl border border-border p-3.5 cursor-pointer hover:border-accent/50">
+              <input type="checkbox" checked={!!context.condition}
+                onChange={e => setContext(x => { const n = { ...x }; if (e.target.checked) n.condition = true; else delete n.condition; return n })}
+                className="mt-0.5 w-5 h-5 accent-[#087F7D] cursor-pointer" />
+              <span className="text-[15px] text-tmain">The client has a hand, arm, vision or other condition that affects typing or using a mouse.</span>
             </label>
           </Card>
 
