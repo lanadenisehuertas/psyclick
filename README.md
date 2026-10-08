@@ -54,7 +54,7 @@ GREEN / AMBER / RED decision-support report
 Clinician review
 ```
 
-The analysis pipeline evaluates eight behavioral features, including flight time, dwell time, typing velocity, error rate, cursor velocity, jerk, path entropy, and pause frequency. The implementation and methodology are documented in [`psyclick_system_manifest.md`](./psyclick_system_manifest.md).
+The analysis pipeline evaluates eight behavioral features, including flight time, dwell time, typing velocity, error rate, cursor velocity, jerk, path entropy, and pause frequency.
 
 ## Built for focused, responsible screening
 
@@ -114,7 +114,6 @@ psyclick/
 │   ├── frontend/           # React, Vite, and Electron interface
 │   ├── tests/              # Security regression tests
 │   └── *.py                # Flask API, anomaly engine, storage, security
-└── psyclick_system_manifest.md
 ```
 
 Generated installers, virtual environments, office documents, database files, and build output are intentionally excluded from source control. Release downloads are available through the [PsyClick website](https://psyclick-app.vercel.app/#download).

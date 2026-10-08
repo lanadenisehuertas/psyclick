@@ -58,7 +58,6 @@ desktop.ini
 
 # ── Misc ──────────────────────────────────────────────────────
 docx_rendered/
-skills-lock.json
 
 psyclick-clinical/frontend/public/downloads/*.exe
 
@@ -67,9 +66,7 @@ frontend/.chrome-profile-pdf/
 frontend/.chrome-profile-pdf2/
 **/.chrome-profile*/
 
-# AI agent / editor tooling
-.agents/
-.claude/
+# Editor tooling
 .vscode/
 
 # PsyClick Secure build output and local data
