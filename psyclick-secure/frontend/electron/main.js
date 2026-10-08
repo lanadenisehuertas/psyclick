@@ -7,9 +7,16 @@ const os = require('os')
 
 const isDev = process.env.NODE_ENV === 'development'
 
+// One PsyClick at a time: a second copy would fight the first over the local service
+if (!isDev && !app.requestSingleInstanceLock()) { app.quit(); process.exit(0) }
+app.on('second-instance', () => {
+  if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus() }
+})
+
 let mainWindow
 let apiProcess
 let apiStartupError = null
+let apiExited = false
 
 function readDatabaseUrlFromFile(cfgPath) {
   try {
@@ -90,23 +97,59 @@ function startAPI() {
     console.error('[API]', apiStartupError)
   })
   apiProcess.on('exit', code => {
+    apiExited = true
     if (code !== 0) apiStartupError = apiStartupError || `API exited before startup completed (code ${code}).`
     console.log('[API] exited', code)
   })
 }
 
 // ── Poll until API is ready ───────────────────────────────────────────────────
-function waitForAPI(cb, retries = 60) {
-  http.get('http://127.0.0.1:5101/api/ping', res => {
+// The first launch after an install can be slow (Windows checks every new file;
+// 80 s was measured), so wait up to 4 minutes, and give up early only when the
+// service has actually exited.
+function waitForAPI(cb, retries = 480) {
+  const req = http.get('http://127.0.0.1:5101/api/ping', res => {
+    res.resume()
     if (res.statusCode === 200) cb()
     else retry()
-  }).on('error', retry)
+  })
+  req.setTimeout(2000, () => req.destroy())
+  req.on('error', retry)
 
   function retry() {
+    if (apiExited) { console.error('API exited before it was ready', apiStartupError || ''); return cb() }
     if (retries > 0) setTimeout(() => waitForAPI(cb, retries - 1), 500)
     else { console.error('API never became ready', apiStartupError || 'No details available'); cb() }
   }
 }
+
+// Something already answering on the service port (for example a copy left
+// running by an earlier crash) is reused instead of starting a second one.
+function apiAlreadyRunning() {
+  return new Promise(resolve => {
+    const req = http.get('http://127.0.0.1:5101/api/ping', res => { res.resume(); resolve(res.statusCode === 200) })
+    req.setTimeout(1500, () => { req.destroy(); resolve(false) })
+    req.on('error', () => resolve(false))
+  })
+}
+
+function stopAPI() {
+  if (!apiProcess) return
+  try {
+    // taskkill /T ends the whole tree, so no service is left behind holding the port
+    spawn('taskkill', ['/PID', String(apiProcess.pid), '/T', '/F'], { windowsHide: true })
+  } catch (_) { try { apiProcess.kill() } catch (_) { /* already gone */ } }
+  apiProcess = null
+}
+
+const SPLASH = 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><meta charset="utf-8">
+<title>PsyClick</title><style>
+  html,body{height:100%;margin:0;background:#F0F4F8;font-family:Segoe UI,system-ui,sans-serif;color:#0F2A33}
+  main{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px}
+  .ring{width:44px;height:44px;border-radius:50%;border:4px solid #CFE3E6;border-top-color:#0A6B80;animation:s 0.9s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}} h1{font-size:22px;margin:6px 0 0} p{margin:0;color:#4A6670;max-width:42ch;line-height:1.5}
+</style><main><div class="ring"></div><h1>Starting PsyClick…</h1>
+<p>The first start after installing can take a minute or two while Windows checks the app. PsyClick opens by itself.</p></main>`)
 
 // ── Create window ─────────────────────────────────────────────────────────────
 function createWindow() {
@@ -133,6 +176,7 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
+  mainWindow.on('closed', () => { mainWindow = null })
 
   // Ensure keyboard focus goes to the renderer whenever the window is focused
   mainWindow.on('focus', () => {
@@ -177,17 +221,19 @@ ipcMain.handle('save-report-pdf', async (event, { defaultName } = {}) => {
 ipcMain.on('show-in-folder', (_e, filePath) => shell.showItemInFolder(filePath))
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
-app.whenReady().then(() => {
-  // In dev, concurrently already starts Flask — skip duplicate spawn
-  if (!isDev) startAPI()
-  waitForAPI(createWindow)
+app.whenReady().then(async () => {
+  if (isDev) return waitForAPI(createWindow)      // concurrently already starts Flask in dev
+  // Show a window straight away, so a slow first start never looks like a hang
+  const splash = new BrowserWindow({ width: 560, height: 360, frame: false, resizable: false, center: true,
+    backgroundColor: '#F0F4F8', show: true, icon: path.join(process.resourcesPath, 'images', 'LOGOggg.png') })
+  splash.loadURL(SPLASH)
+  if (!(await apiAlreadyRunning())) startAPI()
+  waitForAPI(() => { createWindow(); mainWindow.once('ready-to-show', () => splash.destroy()); setTimeout(() => { if (!splash.isDestroyed()) splash.destroy() }, 4000) })
 })
 
 app.on('window-all-closed', () => {
-  if (apiProcess) apiProcess.kill()
+  stopAPI()
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  if (apiProcess) apiProcess.kill()
-})
+app.on('before-quit', stopAPI)

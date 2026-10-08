@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import { Lock, Activity, ClipboardCheck, ShieldCheck, Copy, Check, ArrowRight, KeyRound, UserPlus } from 'lucide-react'
@@ -141,12 +141,28 @@ export default function Login() {
   const [copied, setCopied] = useState(false)
   const expired = location.state?.reason === 'expired'
 
+  // The local service can take a while on the very first launch (Windows checks
+  // every new file), so keep trying for a few minutes before calling it a failure.
+  const [waited, setWaited] = useState(0)
+  const alive = useRef(true)
+  useEffect(() => () => { alive.current = false }, [])
+
   async function checkSetup() {
-    setMode('loading')
-    const res = await api.setupStatus()
-    if (res?.has_accounts === undefined) { setErr(res?.error || ''); setMode('offline'); return }
-    setErr('')
-    setMode(res.has_accounts ? 'signin' : 'setup')
+    setMode('loading'); setWaited(0)
+    const began = Date.now()
+    for (;;) {
+      const res = await api.setupStatus()
+      if (!alive.current) return
+      if (res?.has_accounts !== undefined) {
+        setErr('')
+        setMode(res.has_accounts ? 'signin' : 'setup')
+        return
+      }
+      const secs = (Date.now() - began) / 1000
+      if (secs > 240) { setErr(res?.error || ''); setMode('offline'); return }
+      setWaited(secs)
+      await new Promise(r => setTimeout(r, 1500))
+    }
   }
   useEffect(() => { checkSetup() }, [])
 
@@ -204,14 +220,24 @@ export default function Login() {
           <AnimatePresence mode="wait">
             <motion.div key={mode} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25, ease: EASE }}>
 
-              {mode === 'loading' && <Spinner label="Connecting to PsyClick…" />}
+              {mode === 'loading' && (
+                <div>
+                  <Spinner label={waited > 6 ? 'Starting PsyClick…' : 'Connecting to PsyClick…'} />
+                  {waited > 6 && (
+                    <p className="text-sm text-tsub mt-3 text-center max-w-[36ch] mx-auto">
+                      The first start after installing can take a minute or two while Windows checks the app. This page continues by itself.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {mode === 'offline' && (
                 <div>
                   <h2 className="font-display text-[32px] font-semibold text-tmain">Can't reach PsyClick</h2>
-                  <p className="text-tsub mt-2">The local PsyClick service isn't responding. It usually starts with the app.</p>
+                  <p className="text-tsub mt-2">The local PsyClick service didn't start. It normally starts with the app.</p>
                   <Alert tone="error" className="mt-6" title="What to try">
-                    Wait a few seconds and retry. If it keeps failing, close PsyClick completely and open it again.
+                    Close PsyClick completely and open it again. If it still fails, restart the computer; antivirus software can hold a new app for a few minutes.
+                    {err ? <span className="block mt-2 text-xs opacity-80 break-words">{err}</span> : null}
                   </Alert>
                   <Button className="w-full mt-6" size="lg" onClick={checkSetup}>Try again</Button>
                 </div>
